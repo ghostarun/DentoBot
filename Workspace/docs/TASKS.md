@@ -2069,7 +2069,7 @@ it does not satisfy the per-step evidence gate or authorize execution.
 | 1 | `DCP-00` | 1 | Planned | Track A full loop accepted; freeze façade/backend handoff and verify headless coverage of every current workflow step before Studio implementation |
 | 2 | `DCP-01` | 1 | Complete as planning record | This 2026-09-05 supersession; no implementation work beyond controlled docs |
 | 3 | `DCP-02..08` | 1 | Remaining work deferred; promoted P0 subset is under correction | `DCP-00`; reuse accepted registry/environment/persistence rather than implementing them again |
-| 4 | `DCP-09..10` | 1 | Planned | Case/platform foundations accepted |
+| 4 | `DCP-09..10` | 3 | Software/native bounded pass; operator review open | Case/platform foundations accepted; clean library evidence below |
 | 5 | `DSS-01..05` | 1 | Planned | Data/platform foundation accepted; migrate Track-A behavior without changes |
 | 6 | `DSS-06..12` | 1 | Planned | Guarded Preview parity accepted |
 | 7 | `DHW-01..02` | 1 | Planned | Explicit later safety/architecture approval |
@@ -2379,3 +2379,126 @@ Final matrix-derived host union558passed2.66s; native offline attempt4 PASS, exi
 
 
 **Local integrated source checkpoint:** `50ce2089342aeeac9a319bf6353809252cb70e23` (`50ce208`) on `integration/step6-5.10-reviewed-20260927` contains the55reviewed source/test files. Renovation commits were already ancestors; this checkpoint records the reconciled later dirty development delta and DentoCase integration. Accepted performance-owner files remain byte-identical to a795f89. Matrix host558PASS, offline persistence attempt4PASS/exit0/clear teardown, presentation4PASS and modular5PASS provide the bounded software evidence. No main merge or push. Overall Project DentoCase remains awaiting Tarun's library/independent continuation verdict under DCP-09..10; broader Step6 robotics/responsiveness acceptance remains in its existing owners.
+
+
+## 1 October — newest Ubuntu watchdog and performance transfer audit
+
+Read-only paired081211/081153session review found3recovered >=5s gaps (12.258,5.223,5.049s), no sampled OOM/throttling/zombies/alerts. Worst gap coincided with near-one-core SlicerCPU and low sampled memory/I/O pressure; attribution unknown because Case loaded label persisted after completion. Connectivity calls native planning synchronously despite per-sample WorkflowProgress Qt updates. Shared progress close fails to reset watchdog phase; explicit action-end/idle and runtime/source identity are the smallest diagnostic correction proposal. Native request/result scheduling needs separate bounded ownership/correlation review before responsiveness implementation. No native/GUI acceptance inferred.
+
+Current integrationbaeee90/source50ce208 contains curated ports plus newer DentoCase/Step6 source; broader mixed-branch transfer is not100%certified. NativeNVIDIA graphics profile and wider launcher/diagnostic differences remain to disposition,5.12 remains held,WSL distinct. Evidence and source findings: diagnostics/PERFORMANCE_INTEGRATION_AUDIT_2026-10-01.md. Existing S6-P2-03/S6-U-01/platform owners retained; no new queue or task IDs.
+
+
+## 1 October — Step 6 chat adopts consolidated integration checkout
+
+Operator: “checkout has been updated to step6-5.10 integration. Update progress and get ready for next changes”. This confirms this chat's future development root as `/home/light-tarun/dentobot/ros2_ws/src/DentoBot-step6-5.10-integration`, branch `integration/step6-5.10-reviewed-20260927`, inspected HEAD `baeee9001a842966e01a5ae8c575f99743e3af75`; source checkpoint `50ce208` and documentation checkpoint `baeee90` are recorded existing commits, not commits created in this turn.
+
+Read-only source inspection confirms compact J1–J5 labels/size policies, the Base lock notification transaction, strict bounds evidence and strong native cache-object references are integrated. Guard source SHA256 `b67bd8e223465a618eae66c9b72d6e8f24169c4f1c3415a5f67b00caae1913aa` matches the previously approved build source. Installed/loaded binary provenance was not re-inspected. Prior 339 affected host checks and Release build remain evidence at their original scope; consolidated records report558host passes and synthetic offline persistence attempt4, whose result.json was read as PASS/liveAuthority Unverified.
+
+Existing `S6-LIVE-01` Priority0 retains offline/connected Base recovery, rendered joint layout and robotics/usability verdict. `DCP-09..10` retains browser/independent continuation verdict; `S6-P2-03` retains normal-window responsiveness, owned by the performance-monitoring chat. No new task, priority change, implementation, build, GUI/ROS/planner trial, main promotion or 5.12 work follows from this readiness request. Subsequent changes use the integrated source and existing contracts; prior runtime approval is not expanded.
+
+
+## 1 October — bounded Ubuntu performance implementation plan
+
+Operator requests an elaborate implementation plan. Existing S6-P2-03, S6-U-01 and platform-transfer owners retain scope/priority. Contract appended to diagnostics/PERFORMANCE_INTEGRATION_AUDIT_2026-10-01.md: three finite increments—action/runtime identity plus low-cost paging/disk counters; one responsive explicit-start workspace planning path with frozen native ownership/correlation interface; nativeUbuntu NVIDIA profile port. Exact files, two disjoint LunaMax implementation lanes per qualifying increment, cheapest checks, proposed measurable acceptance and stop conditions recorded. No code/test/build/runtime/main/5.12 execution authorized by this planning turn. Prior native synchronous-call exposure is not universal freeze attribution. Windows/WSL remains a distinct later campaign.
+
+
+## 1 October — joint-editor redesign requested before implementation
+
+Operator: “not happy with the joint sliders revamped fix, still looks ugly”; requests proper UI/UX planning before the next implementation. Existing spacing fix is unaccepted at usability scope. Reuse S6-LIVE-01 Priority0; do not reopen broad UI-P3-01/Studio redesign or infer a numeric/ROS failure. Source inspection finds setManualJogLimits expands short joint labels into long limit paragraphs, conflicting with compact fixed-height identity rows. This concrete refresh-path defect was missed by the prior spacing change; latest rendered appearance is not independently observed here.
+
+Proposed design and acceptance contract appended to diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md: five stable ID/unit rows, exact numeric draft, coarse slider, accepted comparison/delta, compact visible blocking status, detailed limit evidence outside labels, context-specific Home/manual actions, existing single editor/backend and strict draft/command separation. Two inline alternatives prepared: All joints visible (recommended) and Precision table. They use example screenshot values/schematic tracks and perform no application/ROS actions. Design selection remains open; implementation is not performed this turn. Input commit timing, guard policy, ranges, conversions and update cadence remain separate from presentation.
+
+
+## 1 October — All joints visible iteration1 implementation authorized
+
+Operator selects “all joints visible iteration #1” and directs implementation. This supersedes the design-selection hold for that bounded joint-editor change under S6-LIVE-01 Priority0. Implement in the integration checkout, preserving shared Home/manual ownership, draft-only editing, exact callbacks/SI conversion/range policy and explicit acceptance/guard actions. No Slicer/ROS/planner/motion trial or native build is inferred. Rendered usability verdict remains required after source/host closure.
+
+## 1 October — S6-LIVE-01 complete 6.1–6.3 UX sketch checkpoint
+
+Operator requires a new sketch optimized for smooth continuity rather than minimalism, removing only quarantined, redundant or legacy presentations. The interactive artifact at `/home/light-tarun/dentobot/data/visualizations/step6-continuity-sketch.html` now maps every retained action in the corrected control ledger to 6.1 Robot Setup, 6.2 Task Home or 6.3 Manual/Workspace/Plan. It includes modeless viewport display controls, inline decision states, explicit return navigation, Base-drag conditions and downstream invalidation examples. Structural fragment/JavaScript/ID/required-label verification passed. No application source, ROS, planner, build or motion operation occurred. Operator design verdict, native 320/360-width fit, large-font/short-height fit and actual Base-handle target verification remain open.
+
+Exactly two GPT-6 Luna Max workers: joint_editor_source owns only DENTORobotSimulationPanel.py; joint_editor_tests owns only Testing/test_robot_manual_jog_ui.py. Coordinator owns specifications, integration review, checks and controlled records. Source scope is native Qt stable ID/unit rows, numeric drafts, accepted comparison/delta, range endpoints and explicit outside-slider notice, collapsible detailed limits/state, contextual editor title. Test scope is focused regression/harness changes after source freezes. No worker checks against changing files. Performance watchdog/progress/resource/launcher reservation and concurrent DentoCase files are excluded and preserved. Existing input timing/wheel behavior is not altered in this presentation pass.
+
+Smallest acceptance check: matrix pure.step6_manual_tcp_workbench (four-file host selection), compile changed source/test, diff review and whitespace checks. Question: do presentation refreshes preserve short labels and honest accepted/draft/range displays with no implicit commands? Stop after applicable passing source checks; rendered Qt acceptance is a separate bounded manual verdict. No new task or priority change.
+
+
+### 2026-10-01 — DCP-09..10 clean library execution supersession
+
+Operator confirms library loading, rejects current tree presentation and slow scan/load, and has not tried manual save/reopen. Approved implementation retains the existing DCP-09..10 owner/priority3 and overlaps S6-P2-03 performance; no new task or numerical reprioritization. Compact case table/detail pane, paged lazy queries, untrusted metadata discovery, incremental refresh, catalog-only reset, on-demand verification and operation-owned one-pass preparation replace the prior eager tree/full scan path. Two GPT-6 Luna Max workers have disjoint catalog/inspection and browser scopes; coordinator owns package/activation/projection, runtime, review and controlled evidence. Existing identity, pairing, exact lineage, schema1/2/3, source preservation and recovery/rollback remain required. Approved contract and evidence: diagnostics/DENTOCASE_BROWSER_REDESIGN_2026-10-01.md. Software completion remains separate from native performance/visual and Tarun manual continuation acceptance; pending work stays only in backlog.md.
+
+
+## 1 October — performance increment 1 source and host closure
+
+Implemented under S6-P2-03/S6-U-01: token-scoped progress action start/phase/end, nested/out-of-order and repeated-close safety, Idle restoration, and recovered-gap capture before action closes. Generic close is not success; known cancellation/error are explicit. Scheduled traceback dumping remains absent.
+
+Launcher records one sanitized session UUID and source checkout/revision/dirty state; handoff propagates it and selects its sibling resource collector rather than the legacy checkout. UI metadata checks its actual source origin and records the watchdog file SHA256. Revision is launcher-reported, file SHA is on-disk source, not proof of loaded native binaries. Unknown dirty fingerprint, image and native identity remain null.
+
+Five-second resource collection adds kernel paging/major-fault rates, per-device read/write bytes/s (512-byte sectors), I/O and weighted I/O time, cgroup io.stat counters, and actual collection duration. First/reset/missing counters remain unknown. Do not aggregate stacked disks/partitions or infer universal disk latency. Native Ubuntu only; GPU/host-process attribution and Windows/WSL remain outside this increment.
+
+Verification: pure.performance_watchdog, 26 passed in 20.42s, exit0; six owned Python files compile without bytecode writes; bash -n on launcher/handoff and owned git diff --check passed. Host/fake-Qt/shell-stub evidence only; no Slicer/ROS/MoveIt/native build launched. Evidence: /tmp/dentobot-verification/perf-increment1-20261001/host-check-r3.log. Runtime metadata correlation, clean native exit and collector p95<100ms criterion remain unverified. Increments 2/3 and broader acceptance remain in backlog, with existing safety/runtime gates and 5.12 hold unchanged.
+
+
+## 1 October — All joints visible iteration1 source/host closure
+
+Selected UI implemented in DENTORobotSimulationPanel.py: five unframed native Qt rows with permanent J1–J5/unit labels, numeric draft fields, full-width sliders, compact range endpoints, accepted-state/signed-delta comparison, full-row conditional warning and collapsed Limits and state details. Shared Home/manual editor and context title retained. Dynamic limit refresh no longer replaces IDs with prose. Comparison suppresses deltas for offline/unknown/pending/reconciliation-required/uninitialized/invalid states. Detailed numerical draft summary moves into the expandable area; actionable limit/guard reasons stay visible. Existing slider/numeric callbacks, draft updates, SI conversion, reset and request bodies are AST-identical to pre-edit snapshot. No range/policy/input timing/persistence/native change.
+
+The two originally authorized Luna Max scopes were dispatched under the then-current delegation rule. Source worker froze its file; test worker stopped on usage limit. Tarun then supplied replacement AGENTS instructions permitting solo work and said continue. Coordinator finished the interrupted test file directly, preserving parallel edits; no replacement worker/model was substituted. Review corrections included compact unavailable messages/endpoints, full-width warning, explicit IDs in details and no synthetic zero-draft delta.
+
+Matrix-derived pure.step6_manual_tcp_workbench command, from integration checkout:
+`PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_robot_manual_jog_ui.py Testing/test_ros2_bridge.py Testing/test_robot_workflow_facade.py Testing/test_application_shell.py -k 'not test_new_empty_case_resets_entire_workflow_to_step_zero and not test_saved_case_navigation_keeps_every_workspace_selectable'`
+Final **312 passed, 2 deselected in1.64s, exit0**. Two unrelated case-backend tests excluded because that file is concurrently edited under DentoCase ownership; no claim of a complete four-file suite. First run310passed/2failed/2deselected: incomplete extracted Home-review harnesses omitted the new helper; coordinator added it and repeated the same selection. Regression coverage includes accepted conversion/delta, uncertainty/offline/pending/uninitialized no-delta display, stale range clearing, preserved out-of-range numeric draft, short IDs after limit refresh, reconciliation transition and existing no-implicit-command behavior.
+
+Changed panel and test compile passed with PYTHONPYCACHEPREFIX under /tmp/dentobot-joint-editor-iteration1-20261001/pycache; git diff --check exit0. Logs and pre-edit snapshots: /tmp/dentobot-joint-editor-iteration1-20261001/. No Slicer/ROS trial, planner/motion, native build, commit/stage/push or reset. Performance and DentoCase reserved files remain untouched. Source/host scope is complete; rendered narrow/default/wide/large-font and Home/manual usability verdict remains OPEN under S6-LIVE-01. No runtime owned by this chat.
+
+
+### 2026-10-01 — DCP-09..10 clean library delivery evidence
+
+Compact native table/detail browser, ≤100rows/page, label/FDI search and status filtering, revision/location/tooth/preparation selectors, separate saved/cutoff states, theme-aware badges and collapsed copied technical evidence are implemented. Metadata discovery remains untrusted; full verification stays default for CLI. Version2catalog migrates version1 transactionally, preserves trusted inventories/digests, scans incrementally, batches writes, retains changed/missing/error/conflict evidence and clears only catalog/remembered roots after writer cancellation/generation invalidation. Prepared archive extraction validates once and retains source identity/runtime audit/recovery/rollback. Partial child reuses its verified extraction, retains ownership/fresh reopen and independent history. Exact metrics text digest reused only during restore; geometry fingerprints/audits preserved.
+
+Final affected host94PASS0.42s and scoped diffcheckPASS. Final portableSQL hostbenchmark meets all6targets:1000 firstpage3.336ms/search2.178ms/details0.079ms;50summary2.797ms;unchanged1000scan41.284ms/0archivebytes/0validation. r29 metadata2.325ms/0geometry; fullprep96.149ms/1validation. Native threewarm equivalent full medians22.459161→17.610422s,21.589% lower, equal packageSHA/robotprofile; noROS/motion. Actual Qt renders1100×700/900×600; synthetic pairedpartial5B/5A, independentSaveAs/continuation/freshreopen/sourcepreservation/failedloadrollbackPASS exit0 and clearteardown. Native pass precedes final small title/error-detail/checked-row/filenamefallback presentation changes; final hostgate passes after them. NativeSQLite windowquery incompatibility was diagnosed in a narrow probe and replaced with a portable query; failed artifacts retained.
+
+This is bounded software/native evidence, not Tarun's UX or manual save/reopen/continuation verdict. Existing DCP-09..10 stays in backlog.md until that acceptance. S6-P2-03 broader responsiveness and robot/planner owners remain separate. Evidence/commands/source identity: diagnostics/DENTOCASE_BROWSER_REDESIGN_2026-10-01.md and data/test-artifacts/dentocase-browser-20261001/summary.json. No stage/commit/branchchange/build/mainpromotion.
+
+
+## 1 October — S6-P2-03 increment2 implementation underway
+
+Existing native-wait contract prerequisite verified installed MoveIt2.12.4 request-builder/action-client route and isolated accepted5.10 source/build identity. One bounded Luna xhigh worker owns native motion-control pair under latest routing; coordinator Python wait/context integration passes242 host checks. Native source review/build/runtime/deployment remain pending. Until new API is deployed, workspace explicitly reports missing responsive planning rather than using blocking fallback. No build/runtime/5.12 or broader planner migration authorized. Detailed commands/boundaries in today logbook and PERFORMANCE_INTEGRATION_AUDIT_2026-10-01.md.
+
+
+### 2026-10-01 — S6-LIVE-01 6.1–6.3 UX consolidation proposal
+
+Operator requests planning of duplicate/redundant controls across 6.1–6.3. Source-derived proposal appended to `diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md`: retain Base & Connection / Task Home / Workbench & Planning owners; consolidate duplicated recovery/Home/status presentation, group workspace/limits and joint/TCP work, preserve all distinct validation/authority operations. Planning only; source/runtime authorization and operator design/visual verdict remain open. Existing iteration1 source/host result remains unchanged; no new queue or acceptance claim.
+
+
+2026-10-01 S6-LIVE-01: operator narrow-module/no-long-scroll constraint and three-step interactive button-placement sketch appended to existing renovation plan. Content switches in place; secondary dialogs replace expanding detail stacks. Planning/design evidence only, source and rendered acceptance remain open.
+
+
+## S6-P2-03 increment2 native source checkpoint — 1 October 2026
+
+Four async native methods now implemented in verified isolated5.10 motion-control pair and matching canonical SlicerROS2 source; previous interrupted/unwritten status superseded. Python242host checks passed, scoped whitespace checks passed. Native compilation/wrapper/lifetime/runtime/deployment pending separate approval; installed library still lacks new API. Cancelled local authority is revoked with best-effort backend cancellation and node-recreation requirement. Source-complete does not accept responsiveness or change5.12 hold. See today logbook/performance audit for hashes/ownership/commands. NativeUbuntu NVIDIA item3 unstarted.
+
+
+2026-10-01 S6-LIVE-01 operator corrects the compressed narrow-panel sketch: preserve all essential controls, especially always-discoverable ROS connection, existing virtual-forehead/automatic-Base proposal and automatic unlocked-Base viewport handles with actual-state GUI status. Existing renovation plan now contains an explicit same-step control destination ledger and drag target/authority requirement; this supersedes the incomplete sketch. Source inspection finds Step6 suppresses Base handles despite unlock helper enabling them, so implementation must resolve candidate targeting before removing that gate. Planning/sketch only; no source/runtime acceptance or new task/priority.
+
+
+## S6-P2-03 increment2 deployed checkpoint — 1 October 2026
+
+Supersedes earlier unbuilt status: isolated single-job5.10 compile/wrapper/install passed; focused empty-scene explicit-start plan SUCCESS12points,0.108s/maxQtgap56ms, consumed reply/disconnect and Slicerexit0. Reviewed native library and identical wrapper installed into normal shared checkout package after backup; independent shared-package API probe loaded all four methods and exited0. Details/hashes/commands in today logbook and PERFORMANCE_INTEGRATION_AUDIT_2026-10-01.md. This is bounded API/software integration evidence. Representative long-wait/cancellation/ordinary-window responsiveness remains open; backend MoveIt shutdown-11 reproduced separately under S6-U-01. Watchdog paired overhead and NVIDIA increment3 pending;5.12 held.
+
+
+2026-10-01 S6-LIVE-01 continuity review: existing renovation plan now recommends one inline review/accept mode, single navigation presentation, three visible 6.3 tabs (Manual/Workspace/Plan), named complete diagnostic/history tools, explicit return context and truthful downstream invalidation. Essential-function ledger preserved. Existing HTML is earlier illustrative evidence; coherent state walkthrough/native fit not yet accepted. Review/design only, no source/runtime change.
+
+## 1 October — S6-LIVE-01 continuity implementation and bounded verification
+
+Tarun approved 6.1/6.2 implementation and subsequently approved 6.3. Integrated source now provides the accepted 6.1 Placement/Scene organization, compact five-joint 6.2 Home editor, and 6.3 Manual/Workspace/Plan workbench with named modeless complete tools and Base/Home return-context preservation. Existing callbacks, records, review/accept/reconcile gates, policy and authority are reused. Focused checks pass 411/411; final Step 6 selection passes 565/565; compile and whitespace checks pass. The real-Qt headless sequence passes all three steps and both owner round trips with draft/authority invariants preserved.
+
+The runtime acceptance portion remains open. Case-bound runs `s6-live-01-step63-repeatability-20261001-r1` through `-r3` consumed the three-attempt ceiling on harness adaptations; r3 reached connected scene acknowledgement and failed before Base/Home acceptance because the runner did not select Workspace/ROI. The runner is now tab-aware and source-tested. A later freshly authorized serialized campaign must demonstrate changed Base and Task Home review/accept/reconfirm twice with no stale behavior, preserve the input case, and stop for Tarun's rendered/manual verdict.
+
+
+## S6-P2-03 increment3 source/test completion — 1 October 2026
+
+Native Ubuntu NVIDIA profile now implemented on the integration checkout. Explicit nvidia rendering uses GPU reservation independently of cpu/cuda inference and clears Mesa DRM device mapping. Bounded10s host driver/Docker-runtime and container device-visibility checks provide actionable errors; device enumeration does not establish OpenGL acceleration. Existing auto/Mesa/WSL behavior, selected checkout routing and watchdog metadata preserved. Imported native profile/probe portions only from137a56e; CUDA graphics/display capabilities were already equivalent; WSL changes excluded.
+
+Verification: pure.ubuntu_graphics_profiles,13host/mock tests passed in0.08s exit0; shell syntax, owned Python syntax, scoped whitespace and frame-probe --self-check passed. Tests cover MesaCPU/CUDA, NVIDIACPU/CUDA, WSL baseline selection, missing command/driver/runtime, container visibility, invalid mode, DRM reset/capabilities and source routing. Evidence /tmp/dentobot-verification/perf-increment3-20261001/{host.log,frame-selfcheck.log,summary.json,launcher-port.diff}. No actual GPU/Docker/container/Slicer/ROS runtime, image/native rebuild, case save or hardware action. Operator explicitly excludes GPU verification on this workstation; >=60FPS and renderer verification remain deferred to approved NVIDIA hardware.
+
+All three finite increments now have source implementations. Item1 paired watchdog overhead/identity evidence and item2 representative long-wait/cancel/normal-window responsiveness remain open under existing S6-P2-03; item3 hardware acceptance deferred. Backend MoveIt cleanup-11 remains S6-U-01. No new increment, no5.12 restart, no main merge/push/commit.

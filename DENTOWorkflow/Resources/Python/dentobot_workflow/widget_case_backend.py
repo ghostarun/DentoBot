@@ -81,10 +81,9 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
         )
 
     def _openLibraryFullCase(self, path):
-        with slicer.util.tryWithErrorDisplay("Could not open this case.", waitCursor=True):
-            inspection = self._openCaseBundle(path)
-            self._showCaseManualSimulationRecords(inspection)
-            self.ui.caseBundleStatusLabel.text = "Loaded case; live freshness requires workflow review."
+        inspection = self._openCaseBundle(path)
+        self._showCaseManualSimulationRecords(inspection)
+        self.ui.caseBundleStatusLabel.text = "Loaded case; live freshness requires workflow review."
 
     def _saveLibraryPartialCase(self, path, target, checkpoint, branch, destination):
         from .case_projection import project_package_offline
@@ -544,7 +543,10 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
 
         self._caseBundleRobotProfileMigrationMessage = ""
         phase("Checking package integrity")
-        inspection = validate_case_bundle(bundlePath)
+        from DENTOCaseBundle import PreparedCaseBundle, prepare_case_bundle
+        prepared = bundlePath if isinstance(bundlePath, PreparedCaseBundle) else prepare_case_bundle(bundlePath)
+        prepared.assert_source_unchanged()
+        inspection = prepared.inspection
         profileMigration = {
             "compatible": False,
             "migrated": False,
@@ -552,20 +554,26 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
         }
         recoveryLocationState = self._sceneLocationState()
         restoreGeneration = self._beginCaseBundleRestore()
+        renderPaused = False
+        priorMetricsCache = getattr(self.logic, "_caseBundleMetricsDigestCache", None)
+        self.logic._caseBundleMetricsDigestCache = {}
         try:
+            # Render the completed restore once; queued events and every lineage
+            # audit still run on the owning thread under the restore barrier.
+            slicer.app.pauseRender()
+            renderPaused = True
             with tempfile.TemporaryDirectory(
                 prefix="dentobot-case-open-",
                 dir=slicer.app.temporaryPath,
             ) as temporaryDirectory:
                 temporaryRoot = Path(temporaryDirectory)
-                scenePath, inspection = extract_scene_mrb(
-                    inspection.path,
-                    temporaryRoot / "incoming",
-                )
+                prepared.assert_source_unchanged()
+                scenePath = prepared.scene_path
                 phase("Saving recovery snapshot", can_cancel=False)
                 recoveryPath = temporaryRoot / "recovery.mrb"
                 self._saveSceneSnapshotToMrb(recoveryPath)
                 try:
+                    prepared.assert_source_unchanged()
                     phase("Importing Slicer scene", can_cancel=False)
                     if not slicer.util.loadScene(
                         str(scenePath), {"clear": True}
@@ -706,6 +714,7 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
                             self._applyWorkflowViewPreset("recommended", updateStatus=False)
                             phase("Restoring recommended view", can_cancel=False)
                     self._enforceStep6OpenedJawDisplaySeparation()
+                    prepared.assert_source_unchanged()
                     phase("Finalizing jaw display", can_cancel=False)
                 except Exception as hydrationError:
                     logging.exception(
@@ -739,7 +748,13 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
                         f"{hydrationError}{recoveryError}"
                     ) from hydrationError
         finally:
-            self._endCaseBundleRestore(restoreGeneration)
+            try:
+                self.logic._caseBundleMetricsDigestCache = priorMetricsCache
+                prepared.close()
+                self._endCaseBundleRestore(restoreGeneration)
+            finally:
+                if renderPaused:
+                    slicer.app.resumeRender()
 
         # The extracted MRB is deleted with the temporary directory. Do not
         # leave it as Slicer's apparent save target, and do not use the outer

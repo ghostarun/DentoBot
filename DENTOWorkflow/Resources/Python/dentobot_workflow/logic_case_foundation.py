@@ -343,13 +343,20 @@ class CaseFoundationLogicMixin:
             metricsText = str(
                 segmentationNode.GetAttribute("DENTOBOT.SegmentMetricsJson") or ""
             )
-            try:
-                stableMetrics = canonical_json(json.loads(metricsText))
-            except (TypeError, ValueError, json.JSONDecodeError):
-                stableMetrics = metricsText
-            metricsDigest = hashlib.sha256(
-                stableMetrics.encode("utf-8")
-            ).hexdigest()
+            # A restore invokes this input check hundreds of times. Reuse only
+            # the pure text digest within that transaction, with exact text equality.
+            metricsCache = getattr(self, "_caseBundleMetricsDigestCache", None)
+            if metricsCache is not None and metricsCache.get("text") == metricsText:
+                metricsDigest = metricsCache["digest"]
+            else:
+                try:
+                    stableMetrics = canonical_json(json.loads(metricsText))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    stableMetrics = metricsText
+                metricsDigest = hashlib.sha256(stableMetrics.encode("utf-8")).hexdigest()
+                if metricsCache is not None:
+                    metricsCache.clear()
+                    metricsCache.update(text=metricsText, digest=metricsDigest)
             segmentIds = vtk.vtkStringArray()
             segmentation.GetSegmentIDs(segmentIds)
             segmentInputs = []

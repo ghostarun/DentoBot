@@ -796,3 +796,93 @@ def test_plain_package_import_has_no_owner_or_runtime_imports(tmp_path: Path) ->
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_metadata_incremental_paging_verification_and_clear(tmp_path, monkeypatch):
+    from dentobot_case.inspection import inspect_discovery
+    import DENTOCaseBundle as owner
+    root = tmp_path / 'cases'
+    root.mkdir()
+    scene = tmp_path / 'source.mrb'
+    _write_mrb(scene)
+    source = create_case_bundle(root / 'one.dentocase', scene, case_label='Readable case',
+        workflow={'schemaVersion': '1.0'}, robot_profile=_robot_profile(tmp_path)).path
+    real_validate = owner.validate_case_bundle
+    calls = []
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return real_validate(*args, **kwargs)
+    monkeypatch.setattr(owner, 'validate_case_bundle', counted)
+    with Catalog(tmp_path / 'library.sqlite') as catalog:
+        catalog.scan(root, validation='metadata')
+        page = catalog.list_case_summaries(query='Readable', limit=1000)
+        assert page['total'] == 1 and page['items'][0]['package_status'] == 'Unchecked'
+        key = page['items'][0]['case_key']
+        assert catalog.get_case_details(key)['revisions'][0]['inventory'] is None
+        monkeypatch.setattr(catalog_module, 'inspect_discovery', lambda *_: pytest.fail('unchanged archive read'))
+        catalog.scan(validation='metadata')
+        assert calls == []
+        verified = inspect_package(source)
+        catalog.record_verified(verified)
+        assert catalog.list_case_summaries()['items'][0]['package_status'] == 'Checked'
+        assert catalog.get_case_details(verified.case_id)['revisions'][0]['inventory'] == verified
+        monkeypatch.setattr(catalog_module, 'inspect_discovery', inspect_discovery)
+        source.touch()
+        catalog.scan(validation='metadata')
+        assert catalog.list_case_summaries()['items'][0]['package_status'] == 'Changed'
+        catalog.scan(validation='metadata')
+        assert catalog.list_case_summaries()['items'][0]['package_status'] == 'Changed'
+        trusted = catalog.get_package(verified.package_id)
+        assert trusted['sha256'] == verified.package_sha256
+        source.unlink()
+        catalog.scan(validation='metadata')
+        assert catalog.list_case_summaries()['items'][0]['package_status'] == 'Missing'
+        catalog.clear()
+        assert catalog.list_case_summaries()['total'] == 0 and catalog._registered_roots() == []
+
+
+def test_metadata_errors_and_cancel_do_not_mark_unseen_missing(tmp_path):
+    root = tmp_path / 'cases'
+    root.mkdir()
+    invalid = root / 'invalid.dentocase'
+    invalid.write_bytes(b'invalid zip')
+    with Catalog(tmp_path / 'library.sqlite') as catalog:
+        catalog.scan(root, validation='metadata')
+        page = catalog.list_case_summaries()
+        assert page['items'][0]['package_status'] == 'Invalid'
+        assert catalog.get_case_details(page['items'][0]['case_key'])['revisions'][0]['locations'][0]['error']
+        invalid.unlink()
+        catalog.scan(validation='metadata', cancelled=lambda: True)
+        assert catalog.list_case_summaries()['items'][0]['package_status'] == 'Invalid'
+
+
+def test_v1_migration_preserves_trusted_inventory_transactionally(tmp_path):
+    scene = tmp_path / 'source.mrb'
+    _write_mrb(scene)
+    source = create_case_bundle(tmp_path / 'one.dentocase', scene, case_label='Migration',
+        workflow={'schemaVersion': '1.0'}, robot_profile=_robot_profile(tmp_path)).path
+    inv = inspect_package(source)
+    database = tmp_path / 'old.sqlite'
+    with sqlite3.connect(database) as db:
+        db.executescript('''
+            CREATE TABLE roots(path TEXT PRIMARY KEY NOT NULL);
+            CREATE TABLE packages(package_id TEXT PRIMARY KEY NOT NULL, sha256 TEXT NOT NULL,
+                case_id TEXT NOT NULL, inventory_json TEXT NOT NULL);
+            CREATE TABLE locations(path TEXT PRIMARY KEY NOT NULL,
+                root_path TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,
+                package_id TEXT REFERENCES packages(package_id) ON DELETE SET NULL,
+                status TEXT NOT NULL,error TEXT,size INTEGER,mtime INTEGER,checked_at TEXT NOT NULL);
+            PRAGMA user_version=1;
+        ''')
+        db.execute('INSERT INTO roots VALUES (?)', (str(tmp_path),))
+        db.execute('INSERT INTO packages VALUES (?,?,?,?)',
+                   (inv.package_id, inv.package_sha256, inv.case_id, json.dumps(inv.to_dict())))
+        db.execute('INSERT INTO locations VALUES (?,?,?,?,?,?,?,?)',
+                   (str(source), str(tmp_path), inv.package_id, 'Valid', None,
+                    inv.stat_size, inv.stat_mtime_ns, inv.checked_at_utc))
+    with Catalog(database) as catalog:
+        assert catalog._connection.execute('PRAGMA user_version').fetchone()[0] == 2
+        assert catalog.get_package(inv.package_id)['inventory'] == json.loads(json.dumps(inv.to_dict()))
+        catalog.scan(validation='metadata')
+        assert catalog.get_package(inv.package_id)['sha256'] == inv.package_sha256
+        assert catalog.list_case_summaries()['items'][0]['package_status'] == 'Changed'

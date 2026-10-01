@@ -146,16 +146,25 @@ def run():
         on_full_load=unexpected_action, on_partial_load=unexpected_action,
         on_partial_save=unexpected_action)
     deadline = time.monotonic() + 10
-    while not dialog._case_library_rows and time.monotonic() < deadline:
+    while (not dialog._rows or not dialog._details) and time.monotonic() < deadline:
         slicer.app.processEvents()
         time.sleep(0.03)
-    assert dialog._case_library_rows, "The actual Qt browser did not populate"
+    if not dialog._rows or not dialog._details:
+        print("DENTOCASE_BROWSER_FAILURE", dialog._progress_status.text, flush=True)
+        dialog.dialog.grab().save(str(evidence / "library-failure.png"))
+    assert dialog._rows and dialog._details, "The actual Qt browser did not populate"
+    assert len(dialog._rows) <= 100
+    assert len(dialog._rows) == 1, "Revisions must share one compact case row"
+    dialog._branch_combo.setCurrentIndex(1)
+    slicer.app.processEvents()
     assert any(row.get("checkpoint_id") == "template.build" and row.get("partial_enabled")
                for row in dialog._case_library_rows.values())
-    dialog.dialog.resize(1200, 850)
-    dialog._case_library_tree.expandToDepth(5)
+    dialog.dialog.resize(1100, 700)
     slicer.app.processEvents()
     assert dialog.dialog.grab().save(str(evidence / "library-synthetic.png"))
+    dialog.dialog.resize(900, 600)
+    slicer.app.processEvents()
+    assert dialog.dialog.grab().save(str(evidence / "library-small.png"))
     dialog.dialog.close()
     assert dialog._case_library_closed
     before = sha(full)
@@ -169,7 +178,9 @@ def run():
     projected = inspect_package(partial)
     assert projected.case_id != inventory.case_id
     assert not projected.historical_record_count
+    partial_load_started = time.monotonic()
     widget._openCaseBundle(partial)
+    print("DENTOCASE_PARTIAL_ACTIVATION_SECONDS", time.monotonic() - partial_load_started, flush=True)
     assert widget._parameterNode.dentoCaseId == projected.case_id
     assert widget._parameterNode.finalPrintableTemplateModel is not None
     assert widget._parameterNode.finalizedTemplateShellModel is None

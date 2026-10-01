@@ -918,8 +918,8 @@
       "timeout_sec": 240,
       "evidence_level": "host_pure",
       "entrypoint": "Testing/test_dentocase_catalog.py",
-      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_dentocase_boundaries.py Testing/test_dentocase_browser.py Testing/test_dentocase_catalog.py Testing/test_dentocase_lineage.py Testing/test_dentocase_projection.py Testing/test_dentocase_schema.py Testing/test_dentocase_inventory.py Testing/test_case_bundle.py",
-      "pass_condition": "exit_code_zero; catalog, schema compatibility, fail-closed ownership, dependency closure and independent projection contracts pass; no live or operator acceptance claim"
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_dentocase_boundaries.py Testing/test_dentocase_browser.py Testing/test_dentocase_catalog.py Testing/test_dentocase_lineage.py Testing/test_dentocase_projection.py Testing/test_dentocase_schema.py Testing/test_dentocase_inventory.py Testing/test_case_bundle.py Testing/test_dentocase_restore_metrics.py",
+      "pass_condition": "exit_code_zero; untrusted metadata, incremental scan, transactional migration/reset, paged selection, thread and stale-generation lifecycle, schema compatibility, exact-text restore digest reuse, fail-closed ownership, dependency closure and independent projection contracts pass; no live or operator acceptance claim"
     },
     {
       "id": "runtime.dentocase_offline_persistence",
@@ -961,6 +961,122 @@
       "entrypoint": null,
       "command_template": null,
       "pass_condition": "Tarun confirms library browser, chosen independent partial case and continuation from the selected cutoff; no robot motion authorized"
+    },
+    {
+      "id": "pure.performance_watchdog",
+      "execution_kind": "host_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "host_pure",
+      "entrypoint": "Testing/test_ui_stall_watchdog.py",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 DENTOBOT_RUN_ARTIFACT_ROOT=/tmp/dentobot-verification/perf-increment1-20261001/stub-artifacts python3 -m pytest -q -p no:cacheprovider Testing/test_ui_stall_watchdog.py Testing/test_workflow_progress.py Testing/test_resource_watchdog.py Testing/test_ros2_cli_slicer_env.py Testing/test_dentobot_slicer_handoff.py",
+      "pass_condition": "exit_code_zero; token-scoped nested/late action attribution, idempotent cleanup, metadata sanitization, first/reset/missing paging and per-device IO rates, selected-checkout collector routing and unchanged shell-stub cleanup; no actual Slicer/ROS/GPU performance acceptance"
+    },
+    {
+      "id": "pure.responsive_joint_plan",
+      "execution_kind": "host_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "host_pure",
+      "entrypoint": "Testing/test_responsive_joint_plan.py",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_responsive_joint_plan.py Testing/test_ros2_bridge.py Testing/test_robot_workflow_facade.py",
+      "pass_condition": "exit_code_zero; fake pending/ready/error/timeout/stale/missingAPI waits and existing bridge/facade regressions; no native/thread/runtime acceptance"
+    },
+    {
+      "id": "build.responsive_joint_plan",
+      "execution_kind": "build",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "colcon_install",
+        "slicer_process"
+      ],
+      "depends_on": [
+        "pure.responsive_joint_plan"
+      ],
+      "approval": "explain_then_approve",
+      "timeout_sec": 900,
+      "evidence_level": "native_build",
+      "entrypoint": "/tmp/dentobot-slicerros2-shutdown-5-10",
+      "command_template": "docker exec dentobot-slicerros2 bash -lc 'source /opt/ros/jazzy/setup.bash && cmake --build /tmp/dentobot-s6-u01-build/slicer_ros2_module --parallel 1 && cd /tmp/dentobot-s6-u01-build/slicer_ros2_module && cmake --install . --prefix /tmp/dentobot-s6-u01-install/slicer_ros2_module'",
+      "pass_condition": "exit_code_zero; verified isolated source and wrapper/native-library build/install; record hashes; no live runtime/build overlap; no SlicerROS stack started"
+    },
+    {
+      "id": "runtime.responsive_joint_plan",
+      "execution_kind": "slicer_runtime",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "colcon_install",
+        "slicer_process",
+        "ros_stack"
+      ],
+      "depends_on": [
+        "build.responsive_joint_plan"
+      ],
+      "approval": "explain_then_approve",
+      "timeout_sec": 240,
+      "evidence_level": "focused_integration",
+      "entrypoint": "Testing/run_responsive_joint_plan_smoke.py",
+      "command_template": "docker exec dentobot-slicerros2 bash /tmp/dentobot-responsive-plan-smoke.bash",
+      "pass_condition": "verified selected checkout/native library; one explicit-start plan-only reply consumed and released, Qt heartbeat gaps under 2s, disconnect and native process exit0; backend shutdown errors reported separately; no saved case or joint command stream/execute"
+    },
+    {
+      "id": "pure.ubuntu_graphics_profiles",
+      "execution_kind": "host_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "host_pure",
+      "entrypoint": "Testing/test_dentobot_graphics_profiles.py",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_dentobot_graphics_profiles.py && python3 Testing/run_dentobot_render_frame_probe.py --self-check && bash -n Workspace/scripts/launch-dentoworkflow.bash",
+      "pass_condition": "host exit0; Mesa and native NVIDIA CPU/CUDA selection, unavailable driver/runtime failures, source routing, proxy frame statistics; no actual GPU/container/Slicer or FPS acceptance"
+    },
+    {
+      "id": "pure.step6_preentry_reachability",
+      "execution_kind": "host_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "host_pure",
+      "entrypoint": "Testing/test_step6_preentry_reachability_analysis.py",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_step6_preentry_reachability_analysis.py",
+      "pass_condition": "URDF chain, native DLS replica reproduces recorded r2 residuals, limit pinning and relaxed convergence on a toy chain."
+    },
+    {
+      "id": "runtime.step6_integration_base_offset_full_chain",
+      "execution_kind": "slicer_ros_moveit_headed",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "static.step6_pycompile",
+        "static.git_diff_check",
+        "pure.screen_recorder",
+        "pure.step6_preentry_reachability",
+        "build.slicer_ros2_if_changed"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "simulation_runtime_headed",
+      "entrypoint": "Testing/run_dentobot_step6_headed_review.py",
+      "command_template": "From the reviewed integration checkout set DENTOBOT_HEADED_PROVENANCE_MODE=integration, DENTOBOT_HEADED_FULL_CHAIN=1, DENTOBOT_HEADED_ALLOW_JOG=1, DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1 and DENTOBOT_HEADED_BASE_OFFSET_RAS_MM='dx,dy,dz' (world RAS mm, norm <= 20, from Testing/step6_preentry_reachability_analysis.py). No output case. Supply exact Git/native/case provenance; serialize one Xvfb-headed Slicer/ROS simulation under Testing/record_slicer_screen.py with fresh evidence and owned-process cleanup.",
+      "pass_condition": "Requested translated Base staged through production stageManualBaseReview and accepted via the production Accept Base owner with rotation unchanged; scene re-acknowledged; Task Home re-accepted; workspace, PreEntry and full chain items each PASS/FAIL with named stage and collision evidence; modal dialogs fail fast via the watchdog; source case unchanged; no hardware."
     }
   ]
 }

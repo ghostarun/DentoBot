@@ -4,6 +4,10 @@
 # observable without tracing command arguments or changing the ROS contract.
 set -euo pipefail
 
+canonical_script="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_directory="$(cd -- "$(dirname -- "${canonical_script}")" && pwd -P)"
+source_checkout_root="$(cd -- "${script_directory}/../.." && pwd -P)"
+resource_watchdog_script="${script_directory}/dentobot-resource-watchdog.py"
 stack_log=/tmp/dentobot-simulation-stack.log
 readiness_timeout=2s
 readiness_attempts=60
@@ -83,6 +87,13 @@ stack_pid=
 watchdog_pid=
 watchdog_log_dir="${DENTOBOT_RUN_ARTIFACT_ROOT:-/workspace/data/dentobot-runs}/ui-watchdog"
 watchdog_log_path="${watchdog_log_dir}/resources-$(date -u +%Y%m%d-%H%M%S)-$$.jsonl"
+watchdog_metadata_pair="$(
+  python3 "${resource_watchdog_script}" --metadata-fallback \
+    --source-root "${source_checkout_root}"
+)"
+IFS=$'\t' read -r DENTOBOT_WATCHDOG_SESSION_ID DENTOBOT_WATCHDOG_METADATA \
+  <<<"${watchdog_metadata_pair}"
+export DENTOBOT_WATCHDOG_SESSION_ID DENTOBOT_WATCHDOG_METADATA
 
 handoff_log() {
   local stage=$1
@@ -162,7 +173,7 @@ trap 'handle_signal INT' INT
 trap 'handle_signal TERM' TERM
 
 if mkdir -p "${watchdog_log_dir}"; then
-  python3 /workspace/ros2_ws/src/DentoBot/Workspace/scripts/dentobot-resource-watchdog.py \
+  python3 "${resource_watchdog_script}" \
     --parent-pid "$$" --output-path "${watchdog_log_path}" \
     >"${watchdog_log_dir}/monitor-stderr-$$.log" 2>&1 &
   watchdog_pid=$!

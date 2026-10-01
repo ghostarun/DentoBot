@@ -1,5 +1,124 @@
 # Step 6 renovation — working implementation plan
 
+## 1 October — joint-editor UX revision: All joints visible iteration1 selected
+
+**Current operator supersession:** Tarun selects All joints visible iteration1 and
+requests implementation. The design-selection hold in the original proposal below
+is superseded for source implementation and its focused host checks. Rendered
+Slicer/ROS acceptance remains separate; see the implementation authorization record.
+
+**Operator observation:** Tarun says the revamped joint-slider fix still looks ugly
+and requests proper UI/UX planning before the next implementation. This is a
+negative usability verdict for the existing spacing correction, not evidence of
+a new numeric/ROS failure. Owner remains `S6-LIVE-01` Priority 0; broad GUI/Studio
+redesign remains deferred. Current target is the consolidated integration checkout.
+No production implementation or Slicer/ROS/build execution is authorized by this
+design request. The revised rendered GUI has not been supplied in this turn;
+source findings explain a concrete layout defect but do not establish its exact
+appearance in Tarun's latest window.
+
+### Source finding and intended outcome
+
+Construction creates short J1–J5/unit labels, but `setManualJogLimits` later
+replaces those labels with long mechanical/slider/command/reviewed-limit paragraphs.
+The fixed-height, word-wrapped identity column therefore carries information it
+cannot present reliably. The prior size-policy patch did not address that refresh
+path. Draft values are additionally repeated in summary text while accepted values
+are separated from the controls. One existing editor is reparented between Home
+and manual-jog groups by `widget_robot_shell.py`; preserve that ownership.
+
+Outcome: identify each joint instantly, adjust a precise draft while watching the
+viewport, see how it differs from the accepted robot, and understand the next
+allowed action without searching large paragraphs or scrolling among five joints.
+
+### Recommended proposal: all five joints visible
+
+Use five quiet, aligned two-line rows in fixed J1–J5 order. Each first line contains
+a permanent short ID/unit, accepted comparison and right-aligned editable numeric
+value. The second contains a horizontal slider with concise lower/upper range
+labels. J1/J3/J5 use angular units; J2/J4 use mm. Numeric entry and native spinbox
+arrows provide precise adjustment; slider dragging provides coarse exploration.
+No extra per-row reset/nudge/tool button is proposed. Keep one Reset Draft action.
+
+At wider widths, accepted value and signed delta appear inline. At narrow widths,
+the comparison moves to a short secondary line; ID and value remain visible.
+Prefer this to a dense multi-column table or horizontal scrolling. Initial targets
+for desktop review are 360/480/640 logical-pixel panel widths and approximately
+300–380 logical pixels for the five-row editor at normal font scale. These are
+layout review targets, not fixed height caps; native style/font size hints and
+accessibility enlargement take precedence. Put excess vertical stretch after the
+editor, never between joint rows. Avoid nested frames and decorative colors.
+
+The alternative precision-table proposal shows all five numeric drafts and accepted
+values with one slider for a selected joint. It is denser, but adds joint selection
+before dragging and weakens simultaneous spatial adjustment. Keep it as a design
+comparison, not a second runtime mode or a new setting. Recommended choice is the
+all-joints layout unless Tarun prefers the table after visual review.
+
+### State, limits and interaction contract
+
+- Keep short ID/unit labels unchanged through all refreshes. Show active slider
+  endpoint values below the track. Expose mechanical bounds and reviewed limits
+  distinctly in a collapsed Limits and state details area, plus accessible
+  tooltips. Essential blocking reasons stay visible beside the editor/action.
+- Label the editable state Draft. Comparison uses the existing accepted-state
+  source, never the display ghost or unacknowledged observed state. If accepted
+  state is unavailable/stale, say so and omit delta; do not synthesize zero values.
+  Do not imply that Home configuration equals current accepted robot state.
+- Preserve existing range policy: offline Home sliders use mechanical ranges;
+  connected sliders use their current allowed range; numeric drafts retain their
+  existing mechanical range. A numeric draft outside the slider/guard range must
+  remain numerically visible with an explicit warning; a saturated slider must
+  not make it look equivalent to its endpoint. Do not silently clamp it or expand
+  reviewed limits. Do not introduce wrapping or reinterpret continuous J5 bounds.
+- Editing remains display-only. Draft changes invalidate prior review/guard results
+  through existing handlers. Mechanical/task-limit status is distinct from native
+  collision validation. Short status example: Draft edited; not guard checked.
+- No automatic request on slider release, numeric Enter, focus loss or keyboard
+  nudge. Preserve existing explicit Check Draft State, Guarded Jog, Home review,
+  save/accept, uncertainty/reconcile and Plan + Apply actions and eligibility.
+- Give Home and manual-jog contexts appropriate editor titles. Home shows the
+  offline configuration/save or connected review/validation actions; manual mode
+  shows static Check Draft State and explicit Guarded Jog. Keep movement-producing
+  Plan + Apply visually separate from configuration actions. Reuse the same editor
+  and state; do not duplicate widgets, signals, ROS adapters or parameter state.
+- Keep one concise state/recovery line above the action group. Longer explanations,
+  limit inventories and request diagnostics are expandable. Unknown/stale/busy
+  states retain their blocking reason and reconciliation path. Color supplements
+  text; it does not imply safety or replace a verdict.
+- Preserve keyboard focus, native Tab/arrow entry and opt-in global nudge scope;
+  wheel scrolling must not unintentionally edit an unfocused joint. Any change to
+  input commit timing, keyboard tracking or preview-update cadence is a separate
+  behavior/performance scope, not part of this layout revision.
+
+### Implementation and acceptance boundary
+
+After design selection, implement the smallest native Qt presentation change in
+`DENTORobotSimulationPanel.py`, including construction and dynamic refreshes. Touch
+`widget_robot_shell.py` only if contextual title/reparent presentation needs it;
+retain public control dictionaries, callbacks and exact SI conversion. Existing
+facade/ROS/native/geometry/planner/persistence policy is out of scope. No custom
+widget framework, new dependencies, graphics theme overhaul or robot-diagram
+feature is needed. For qualifying implementation use the operator's two disjoint
+Luna Max scopes (presentation source; existing UI regression assertions); the
+coordinator owns design, actual diff review, documentation and acceptance. No
+checks against files still being edited.
+
+Verification question: does the stable compact editor survive current-state/limit
+refreshes and Home/manual reparenting while preserving draft-only behavior?
+Use the matrix's `pure.step6_manual_tcp_workbench` host selection after confirming its current
+ID/command, with regressions covering short labels after limits refresh, unit/value
+agreement, preserved drafts and no implicit command. Then, only under separately
+bounded runtime scope, inspect actual Qt rendering at narrow/default/wide widths,
+large-font scale, offline Home and connected/manual modes, unavailable/busy/stale
+states and an out-of-reviewed-range numeric draft. Do not run a planner or motion
+trial to verify layout. Stop on the first demonstrable GUI success/failure for
+Tarun's verdict. A mockup or host pass does not accept the rendered Slicer UI.
+
+The inline alternatives are illustrative design previews using screenshot example
+values and schematic tracks; they are not runtime evidence or verified joint limits.
+Design selection remains open; no production change is made in this planning pass.
+
 **Date:** 2026-09-25. **Priority:** renovate Step 6 before case-specific planner solving. Owners are S6-WORKSPACE-PURPOSE, S6-LIVE-01, S6-LIVE-03/04 and S6-P2-03. [Backlog](../backlog.md) is the sole pending queue; [TASKS](../TASKS.md) holds task contracts; the [FDI31 P0 contract](FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md) retains its milestone and safety gates. The [base-pose feasibility plan](DENTOBOT_Base_Pose_Feasibility_Explorer_Diagnostic_Plan_2026-09-25.md) is an **active technical reference for shared diagnostic metrics**. The 30 September DENTO-NOTE below adds a conditional ±20 mm translation diagnostic after IK failure; broader automated sweeps and robot-design comparisons remain later work in the [reference index](STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md).
 
 **29 September execution checkpoint:** Tarun explicitly resumed bounded
@@ -840,3 +959,171 @@ UI, full-chain preview boundary, required measurements and operator verdict must
 also close. A passing test count alone never closes this plan. No additional
 planner algorithm, physics engine, Studio framework, legacy-case campaign or
 5.12 upgrade is required to deliver it.
+
+
+## 1 October — All joints visible iteration1 implementation authorized
+
+Operator selects “all joints visible iteration #1” and directs implementation. This supersedes the design-selection hold for that bounded joint-editor change under S6-LIVE-01 Priority0. Implement in the integration checkout, preserving shared Home/manual ownership, draft-only editing, exact callbacks/SI conversion/range policy and explicit acceptance/guard actions. No Slicer/ROS/planner/motion trial or native build is inferred. Rendered usability verdict remains required after source/host closure.
+
+Exactly two GPT-6 Luna Max workers: joint_editor_source owns only DENTORobotSimulationPanel.py; joint_editor_tests owns only Testing/test_robot_manual_jog_ui.py. Coordinator owns specifications, integration review, checks and controlled records. Source scope is native Qt stable ID/unit rows, numeric drafts, accepted comparison/delta, range endpoints and explicit outside-slider notice, collapsible detailed limits/state, contextual editor title. Test scope is focused regression/harness changes after source freezes. No worker checks against changing files. Performance watchdog/progress/resource/launcher reservation and concurrent DentoCase files are excluded and preserved. Existing input timing/wheel behavior is not altered in this presentation pass.
+
+Smallest acceptance check: matrix pure.step6_manual_tcp_workbench (four-file host selection), compile changed source/test, diff review and whitespace checks. Question: do presentation refreshes preserve short labels and honest accepted/draft/range displays with no implicit commands? Stop after applicable passing source checks; rendered Qt acceptance is a separate bounded manual verdict. No new task or priority change.
+
+
+## 1 October — All joints visible iteration1 source/host closure
+
+Selected UI implemented in DENTORobotSimulationPanel.py: five unframed native Qt rows with permanent J1–J5/unit labels, numeric draft fields, full-width sliders, compact range endpoints, accepted-state/signed-delta comparison, full-row conditional warning and collapsed Limits and state details. Shared Home/manual editor and context title retained. Dynamic limit refresh no longer replaces IDs with prose. Comparison suppresses deltas for offline/unknown/pending/reconciliation-required/uninitialized/invalid states. Detailed numerical draft summary moves into the expandable area; actionable limit/guard reasons stay visible. Existing slider/numeric callbacks, draft updates, SI conversion, reset and request bodies are AST-identical to pre-edit snapshot. No range/policy/input timing/persistence/native change.
+
+The two originally authorized Luna Max scopes were dispatched under the then-current delegation rule. Source worker froze its file; test worker stopped on usage limit. Tarun then supplied replacement AGENTS instructions permitting solo work and said continue. Coordinator finished the interrupted test file directly, preserving parallel edits; no replacement worker/model was substituted. Review corrections included compact unavailable messages/endpoints, full-width warning, explicit IDs in details and no synthetic zero-draft delta.
+
+Matrix-derived pure.step6_manual_tcp_workbench command, from integration checkout:
+`PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_robot_manual_jog_ui.py Testing/test_ros2_bridge.py Testing/test_robot_workflow_facade.py Testing/test_application_shell.py -k 'not test_new_empty_case_resets_entire_workflow_to_step_zero and not test_saved_case_navigation_keeps_every_workspace_selectable'`
+Final **312 passed, 2 deselected in1.64s, exit0**. Two unrelated case-backend tests excluded because that file is concurrently edited under DentoCase ownership; no claim of a complete four-file suite. First run310passed/2failed/2deselected: incomplete extracted Home-review harnesses omitted the new helper; coordinator added it and repeated the same selection. Regression coverage includes accepted conversion/delta, uncertainty/offline/pending/uninitialized no-delta display, stale range clearing, preserved out-of-range numeric draft, short IDs after limit refresh, reconciliation transition and existing no-implicit-command behavior.
+
+Changed panel and test compile passed with PYTHONPYCACHEPREFIX under /tmp/dentobot-joint-editor-iteration1-20261001/pycache; git diff --check exit0. Logs and pre-edit snapshots: /tmp/dentobot-joint-editor-iteration1-20261001/. No Slicer/ROS trial, planner/motion, native build, commit/stage/push or reset. Performance and DentoCase reserved files remain untouched. Source/host scope is complete; rendered narrow/default/wide/large-font and Home/manual usability verdict remains OPEN under S6-LIVE-01. No runtime owned by this chat.
+
+
+## 2026-10-01 — proposed 6.1–6.3 presentation consolidation
+
+**Operator request:** plan duplicate/redundant items across 6.1–6.3 from a smooth UI/UX perspective. This is a planning-only continuation of S6-LIVE-01 Priority 0, not implementation or runtime approval. Existing all-joints-visible iteration1 source/host closure and outstanding rendered verdict remain unchanged. Current integration source inspected; no new task or queue.
+
+**Observed source:** `widget_robot_shell._setStep6Substep` visibility mapping shows visualization/Base/runtime/collision cards in 6.1; Home in 6.2; and Home plus joint limits, workspace generation, assisted review, task confirmation, TCP exploration, manual joints, approach and drilling cards in 6.3. One joint editor is already reparented, not duplicated. Legacy ROS motion controls and trajectory-planning group are hidden and are not evidence of visible duplication. Base recovery is both a dedicated panel action and the context-dependent primary Base action. Home displays current/configured/staged/review/saved status separately; the full Home card also appears in 6.3. A live-joint card retains a 6.2 title while visible in 6.3. Numeric TCP goal and nudge controls are complementary inputs to inspect before any consolidation of bindings.
+
+**Proposed outcome:** retain existing substeps and state machine; reduce simultaneous cards, repeated actions and technical text. One persistent compact context summary uses existing authoritative projections: Base, Home, runtime/scene and task readiness. Values are independent (offline saved is not live validated; unknown is never Ready). One local blocker states what is missing and links to its existing owner. The context summary is read-only; it creates no new readiness or authority calculation.
+
+| Surface | Routine presentation | Details / less frequent actions |
+|---|---|---|
+| 6.1 Base & Connection | One Base editor/review section and one ROS + collision-scene section. Base edit → Review → Accept uses existing gates. Recovery replaces the primary action when uncertain, with one visible Reconcile control. Connection and scene state remain separately labelled. | Appearance/CBCT, full pose matrix/fingerprints/rollback evidence, object audit table, explicit repeat scene synchronization, accepted-state check, reset/unlock/delete. Destructive actions remain explicit. |
+| 6.2 Task Home | One five-joint editor, concise Home status, Review then Save Configuration offline / Accept & Validate connected, Cancel during known review. Current accepted robot and saved Home comparison remain distinguishable. | Full vectors/limits/evidence; conditional reconciliation; separate Plan + Apply Task Home control with motion meaning explicit, not part of saving. |
+| 6.3 Workbench & Planning | Read-only Base/Home summaries with Edit Base / Review Home links to existing owners and return context. Native focused views: Manual and Planning. Manual groups Joint and TCP inputs with the same existing draft; Planning groups Workspace & Limits followed by immutable Task Confirmation and phase diagnostics. | Joint increments/keyboard settings, historical records/import/export, workspace sampling configuration, planner comparison/settings, raw evidence. Active faults/results remain visible even when their details are folded. |
+
+**Consolidation mapping:** remove repeated visible Base reconcile placement; show full Home editor at its 6.2 owner rather than a second full card in 6.3; replace 6.3 Home controls with an explicit Review as Home handoff that preserves the existing candidate and returns to workbench. This is presentation/navigation only: existing delegated 6.2 acceptance semantics remain. Integrate task-limit display, ROI/sampling configuration and assisted-limit review under one Workspace & Limits container without treating their operations as equivalent. Combine numeric TCP and axis nudge presentation into one TCP section after confirming shared goal state and coordinate frame; preserve IK result authority. Show accepted/draft five-joint values in the editor comparison/details rather than repeated prose dumps. Rename incorrect 6.2-labelled live-state card in 6.3. Retain one persistent research/simulation notice and contextual actionable warnings.
+
+**Meaningful distinctions to retain:** Refresh reads status; Audit + Sync writes/reconciles the scene. Check Accepted Robot and Check Joint Draft target different states. Save/accept Home does not move the robot; Plan + Apply does. TCP exploration IK and task PreEntry IK target different goals. Workspace generation and assisted-limit acceptance differ. Task confirmation freezes identity; planning computes paths. P1/P2/P3 retain individual results and failure evidence. None of these are merged into a generic Validate/Apply button. Recovery may resolve only one authority domain: Base, Home and jog uncertainty remain separately attributed.
+
+**Interaction rules:** one primary action per local workflow state, not one global button that silently changes domains. Keep Cancel and disabled-action reason adjacent. On stale/unknown state show the reason and recovery/navigation action immediately; never hide the blocking fault in Details. Navigation/folding must preserve typed values, staged candidates, accepted state, imported records and results. Moving away disables keyboard/viewport capture as existing substep rules require. Returning must not publish, accept, resync or regenerate automatically. Readiness summaries must not imply offline validation or auto-promote a candidate. Preserve separate robot, joint draft, TCP goal and historical path meanings in viewport legends.
+
+**Bounded delivery proposal (not execution authorization):**
+1. Establish a source-derived control/action map and static before/after layout for offline ready, connected ready, staged review and unknown/stale states. Review those layouts before changing source; no new custom widget framework or dependencies.
+2. Consolidate 6.1 duplicate recovery/status and 6.2 Home text/actions using existing widgets, callbacks and projections. Keep iteration1 five rows unchanged except agreed surrounding hierarchy. Stop for operator visual verdict after an authorized representative render.
+3. Consolidate 6.3 containers and Home handoff, using native Qt focused views and existing editor/state. Preserve workspace sampling, assisted-limit review, task confirmation, manual joint/TCP/record controls and all phase diagnostics. Do not change planner, tolerances, collision policy or runtime APIs.
+
+**Owned implementation files if authorized:** panel, robot-shell presentation/visibility/navigation and existing UI resource only where necessary; narrowly scoped existing presentation tests. Coordinator owns controlled records. Bridge/facade/native planner/performance and DentoCase files are outside scope. If safe Home handoff needs state-owner changes, stop and specify that interface rather than invent a second draft or authority owner.
+
+**Acceptance:** source map proves one visible presentation per duplicate action and no lost capability; existing action-owner/disabled-reason/identity rules remain; navigating 6.2↔6.3 preserves exact J1–J5 draft and staged Home without publishing. Check offline, connected, stale, unknown and failed states. At default and narrow/wide/large-font layouts, five joints stay grouped with IDs/units/values, routine controls are discoverable, primary action and reason are local, critical errors remain visible, and 6.3 does not stack every card. Select cheapest relevant matrix host checks under verification protocol; GUI/ROS resources stay serialized and require explicit scope, with every demonstrable GUI result stopping for Tarun's verdict. No backend fix or UX success claimed by this plan. Performance increment2 missing native async API remains separately tracked and is not repaired by layout work.
+
+
+### 2026-10-01 — narrow-module sketch constraint (S6-LIVE-01)
+
+Operator requests sketches for all three steps including button placement, explicitly avoiding long scrollable windows in Slicer's narrow module GUI. This supersedes expandable main-page detail stacks in the preceding UX proposal: switch content in place, with focused dialogs for secondary controls/evidence. Sketch uses approx 320–360px module widths, compact common context and a bottom Previous/Next row; 6.1 Base / Runtime & Scene switch, 6.2 single five-joint Home editor, 6.3 compact view selector for Manual Joints / Manual TCP / Workspace & Limits / Task & Planning. Review/Accept remains two explicit operations: Review opens exact-candidate evidence with Cancel left and Accept right. Main-page local action rows retain Check Draft vs Guarded Jog, offline-save vs connected-validation, and separate Plan + Apply. View selection must preserve drafts/results; faults remain visible and direct reconciliation replaces the local primary action when needed. Secondary settings/records/audits appear in dialogs rather than increasing module height. No hard no-scroll guarantee at arbitrarily short windows or enlarged fonts: implementation must measure available height, keep controls readable, and reserve minimal fallback scrolling only when physically necessary. Native runtime/large-font verdict is open.
+
+Sketch: /home/light-tarun/.codex/visualizations/2026/09/30/01a0f451-f099-7fa1-bf5e-35cc1c642257/step6-narrow-panel-sketch.html. Example values and readiness states are illustrative, not runtime evidence. Three screens are shown together for comparison; Slicer shows one step at a time. Interactive view switches, sliders and dialog locations are local mock interactions only. No application source changes or runtime execution authorized by this sketch request.
+
+
+## 2026-10-01 — essential-function preservation correction (supersedes compressed sketch)
+
+**Exact operator delta:** the sketch looks neat but removes important steps; retain Connect ROS, Propose Virtual Forehead + automatic Base placement, and automatically enable Base viewport dragging when unlocked with GUI status text. Replan to remove only nonessential/redundant items. Treat this as design correction under S6-LIVE-01 Priority0; it does not approve source/runtime changes or reopen closed S6-U-02 simulation work.
+
+**Correction to prior agent interpretation:** Connect was technically on an alternate view, but hiding that required setup action was poor discoverability. The sketch omitted the existing combined forehead/Base proposal and the required drag/lock presentation. A compact form is not accepted when capabilities vanish. Replace arbitrary minimization with a control-preservation ledger. Every active capability must have a named same-step destination before implementation; only demonstrably repeated presentations and obsolete/quarantined routine chrome may disappear. Moving a control into a named view/dialog is relocation, not deletion.
+
+### Revised placement and button contract
+
+| Owner | Direct surface / named view | Preserved controls and semantics |
+|---|---|---|
+| 6.1 common header | Always visible across Placement / Scene / Display | ROS connection status and explicit Connect ROS + MoveIt or Disconnect; remain the existing single owner. Offline robot loading never substitutes for connection. |
+| 6.1 Placement | Default view | Load / Reuse Local Robot; **Propose Virtual Forehead + Auto Base** (existing combined handler, one unreviewed proposal); Robot + CBCT Placement View; current virtual-forehead prior/freshness; Base lock state; Unlock Base; viewport translation/rotation status; local XYZ/RxRyRz nudges, translation/rotation steps, optional keyboard; Review Base, explicit Accept Base, Cancel Review and conditional Reconcile. No automatic Base acceptance. |
+| 6.1 Scene | One-click tab | Refresh Status, Audit + Sync Collision Surfaces, Check Accepted Robot, collision acknowledgement/failure, named Object Audit and Runtime Diagnostics. Connection stays visible above the view. |
+| 6.1 Display | One-click tab | Enable CBCT 3D Context and preset; Frame Case + Robot; named Visibility / Opacity dialog retains all CBCT/anatomy/accepted robot/goal robot/guides/mount/trajectory/forehead/collision-audit elements. |
+| 6.1 Base details/tools | Named dialog | Full accepted/candidate matrices/identities, Reset Base to World and Delete Robot Setup with existing explicit boundaries; critical recovery is on Placement when needed, not buried here. |
+| 6.2 Home | Default editor | Exact shared J1–J5 draft, slider/numeric, bounds and accepted comparison; Reset Draft to Current; current robot vs saved configuration vs staged Home labels; Review, Cancel and explicit offline Save Configuration / connected Accept & Validate; conditional Home Reconcile visible beside fault. Separate Plan + Apply Saved Home retained. |
+| 6.2 Details | Named dialog | Full current/configured/candidate vectors, limits, identity and validation evidence. No removal of states merely because a short summary replaces full prose. |
+| 6.3 common controls | Above active view | Explicit Edit Base (6.1) and Review Home (6.2) handoffs to the same owners; preserve draft and return context. No second Base/Home authority. |
+| 6.3 Manual Joints | Named view | Shared five-row editor, exact typed state, Reset Draft, Check Draft, Guarded Jog, accepted/guard/fault reason and conditional Jog Reconcile; keyboard enable and increment selector stay visible, full keys in named increment settings. |
+| 6.3 Manual TCP | Named view | World-RAS XYZ and pitch/yaw numeric target, axis translation/angular nudges, steps/keyboard, explicit TCP drag toggle, Solve Goal IK and result/staging. TCP drag remains separately opt-in; automatic Base handles do not auto-enable TCP. |
+| 6.3 Workspace & Limits | Named view | Incisor-centered editable ROI XYZ/dimensions, Use Incisor Midpoint, sample count, Generate / Refresh, Clear Workspace, Revalidate, Review Assisted Limits and evidence; named Joint Task Limits dialog retains five task min/max values, Apply, Reset to URDF and existing reset-joints operation. Manual and assisted limits remain distinct. |
+| 6.3 Task & Planning | Named view | Actual task prerequisites, immutable Confirm Task and identity; Check PreEntry IK and separate P1/P2/P3; Plan Guarded Approach and **Plan Drill Phase** remain distinct existing operations; insertion/preflight and full-chain result/blocker; Planner Settings and Inspect Motion Diagnostics. Do not replace them with a fictional single backend Plan Complete Route operation. |
+| 6.3 Diagnostics & Anatomy | Named view | Compare Three Planners, Cancel Comparison, Show Results; non-target tooth selection, Create Copy, Open Segment Editor, explicit artifact confirmation, Use Reviewed Proxy and Discard with policy/identity status. Historical template override remains expert/retired according to its existing gate, not routine baseline. |
+| 6.3 Records & Replay | Named view | Ordered requested/accepted/rejected/unknown history, Export, Import, Show, Clear, imported-event selection and Previous/Next, historical path/provenance/fault. Preserve exact existing clear/reset semantics; never treat replay as motion. |
+
+### Automatic Base viewport interaction requirement
+
+Source evidence: `logic_robot._applyRobotBaseMountInteractionState` sets translation/rotation/editor handles to `not locked`; `widget_robot_placement._setRobotTransformInteractionVisible` additionally requires `not robotStageActive`, suppressing handles in Step6. This conflicts with the desired 6.1 unlock behavior and means the new active status cannot be claimed as already verified in the integration checkout. Treat the operator's “as is rn” as an observation, retain it separately from this source finding. No runtime was inspected.
+
+Desired behavior: on an allowed 6.1 unlock/edit transition, show translation and rotation handles automatically and refresh the visible GUI text. Reuse the existing Base review owner/candidate matrix for both viewport and numeric/local-axis controls. Do not turn a raw transform edit into accepted Base authority. Confirm the interaction target before enabling: if current handles target the accepted transform rather than the detached candidate, first bind them to the existing review representation or specify the smallest owner change; do not bypass this by blindly removing `not robotStageActive`. No scale handles. On acceptance/lock, leaving placement, missing target, busy or uncertainty, disable handles as appropriate and explain the actual state.
+
+Visible text follows actual enabled interaction and permission, not lock bit alone:
+- `Base unlocked · viewport drag active` when permitted and target handles are active.
+- `Base locked · viewport drag off` after accepted locking.
+- `Base unlocked · drag unavailable: <reason>` if initialization/target is missing.
+- `Base outcome uncertain · drag blocked · Reconcile Base State` for an uncertain outcome.
+Keyboard nudge retains its existing explicit enable/focus rules. Editing/proposing never auto-connects, accepts, validates Home, synchronizes scene, confirms task or plans motion. The independent VirtualForeheadPriorV1/Case Foundation path is retained; circular legacy plane/snap remains quarantined.
+
+### What may actually be removed
+
+Repeated Base reconcile presentation; repeated full-pose/vector/status paragraphs whose facts remain in a compact state and Details; duplicate wrapper headings and stale step-number labels; disabled routine Legacy Plane/Flip/Snap rows (quarantine evidence remains in diagnostics); second visible robot-load entry only after checking both callers and establishing equivalent behavior. No removal of a unique action, readiness distinction, warning/fault, acceptance/recovery gate or existing engineering capability. In particular, shared Step3B/6.1 widgets are reuse, not redundant functionality to delete. Match every old active control to this ledger and its callback before a source diff.
+
+### Bounded implementation/acceptance proposal
+
+First review corrected sketch/control destinations. If authorized, reorganize existing widgets/native Qt views and dialogs, keeping indices and owners. Handle-status/target binding is a separately explicit interaction slice within S6-LIVE-01, not a cosmetic relabel. No planner/native/performance/geometry/tolerance policy changes. Static ledger and existing owner/navigation host checks first; then authorized serialized narrow render/interaction checks. Required cases: no robot, offline robot, connected, current/stale prior, locked, unlocked, staged/accepted/unknown Base, Home modes, all five joints, TCP draft, workspace/manual/assisted limits, task/phase diagnostics, records and return navigation. Verify automatic unlock handle activation/lock deactivation against actual target and accepted-state invariants, status correctness and cleanup. Tarun's verdict remains mandatory. Narrow-panel no-long-scroll goal remains: fixed common header/navigation with one replaced content view; avoid full-card stacks and nested scroll areas. No UI source change, ROS run, build or motion trial in this planning turn.
+
+Corrected inline sketch: /home/light-tarun/.codex/visualizations/2026/09/30/01a0f451-f099-7fa1-bf5e-35cc1c642257/step6-narrow-panel-sketch.html. Illustrative states/values and local interactions only; it does not establish native fit or interaction success. It replaces the preceding incomplete sketch as the current proposal, not a separate queue.
+
+## 2026-10-01 — continuity review of the corrected sketch (current design recommendation)
+
+Operator asks for a review/improvement focused on UI/UX, flow, continuity and appropriate distribution across all three steps. This refines the preceding preservation ledger; it does not authorize implementation or remove any retained capability. The existing HTML remains an earlier illustrative sketch and is not yet an executable specification of this recommendation.
+
+### Concrete review findings
+
+1. Review/Accept is duplicated between page buttons and the generic modal; the mock acceptance does not update the disabled page Accept button or context summary. Use one inline review mode in the existing editor region. Review freezes/displays the exact candidate and replaces the local action row with Back to Edit / Accept; retain Cancel Review. Returning to edit invalidates the staged review using existing semantics. Uncertain state replaces acceptance with attributed reconciliation. Details may open separately, but never supplies a second acceptance control.
+2. Top back arrows duplicate bottom navigation. Reuse one existing stage navigator and one labelled bottom Back / Next pair; omit the extra local back arrow. Navigation never silently accepts, publishes or changes runtime state. Screen access and operation readiness remain distinct under existing navigation policy; do not invent navigation locks from planner readiness.
+3. The six-option 6.3 dropdown hides tools and mixes frequent control, setup, diagnostics and history. Recommend three stable primary native tabs: Manual / Workspace / Plan. Manual contains Joints / TCP input selection. Records is a named tool available from Manual; Plan exposes named Diagnostics, Planner Comparison and Anatomy Review tools. Those tools replace the content in place with a labelled return, preserving their full existing controls. Display/appearance is a named modeless tool; it must remain usable while interacting with the viewport.
+4. Always-visible Base and Home edit buttons consume a full row even when unused. Use compact clickable Base/Home context summaries; show explicit Review Draft as Home beside the manual candidate actions when relevant. A status link names its destination and carries return context. Every preserved capability still has a visible named entry point; do not relegate it to an anonymous More menu.
+5. The sketch is a minimum-height composition, not evidence of fitting Slicer's actual usable module height. Use one content region bounded by available space, keep all five joint rows together, avoid growing accordion stacks and nested scroll areas, and measure actual Qt font/scale. Proposed design target320–360px wide and about600–680px usable high is provisional. A short-window/accessibility fallback must remain usable rather than clip or shrink essential text.
+6. Existing numerical demo ranges and zero ROI center are illustrative and must never be copied as robot defaults. Fixed connected/accepted labels conflict between screens and do not model a single session. The next mockup must drive visible status and actions from a coherent local example state with missing/offline/connected/edit/review/accepted/stale/unknown cases, and must show blocked reasons. No test count proves native usability.
+7. Misleading composite labels need correction: Clear Display / Record combines different scopes; map its exact existing handler and label one specific effect. Increments descriptions must match actual global vs per-joint implementation. Task & Planning must retain separate approach/drill operations. Workspace requirement must be projected from the current contract/capability result, not imposed by the mockup because a cloud is absent.
+
+### Recommended three-step flow
+
+**6.1 Robot Setup:** shared compact case/target/runtime context; Connect ROS + MoveIt remains a direct visible action, Disconnect a lower-emphasis explicit connected-state action. Default Placement view shows Load/Reuse Robot when needed, Propose Virtual Forehead + Auto Base, Frame Robot + CBCT, virtual-prior freshness, Base lock/actual drag state, precision controls and one inline review/accept/recovery area. Completed setup condenses to its result with labelled Modify/Re-propose access, not deleted functionality. Scene tab contains audit/sync/current-state check. Named Display tool contains full opacity/preset controls and remains modeless for viewport use. Existing Step3B mirror shares the same widgets/allocation. Connect availability follows existing prerequisites; this layout does not mandate a new connect-before-placement order.
+
+**6.2 Task Home:** saved Home/live validation summary plus exact five-joint editor, accepted comparison and Reset Draft. Inline Edit→Review→explicit Save Configuration offline or Accept & Validate connected→result, with Cancel/reconcile as required. Plan + Apply remains a distinct labelled simulation operation. Bottom navigation says Workbench; no automatic apply on acceptance or continuation.
+
+**6.3 Workbench & Planning:** three visible tabs Manual / Workspace / Plan. Manual has Joints / TCP controls; preserve separate joint draft and TCP goal and explicit existing IK staging rather than treating tabs as automatic conversion. Records/Replay stays one named click away and shows ordered history; an active historical display or proxy is announced in common context. Workspace retains all ROI, sample, generate/clear, revalidate and manual/assisted-limit controls. Plan starts with an actual prerequisite summary and explicit immutable task confirmation, then separate approach/drill actions and phase result rows. P1/P2/P3/IK diagnostic requests, settings/comparison/cancel/results and anatomy review remain available through named diagnostic views. Full-chain result controls preview eligibility. Do not make manual experimentation a mandatory prerequisite for planning or impose new workspace policy.
+
+### Continuity and button rules
+
+- On normal entry show the next unmet setup requirement; within the same session remember the user's selected tab/tool. Do not steal focus or switch tab on every status refresh.
+- Edit Base/Home from 6.3 records origin view, exact draft/TCP goal and displayed results. Show Return to Manual / Return to Plan after the edit. Do not create a second state database; reuse existing state and a small navigation return marker.
+- Base/Home/scene edits expose actual invalidation results: e.g. Home requires validation, workspace stale, task needs reconfirmation, previous plan stale. Retain evidence for inspection; no automatic replay/revalidation/replanning. Proposed destructive invalidation warning appears before the relevant explicit action, not on every harmless tab change.
+- Review mode must keep candidate and scene simultaneously inspectable. In-place candidate summary and action row; full matrices/details separate. Auto-place, viewport drag, precision nudge and numeric edits converge on the same existing Base candidate. Required drag state/target correction remains separately scoped from layout.
+- Local action row has stable positions: secondary/cancel/back-to-edit left, primary review/accept/jog/plan right. This is per active task, not a universal morphing button spanning unrelated authority domains. Navigation row is separate and visually quieter. The connection control stays distinguishable from motion actions.
+- One concise result/blocker is adjacent to affected actions; full evidence is reachable. Cross-view blocking faults also appear in common context with their owner link. Do not truncate the only failure explanation into a tooltip. Keep ROS disconnected, Base unlocked, saved Home unvalidated and uncertain outcomes distinguishable.
+- Long-running operations keep progress and supported cancellation visible; disable only conflicting actions and label cancellation according to actual backend guarantee. Do not add cancellation to handlers that do not support it.
+
+### Next design acceptance gate
+
+Before source implementation, replace the older static happy-path mock with a single coherent walkthrough: new/offline setup→load/propose→unlock/drag/nudge→review/accept→connect/audit per existing readiness→Home review/accept→manual or workspace/planning. Include a return-to-Base edit with truthful downstream staleness and an unknown-outcome recovery example. Check each existing ledger action has a visible named destination. Review at320/360px, normal/large font and constrained height. These are proposed mock/GUI acceptance cases, not authorization to execute Slicer/ROS/motion. Preserve all existing state, policy and runtime gates; stop for Tarun's verdict at authorized native demonstrations.
+
+## 2026-10-01 — coherent three-step interaction sketch
+
+The requested replacement sketch is `/home/light-tarun/dentobot/data/visualizations/step6-continuity-sketch.html`. It is one narrow Slicer-style module beside a shared viewport, with one active step at a time and a scenario selector for offline, connected-ready, Base review, Base uncertainty, Home review, downstream staleness and plan-blocked conditions. It is a design artifact, not runtime evidence.
+
+The sketch implements the complete destination ledger above rather than a minimal subset. 6.1 retains direct ROS connection, robot load/reuse, virtual-forehead plus automatic-Base proposal, Robot+CBCT framing, prior freshness, actual Base drag/lock status, precision/keyboard editing, inline review/accept/reconcile, Scene actions and the full modeless Display inventory. 6.2 keeps all five named joint rows visible, separates offline Save from connected Accept & Validate, retains comparison/reconcile and keeps Plan+Apply distinct. 6.3 exposes Manual/Workspace/Plan together, Joints/TCP beneath Manual, Records as a named tool, complete ROI/sampling/manual/assisted-limit controls, immutable task confirmation, separate endpoint checks and separate approach/drill plans, plus named settings/diagnostics/comparison/anatomy tools.
+
+Cross-step handoffs preserve an explicit return target. Accepting a changed Base demonstrates downstream Home/workspace/task/route staleness without automatic replay. Base uncertainty blocks viewport editing and exposes Reconcile. The routine surface omits only duplicate acceptance/navigation, repeated prose and quarantined Legacy Plane/Flip/Snap controls. Reset/Delete remain in named Setup Tools; full evidence remains reachable beside the owning fault. All displayed values are illustrative.
+
+Structural verification parsed the embedded JavaScript, found 48 unique element IDs, checked 17 required labels/conditions, and confirmed fragment-only/no-fetch constraints (`fragment_ok`, 46,847 bytes). This does not establish Qt sizing, large-font accessibility, candidate-handle targeting, native rendering or operator acceptance. Those remain the next gate before source implementation.
+
+## 2026-10-01 — approved 6.1–6.3 continuity implementation
+
+Tarun approved implementation of 6.1 and 6.2, then explicitly approved 6.3 after review. The integrated source now implements the accepted ownership and continuity model without changing robot, planner, collision, tolerance or command policy:
+
+- 6.1 uses Placement and Scene views, keeps direct ROS/MoveIt access and the virtual-forehead/automatic-Base flow, exposes named Display and Setup tools, and binds viewport manipulation to the detached Base candidate while reporting the actual drag/lock state.
+- 6.2 presents one compact five-row J1–J5 Home editor with stable IDs/units, accepted comparisons, explicit review/cancel/accept/reconcile and separate Plan + Apply behavior.
+- 6.3 presents visible Manual, Workspace and Plan tabs. Manual contains Joints/TCP plus Records & Replay; Workspace contains Samples, ROI & Assisted Limits and Joint Limits; Plan contains confirmation, separate Approach/Drill and named Planner Comparison/Anatomy Review tools. Secondary complete groups are removed from the main layout until their modeless tool opens. Base/Home owner handoffs preserve and restore the originating 6.3 tab.
+
+Existing callbacks and state records remain authoritative. Tool dialogs close outside 6.3; TCP drag disables when its active view is left. Quarantined Legacy Plane/Flip/Snap rows remain absent from routine operation.
+
+Source and host acceptance: the focused tab/handoff/UI suite passed 411 tests; the final Step 6 selection passed 565 tests; changed Python sources compile; scoped `git diff --check` passes. A real Slicer Qt headless encapsulation sequence passed 6.1→6.2→6.3→Base return→6.3→Home return→6.3 with preserved draft and unchanged authority fields. No robot hardware or physical motion ran.
+
+The case-bound changed-Base/Home repeatability verdict remains open. Three serialized attempts exposed headed-runner assumptions rather than a demonstrated product-state failure: r1 used the removed legacy load control, r2 required mutually exclusive Base actions simultaneously, and r3 reached connected collision-scene acknowledgement before trying a Workspace ROI control while Manual remained selected. The source runner now selects the owning 6.3 tab before each action and has a focused regression test, but the verification protocol's three-attempt ceiling prevents a fourth campaign in this turn. The next fresh authorized campaign must complete changed Base and Home adjustment, acceptance/reconfirmation and a second repetition without stale state; Tarun's manual rendered verdict remains mandatory.

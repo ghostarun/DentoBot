@@ -43,6 +43,7 @@ usage() {
     "" \
     "Machine configuration: ${workspace_config}" \
     "Template: ${repository_root}/Workspace/.dentobot.env.example" \
+    "Graphics: DENTOBOT_GRAPHICS_MODE=auto|mesa|wslg|nvidia" \
     "" \
     "--check-only  Verify Compose, the backend, and module files without" \
     "              opening a GUI." \
@@ -95,6 +96,7 @@ host_x11_user="$(id -un)"
 slicer_home_dir="${workspace_root}/slicer-home"
 legacy_slicer_user_dir="${workspace_root}/slicer-user"
 compose_wslg_file="${repository_root}/Workspace/compose.wslg.yaml"
+compose_nvidia_file="${repository_root}/Workspace/compose.nvidia.yaml"
 compose_cuda_file="${repository_root}/Workspace/compose.cuda.yaml"
 
 if [[ ${graphics_mode} == "auto" ]]; then
@@ -106,10 +108,11 @@ if [[ ${graphics_mode} == "auto" ]]; then
     graphics_mode="missing"
   fi
 fi
-if [[ ${graphics_mode} != "mesa" && ${graphics_mode} != "wslg" ]]; then
+if [[ ${graphics_mode} != "mesa" && ${graphics_mode} != "wslg" && \
+      ${graphics_mode} != "nvidia" ]]; then
   printf '%s\n' \
     "Unsupported DENTOBOT_GRAPHICS_MODE=${graphics_mode}." \
-    'Use mesa (Intel/AMD /dev/dri render node), wslg (Windows lab), or auto.' >&2
+    'Use mesa, wslg, nvidia (native Ubuntu NVIDIA), or auto.' >&2
   exit 2
 fi
 if [[ -z ${backend_python} ]]; then
@@ -359,11 +362,51 @@ ensure_docker_daemon() {
   fi
 }
 
+check_nvidia_graphics_prerequisites() {
+  local gpu_summary docker_runtimes
+  if ! command -v timeout >/dev/null 2>&1; then
+    printf '%s\n' 'Native Ubuntu NVIDIA graphics checks require the timeout command.' >&2
+    exit 2
+  fi
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    printf '%s\n' \
+      'Native Ubuntu NVIDIA graphics mode requires the host nvidia-smi command.' \
+      'Install the host NVIDIA driver, or select Mesa/auto.' >&2
+    exit 2
+  fi
+  if ! gpu_summary="$(timeout 10s nvidia-smi \
+    --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>/dev/null)" || \
+      [[ -z ${gpu_summary//[[:space:]]/} ]]; then
+    printf '%s\n' \
+      'Host NVIDIA driver is unavailable or not responding.' \
+      'Run nvidia-smi on the host and resolve the driver before selecting DENTOBOT_GRAPHICS_MODE=nvidia.' >&2
+    exit 2
+  fi
+  if ! docker_runtimes="$(timeout 10s docker info \
+    --format '{{range $name, $runtime := .Runtimes}}{{println $name}}{{end}}' \
+    2>/dev/null)"; then
+    printf '%s\n' \
+      'Could not read Docker runtimes within 10 seconds.' \
+      'Confirm the Docker daemon is healthy, then retry.' >&2
+    exit 2
+  fi
+  if ! grep -Fxq 'nvidia' <<<"${docker_runtimes}"; then
+    printf '%s\n' \
+      'Docker does not list the NVIDIA runtime.' \
+      'Configure NVIDIA Container Toolkit for this Docker daemon, then retry.' >&2
+    exit 2
+  fi
+  printf '%s\n' 'Host NVIDIA GPUs (name, driver, memory):' "${gpu_summary}"
+}
+
 if ! command -v docker >/dev/null 2>&1; then
   printf 'Required command is unavailable: docker\n' >&2
   exit 2
 fi
 ensure_docker_daemon
+if [[ ${graphics_mode} == "nvidia" ]]; then
+  check_nvidia_graphics_prerequisites
+fi
 if [[ ! -x ${backend_python} ]]; then
   printf '%s\n' \
     "The dentobot Conda environment has no Python: ${backend_python}" \
@@ -384,6 +427,21 @@ if [[ ${graphics_mode} == "wslg" ]]; then
   printf '%s\n' \
     'Graphics mode: wslg (no /dev/dri render node).' \
     'GUI is for functional checks only; treat rendering like CRD/llvmpipe.'
+fi
+if [[ ${graphics_mode} == "nvidia" ]]; then
+  if [[ ! -f ${compose_nvidia_file} ]]; then
+    printf 'NVIDIA graphics Compose override is missing: %s\n' \
+      "${compose_nvidia_file}" >&2
+    exit 2
+  fi
+  if [[ ! -f ${compose_cuda_file} ]]; then
+    printf 'NVIDIA GPU Compose override is missing: %s\n' \
+      "${compose_cuda_file}" >&2
+    exit 2
+  fi
+  printf '%s\n' \
+    'Graphics mode: nvidia (explicit native Ubuntu NVIDIA OpenGL).' \
+    'Container device visibility will be checked; this does not verify OpenGL acceleration.'
 fi
 
 if ! "${backend_python}" -c "${backend_dependency_probe}" \
@@ -408,8 +466,12 @@ compose_command=(
 if [[ ${graphics_mode} == "wslg" ]]; then
   compose_command+=(-f "${compose_wslg_file}")
 fi
-if [[ ${backend_device} == "cuda:0" ]]; then
+if [[ ${graphics_mode} == "nvidia" ]]; then
+  compose_command+=(-f "${compose_nvidia_file}" -f "${compose_cuda_file}")
+elif [[ ${backend_device} == "cuda:0" ]]; then
   compose_command+=(-f "${compose_cuda_file}")
+fi
+if [[ ${backend_device} == "cuda:0" ]]; then
   printf '%s\n' \
     'Backend device: cuda:0 (NVIDIA GPU requested for container inference).'
 fi
@@ -479,7 +541,7 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
 else
   container_needs_recreate=true
 fi
-if [[ ${backend_device} == "cuda:0" ]]; then
+if [[ ${backend_device} == "cuda:0" || ${graphics_mode} == "nvidia" ]]; then
   printf '%s\n' \
     'Recreating the container so NVIDIA GPU device requests are applied...'
   container_needs_recreate=true
@@ -490,6 +552,21 @@ else
   "${compose_command[@]}" up -d
 fi
 reclaim_bind_mount_ownership
+
+if [[ ${graphics_mode} == "nvidia" ]]; then
+  if ! container_nvidia_devices="$(timeout 10s docker exec \
+    "${container_name}" nvidia-smi -L 2>/dev/null)" || \
+      [[ -z ${container_nvidia_devices//[[:space:]]/} ]]; then
+    printf '%s\n' \
+      'NVIDIA graphics was selected, but the container cannot access a GPU through its NVIDIA runtime.' \
+      'Review NVIDIA Container Toolkit configuration and the container device request.' >&2
+    exit 2
+  fi
+  printf '%s\n' \
+    'Container NVIDIA GPU devices are visible:' \
+    "${container_nvidia_devices}" \
+    'This check does not verify Slicer OpenGL acceleration.'
+fi
 
 container_runtime_user="$(
   docker inspect --format '{{.Config.User}}' "${container_name}"
@@ -681,10 +758,22 @@ docker_exec_options=()
 if [[ -t 0 && -t 1 ]]; then
   docker_exec_options=(-it)
 fi
+watchdog_metadata_pair="$(
+  python3 "${repository_root}/Workspace/scripts/dentobot-resource-watchdog.py" \
+    --metadata-once --source-root "${repository_root}" --slicer-version 5.10
+)"
+IFS=$'\t' read -r DENTOBOT_WATCHDOG_SESSION_ID DENTOBOT_WATCHDOG_METADATA \
+  <<<"${watchdog_metadata_pair}"
+if [[ -z ${DENTOBOT_WATCHDOG_SESSION_ID} || -z ${DENTOBOT_WATCHDOG_METADATA} ]]; then
+  printf '%s\n' 'Could not prepare the DENTO watchdog session metadata.' >&2
+  exit 2
+fi
 docker_exec_env=(
   -e "DISPLAY=${DISPLAY}"
   -e "DENTOBOT_BACKEND_SOURCE=${backend_source}"
   -e "DENTOBOT_CONTAINER_REPOSITORY_ROOT=${container_repository_root}"
+  -e "DENTOBOT_WATCHDOG_SESSION_ID=${DENTOBOT_WATCHDOG_SESSION_ID}"
+  -e "DENTOBOT_WATCHDOG_METADATA=${DENTOBOT_WATCHDOG_METADATA}"
   -e "DENTOBOT_SLICER_MODULE_PATHS=${slicer_module_paths}"
   -e "DENTOBOT_DIAGNOSTIC_NO_SPINDLE_COLLISION=${diagnostic_no_spindle_collision}"
   -e "PYTHONNOUSERSITE=1"

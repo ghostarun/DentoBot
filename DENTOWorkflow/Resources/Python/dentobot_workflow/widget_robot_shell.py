@@ -46,6 +46,8 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 "cancel_manual_base_review": self._onStep6CancelManualBaseReview,
                 "reconcile_manual_base": self._onStep6ReconcileManualBaseAcceptance,
                 "appearance_changed": self._onStep6AppearanceChanged,
+                "reset_base": self.onResetRobotBase,
+                "delete_setup": self.onDeleteRobotSetup,
                 "review_task_home": self._onStep6ReviewManualTaskHome,
                 "cancel_task_home_review": self._onStep6CancelManualTaskHomeReview,
                 "accept_task_home_review": self._onStep6AcceptManualTaskHomeReview,
@@ -89,6 +91,12 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 "return_home": self._onStep6ReturnHome,
             },
         )
+        self._robotSimulationPanel.configureStep63Workbench(
+            self.ui.robotPlacementCollapsibleButton,
+            self.ui.step6TaskJointLimitsGroupBox,
+            self.ui.step6WorkspaceGroupBox,
+            self._configureRobotSimulationShellSubstep,
+        )
         self._setupStep6SubstepNavigator()
         self._setupStep3SubstepNavigator()
         self._step61PlacementMirrorStatusLabel = qt.QLabel(
@@ -112,32 +120,45 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
             self._robotSimulationPanel.homeGroup
         )
         self.ui.robotPlacementVerticalLayout.addWidget(
-            self._robotSimulationPanel.workspaceReviewGroup
-        )
-        self.ui.robotPlacementVerticalLayout.addWidget(
             self._robotSimulationPanel.runtimeGroup
-        )
-        self.ui.robotPlacementVerticalLayout.addWidget(
-            self._robotSimulationPanel.confirmationGroup
-        )
-        self.ui.robotPlacementVerticalLayout.addWidget(
-            self._robotSimulationPanel.goalGroup
-        )
-        self.ui.robotPlacementVerticalLayout.addWidget(
-            self._robotSimulationPanel.manualJogGroup
         )
         self.ui.robotPlacementVerticalLayout.addWidget(
             self._robotSimulationPanel.collisionGroup
         )
         self.ui.robotPlacementVerticalLayout.addWidget(
-            self._robotSimulationPanel.approachGroup
-        )
-        self.ui.robotPlacementVerticalLayout.addWidget(
-            self._robotSimulationPanel.drillingGroup
+            self._robotSimulationPanel.workbenchGroup
         )
         self.ui.robotPlacementVerticalLayout.addWidget(
             self._robotSimulationPanel.previewControlGroup
         )
+        panel = self._robotSimulationPanel
+        panel.visualizationGroup.layout().insertWidget(1, panel.runtimeGroup)
+        panel.step61PlacementLayout.insertWidget(3, self.ui.step6MountLockGroupBox)
+        panel.step61SceneLayout.addWidget(panel.collisionGroup)
+        panel.collisionGroup.layout().addWidget(panel.openExpertDiagnosticsButton)
+        panel.manualBaseReviewButtonsLayout.addWidget(
+            self.ui.unlockRobotBaseMountButton
+        )
+        panel.manualBaseReviewButtonsLayout.addWidget(
+            self.ui.lockRobotBaseMountButton
+        )
+        for widget in (
+            self.ui.step6MountLockDescriptionLabel,
+            self.ui.step6MountContainmentWarningLabel,
+            self.ui.robotBaseTransformLabel,
+            self.ui.robotBaseTransformSelector,
+            self.ui.robotMountPlaneLabel,
+            self.ui.robotMountPlaneSelector,
+            self.ui.createRobotMountPlaneButton,
+            self.ui.flipRobotMountPlaneButton,
+            self.ui.snapRobotBaseToPlaneButton,
+            self.ui.resetRobotBaseButton,
+            self.ui.deleteRobotSetupButton,
+            self.ui.step6FallbackRobotGroupBox,
+        ):
+            widget.hide()
+        self.ui.step6MountLockGroupBox.title = _("Base placement")
+        self.ui.robotFinePlacementGroupBox.title = _("Precision Base nudge")
         self.ui.robotPlacementCollapsibleButton.text = _(
             "Step 6 — Native Placement-to-Task Simulation"
         )
@@ -145,9 +166,6 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
             "Validate the case, place the local robot in CBCT context, connect "
             "ROS/MoveIt, save a live-validated Task Home, review workspace-assisted limits, confirm "
             "one immutable task, then preview guarded approach and drilling phases."
-        )
-        self.ui.step6MountLockGroupBox.title = _(
-            "6.1A — Offline Robot Preview and Manual Simulation Base"
         )
         self.ui.step6MountLockDescriptionLabel.text = _(
             "Review and nudge a detached numeric Base candidate in world RAS. "
@@ -165,7 +183,7 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
         )
         self.ui.unlockRobotBaseMountButton.text = _("Unlock Accepted Base")
         self._robotSimulationPanel.runtimeGroup.title = _(
-            "6.1B — Connect ROS + MoveIt"
+            "ROS + MoveIt"
         )
         self.ui.step6TaskJointLimitsGroupBox.title = _(
             "6.2 — Live Joint State for Task Home"
@@ -1382,36 +1400,17 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
         finally:
             self._updatingStep6SubstepNavigation = False
         panel = self._robotSimulationPanel
-        controls = panel.manualJogControlsGroup
-        if index == 2 and not panel._manualJogControlsInHomeGroup:
-            panel.manualJogGroup.layout().removeWidget(controls)
-            controls.setParent(panel.homeGroup)
-            controls.show()
-            panel.homeGroup.layout().insertWidget(1, controls)
-            panel._manualJogControlsInHomeGroup = True
-        elif index != 2 and panel._manualJogControlsInHomeGroup:
-            panel.homeGroup.layout().removeWidget(controls)
-            controls.setParent(panel.manualJogGroup)
-            controls.show()
-            panel.manualJogGroup.layout().insertWidget(2, controls)
-            panel._manualJogControlsInHomeGroup = False
+        panel._manualJogControlsInHomeGroup = index == 2
         panel._updateManualJogResetLabel()
         groups = (
             self.ui.step6PlanningContextGroupBox,
             self.ui.step6MountLockGroupBox,
-            self.ui.step6TaskJointLimitsGroupBox,
-            self.ui.step6WorkspaceGroupBox,
             self.ui.step6TrajectoryPlanningGroupBox,
             self._robotSimulationPanel.runtimeGroup,
-            self._robotSimulationPanel.confirmationGroup,
-            self._robotSimulationPanel.goalGroup,
-            self._robotSimulationPanel.manualJogGroup,
             self._robotSimulationPanel.collisionGroup,
             self._robotSimulationPanel.visualizationGroup,
             self._robotSimulationPanel.homeGroup,
-            self._robotSimulationPanel.workspaceReviewGroup,
-            self._robotSimulationPanel.approachGroup,
-            self._robotSimulationPanel.drillingGroup,
+            self._robotSimulationPanel.workbenchGroup,
             self._robotSimulationPanel.previewControlGroup,
         )
         for group in groups:
@@ -1428,15 +1427,7 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 self._robotSimulationPanel.homeGroup,
             ),
             3: (
-                self.ui.step6TaskJointLimitsGroupBox,
-                self.ui.step6WorkspaceGroupBox,
-                self._robotSimulationPanel.homeGroup,
-                self._robotSimulationPanel.workspaceReviewGroup,
-                self._robotSimulationPanel.confirmationGroup,
-                self._robotSimulationPanel.goalGroup,
-                self._robotSimulationPanel.manualJogGroup,
-                self._robotSimulationPanel.approachGroup,
-                self._robotSimulationPanel.drillingGroup,
+                self._robotSimulationPanel.workbenchGroup,
             ),
             4: (self._robotSimulationPanel.previewControlGroup,),
         }
@@ -1448,6 +1439,11 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
         if self._step61PlacementMirrorStatusLabel is not None:
             self._step61PlacementMirrorStatusLabel.visible = index == 1
         self._syncOfflinePlacementHost()
+        self._setRobotTransformInteractionVisible(
+            self._isOfflinePlacementSurfaceActive()
+        )
+        if index == 1:
+            qt.QTimer.singleShot(0, self._ensureStep61BaseEditCandidate)
         shellActive = bool(self._applicationShell and self._applicationShell.active)
         if self._step6SubstepNavigator is not None:
             self._step6SubstepNavigator.visible = not shellActive
@@ -1478,10 +1474,7 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
     def _offlinePlacementWidgets(self) -> tuple:
         if not self._robotSimulationPanel:
             return ()
-        return (
-            self._robotSimulationPanel.visualizationGroup,
-            self.ui.step6MountLockGroupBox,
-        )
+        return (self._robotSimulationPanel.visualizationGroup,)
 
     def _reparentOfflinePlacementWidgets(self, layout, *, visible: bool) -> None:
         for widget in self._offlinePlacementWidgets():
@@ -1502,11 +1495,16 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
             if self._step3BContinueButton is not None:
                 host_layout.addWidget(self._step3BContinueButton)
             self._robotSimulationPanel.setPlacementSurfaceActive(True)
+            self._robotSimulationPanel.runtimeGroup.visible = False
+            self._robotSimulationPanel.collisionGroup.visible = False
+            self._robotSimulationPanel.step61TabWidget.currentIndex = 0
+            self._robotSimulationPanel.step61TabWidget.setTabEnabled(1, False)
             self._offlinePlacementAttachedToStep3B = True
         else:
             layout = self.ui.robotPlacementVerticalLayout
             self._reparentOfflinePlacementWidgets(layout, visible=self._isStep61Active())
             self._robotSimulationPanel.setPlacementSurfaceActive(self._isStep61Active())
+            self._robotSimulationPanel.step61TabWidget.setTabEnabled(1, True)
             self._offlinePlacementAttachedToStep3B = False
             if self._step61PlacementMirrorStatusLabel is not None:
                 self._step61PlacementMirrorStatusLabel.visible = self._isStep61Active()

@@ -73,6 +73,7 @@ def _run_handoff(tmp_path: Path, **extra_env: str) -> subprocess.CompletedProces
         {
             "PATH": f"{stub_dir}:/usr/bin:/bin",
             "DENTOBOT_STUB_LOG": str(stub_log),
+            "DENTOBOT_RUN_ARTIFACT_ROOT": str(tmp_path / "artifacts"),
             "DENTOBOT_STUB_READY": "true",
             "DENTOBOT_STUB_READINESS_RC": "0",
             "DENTOBOT_STUB_DIAGNOSTIC_RC": "0",
@@ -113,7 +114,9 @@ def test_ready_status_reaches_slicer_and_cleans_own_stack(tmp_path):
 
     assert result.returncode == 0, result.stderr
     lines = _stdout_lines(result)
-    stages = [line.split()[1].split("=", 1)[1] for line in lines]
+    all_stages = [line.split()[1].split("=", 1)[1] for line in lines]
+    assert all_stages[0] == "resource_watchdog_started"
+    stages = [stage for stage in all_stages if stage != "resource_watchdog_started"]
     assert stages[:7] == [
         "stack_start",
         "stack_started",

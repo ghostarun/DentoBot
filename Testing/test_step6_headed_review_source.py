@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 
 import pytest
+from types import SimpleNamespace
 import step6_manual_jog_scenarios as manual_jog_scenarios
 
 
@@ -24,9 +25,37 @@ JOINT_NAMES = ("J1", "J2", "J3", "J4", "J5")
 
 def test_manual_workbench_uses_visible_step6_substep():
     shell = (RUNNER.parent.parent / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_robot_shell.py").read_text(encoding="utf-8")
-    assert "3: (" in shell and "self._robotSimulationPanel.manualJogGroup," in shell
+    panel = (RUNNER.parent.parent / "DENTOWorkflow/Resources/Python/DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
+    assert "3: (" in shell and "self._robotSimulationPanel.workbenchGroup," in shell
+    assert 'self.step63ManualTabWidget.addTab(self.manualJogGroup, "Joints")' in panel
     assert "_configureRobotSimulationShellSubstep(5)" not in SOURCE
     assert SOURCE.count("_configureRobotSimulationShellSubstep(3)") >= 3
+
+
+def test_step63_runner_selects_each_visible_control_surface():
+    calls = []
+    show = _extract_helper(
+        "_show_step63_view",
+        {"_process_events": lambda delay: calls.append(delay)},
+    )
+    tab = lambda: type("Tab", (), {"currentIndex": -1})()
+    panel = type("Panel", (), {
+        "step63TabWidget": tab(),
+        "step63ManualTabWidget": tab(),
+        "step63WorkspaceTabWidget": tab(),
+        "step63PlanTabWidget": tab(),
+    })()
+
+    show(panel, 0, 1)
+    assert (panel.step63TabWidget.currentIndex,
+            panel.step63ManualTabWidget.currentIndex) == (0, 1)
+    show(panel, 1, 2)
+    assert (panel.step63TabWidget.currentIndex,
+            panel.step63WorkspaceTabWidget.currentIndex) == (1, 2)
+    show(panel, 2, 0)
+    assert (panel.step63TabWidget.currentIndex,
+            panel.step63PlanTabWidget.currentIndex) == (2, 0)
+    assert calls == [0.1, 0.1, 0.1]
 
 
 def _extract_helper(name, extra_globals=None):
@@ -192,14 +221,32 @@ def _calls(tree):
     ]
 
 
+def _is_guarded_click(node, button_expression):
+    """Match ``_modal_guarded_click(report, evidence_dir, run_id, <button>, stage)``."""
+    return (
+        isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "_modal_guarded_click"
+        and len(node.args) >= 4
+        and ast.unparse(node.args[3]) == button_expression
+    )
+
+
 def _button_clicks(tree, button_name):
     return [
         node for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "click"
-        and isinstance(node.func.value, ast.Attribute)
-        and node.func.value.attr == button_name
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "click"
+            and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr == button_name
+        ) or (
+            isinstance(node, ast.Call)
+            and ast.unparse(node.func) == "_modal_guarded_click"
+            and len(node.args) >= 4
+            and isinstance(node.args[3], ast.Attribute)
+            and node.args[3].attr == button_name
+        )
     ]
 
 
@@ -1334,9 +1381,7 @@ def test_workspace_review_uses_production_refresh_and_persists_last_boundary():
                   if isinstance(node, ast.FunctionDef)
                   and node.name == "_ensure_current_home_workspace_task")
     generation = next(node for node in ast.walk(ensure)
-                      if isinstance(node, ast.Call)
-                      and ast.unparse(node.func)
-                      == "widget.ui.generateRobotWorkspaceButton.click")
+                      if _is_guarded_click(node, "widget.ui.generateRobotWorkspaceButton"))
     review = next(node for node in ast.walk(ensure)
                   if isinstance(node, ast.Call)
                   and ast.unparse(node.func) == "panel.reviewLimitsButton.click")
@@ -1486,8 +1531,7 @@ def test_migration_roi_recovery_uses_visible_production_source_control():
     assert evidence_validation.end_lineno < capture.lineno
     assert capture.lineno < next(
         node.lineno for node in ast.walk(ensure)
-        if isinstance(node, ast.Call)
-        and ast.unparse(node.func) == "widget.ui.generateRobotWorkspaceButton.click"
+        if _is_guarded_click(node, "widget.ui.generateRobotWorkspaceButton")
     )
     assert "_taskSpaceRoiOpeningRevision" in source
     assert "_taskSpaceRoiGapLineNodeId" in source
@@ -1592,7 +1636,8 @@ def test_opt_in_acceptance_verifies_base_home_owners_and_stops_on_first_failure(
         "base_acceptance_owner = widget.ui.lockRobotBaseMountButton",
         "base_acceptance_owner.click()",
         "_same_matrix(base_acceptance_stage_details.get('candidateMatrixWorldRasMm'), base_matrix)",
-        "_same_matrix(base_after_details.get('acceptedMatrixWorldRasMm'), base_matrix)",
+        "expected_accept_matrix = list(base_matrix)",
+        "_same_matrix(base_after_details.get('acceptedMatrixWorldRasMm'), expected_accept_matrix)",
         "not bool(parameter_node.robotBaseMountLocked)",
         "scene_ack_after_base_accept.get('status') != 'Acknowledged'",
         "scene_after_base_accept['source_object_ids'] != scene_after_base_accept['acknowledged_object_ids']",
@@ -2174,7 +2219,7 @@ def test_production_robot_and_planning_context_prerequisites_precede_connect():
         and node.func.attr == "click"
     )
     button_order = [target for _line, target in clicks]
-    robot = "widget.ui.loadRobotModelButton"
+    robot = "panel.loadFallbackButton"
     context = "widget.ui.importStep6PlanningContextButton"
     connect = "panel.connectButton"
     assert button_order.count(robot) == 1
@@ -2878,3 +2923,72 @@ def test_before_planning_recovery_is_required_when_home_or_workspace_is_stale():
             },
         )
         assert actual is expected
+
+
+def test_workspace_and_preentry_clicks_fail_fast_on_modal():
+    source = ast.unparse(TREE)
+    ensure = next(node for node in TREE.body
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == "_ensure_current_home_workspace_task")
+    assert not any(
+        isinstance(node, ast.Call)
+        and ast.unparse(node.func) == "widget.ui.generateRobotWorkspaceButton.click"
+        for node in ast.walk(ensure)
+    )
+    assert any(_is_guarded_click(node, "panel.checkPreEntryIKButton") for node in ast.walk(TREE))
+    assert "panel.checkPreEntryIKButton.click()" not in source
+    assert "click_guard=lambda button, name: _modal_guarded_click(" in source
+    assert "except UnexpectedModalError" in source
+
+
+def _base_offset_helpers(environ=None):
+    fake_os = SimpleNamespace(environ=dict(environ or {}))
+    extra = {"BASE_OFFSET_ENV": "DENTOBOT_HEADED_BASE_OFFSET_RAS_MM", "BASE_OFFSET_MAX_MM": 20.0,
+             "os": fake_os}
+    return (
+        _extract_helper("_parse_base_offset", extra),
+        _extract_helper("_validate_base_offset_opt_in", extra),
+        _extract_helper("_translated_matrix", extra),
+    )
+
+
+def test_base_offset_parser_accepts_bounded_finite_triplet_only():
+    parse, _validate, _translate = _base_offset_helpers()
+    assert parse(None) is None and parse("  ") is None
+    assert parse("-0.4, -2.5, 12.9") == (-0.4, -2.5, 12.9)
+    for bad in ("1,2", "1,2,x", "nan,0,0", "inf,0,0", "15,15,0"):
+        with pytest.raises(RuntimeError):
+            parse(bad)
+
+
+def test_base_offset_requires_full_chain_gates_and_blocks_saving_modes():
+    _parse, validate, _translate = _base_offset_helpers()
+    validate(None, full_chain=False, allow_jog=False, allow_base_home_accept=False)
+    with pytest.raises(RuntimeError, match="requires"):
+        validate((0.0, 0.0, 1.0), full_chain=True, allow_jog=False, allow_base_home_accept=True)
+    validate((0.0, 0.0, 1.0), full_chain=True, allow_jog=True, allow_base_home_accept=True)
+    _parse, validate, _translate = _base_offset_helpers({"DENTOBOT_HEADED_OUTPUT_CASE": "/x.dentocase"})
+    with pytest.raises(RuntimeError, match="cannot be combined"):
+        validate((0.0, 0.0, 1.0), full_chain=True, allow_jog=True, allow_base_home_accept=True)
+    _parse, validate, _translate = _base_offset_helpers({"DENTOBOT_HEADED_STOP_AFTER_WORKSPACE": "1"})
+    with pytest.raises(RuntimeError, match="cannot be combined"):
+        validate((0.0, 0.0, 1.0), full_chain=True, allow_jog=True, allow_base_home_accept=True)
+
+
+def test_translated_matrix_changes_translation_only():
+    _parse, _validate, translate = _base_offset_helpers()
+    matrix = [float(i) for i in range(16)]
+    shifted = translate(matrix, (1.0, -2.0, 3.0))
+    assert [shifted[i] for i in (3, 7, 11)] == [4.0, 5.0, 14.0]
+    assert all(shifted[i] == matrix[i] for i in range(16) if i not in (3, 7, 11))
+    assert matrix[3] == 3.0  # input unchanged
+
+
+def test_base_offset_is_staged_through_production_review_before_accept_owner():
+    source = ast.unparse(TREE)
+    stage = source.index("facade.stageManualBaseReview(expected_accept_matrix)")
+    owner = source.index("base_acceptance_owner = widget.ui.lockRobotBaseMountButton")
+    accept_click = source.index("base_acceptance_owner.click()")
+    assert stage < owner < accept_click
+    assert "base_after_details.get('acceptedMatrixWorldRasMm'), expected_accept_matrix" in source
+    assert "report['base_offset_applied'] = base_offset is not None" in source

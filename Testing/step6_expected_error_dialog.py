@@ -219,3 +219,80 @@ def make_expected_error_dialog_callback(
         return state["result"]
 
     return callback
+
+
+class UnexpectedModalError(RuntimeError):
+    """A production action raised a modal the headed run did not expect."""
+
+    def __init__(self, text, capture_reference=None):
+        self.dialog_text = text
+        self.capture_reference = capture_reference
+        super().__init__("Unexpected modal during headed action: " + (text or "<empty>"))
+
+
+def make_modal_watchdog_click(qt, active_modal_widget, capture_callback):
+    """Return ``click(button, capture_stage)`` that never blocks on a modal.
+
+    Any modal opened while the click runs is captured, dismissed (reject/close,
+    never accepted) and reported by raising ``UnexpectedModalError`` after the
+    click returns. A click that opens no modal returns ``None``. A modal already
+    open before the click is captured, dismissed and also raises.
+    """
+
+    def active():
+        return active_modal_widget() if callable(active_modal_widget) else active_modal_widget
+
+    def capture(stage):
+        try:
+            reference = capture_callback(stage)
+            return reference if _has_capture(reference) else None
+        except Exception:
+            return None
+
+    def click(button, capture_stage):
+        existing = active()
+        if existing is not None:
+            text = _dialog_text(existing)
+            reference = capture(str(capture_stage) + "-pre-existing-modal")
+            _dismiss(existing, active)
+            raise UnexpectedModalError(text, reference)
+
+        state = {"text": None, "reference": None, "failure": None}
+        timer = qt.QTimer()
+        signal = timer.timeout
+
+        def poll():
+            if state["text"] is not None or state["failure"] is not None:
+                return
+            try:
+                dialog = active()
+                if dialog is None:
+                    return
+                state["text"] = _dialog_text(dialog) or "<empty>"
+                state["reference"] = capture(str(capture_stage) + "-unexpected-modal")
+                _dismiss(dialog, active)
+            except Exception as exc:
+                state["failure"] = exc
+
+        connected = False
+        click_error = None
+        try:
+            signal.connect(poll)
+            connected = True
+            timer.start(25)
+            button.click()
+        except BaseException as exc:
+            click_error = exc
+        finally:
+            timer.stop()
+            if connected:
+                signal.disconnect(poll)
+        if click_error is not None:
+            raise click_error
+        if state["failure"] is not None:
+            raise RuntimeError("Unexpected modal could not be handled: " + str(state["failure"]))
+        if state["text"] is not None:
+            raise UnexpectedModalError(state["text"], state["reference"])
+        return None
+
+    return click

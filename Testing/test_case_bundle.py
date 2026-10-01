@@ -814,3 +814,32 @@ def test_post_hydration_audit_allows_only_derived_environment_refresh() -> None:
     hydrated_end = backend_source.index("\n    @staticmethod", hydrated_start)
     hydrated = backend_source[hydrated_start:hydrated_end]
     assert "allowDerivedEnvironmentMismatch=True" in hydrated
+
+
+def test_prepared_bundle_single_validation_cleanup_and_change_guard(tmp_path, monkeypatch):
+    import DENTOCaseBundle as owner
+    scene = tmp_path / 'source.mrb'
+    write_mrb(scene, '<MRML/>')
+    source = create_case_bundle(tmp_path / 'prepared.dentocase', scene,
+        case_label='Prepared fixture', workflow={'schemaVersion': '1.0'}, robot_profile=robot_profile_fixture(tmp_path)).path
+    original = owner.validate_case_bundle
+    calls = []
+    def counted(*args, **kwargs):
+        calls.append(args[0])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(owner, 'validate_case_bundle', counted)
+    preview = owner.read_case_bundle_metadata(source)
+    assert preview['manifest']['packageId'] and calls == []
+    prepared = owner.prepare_case_bundle(source)
+    assert len(calls) == 1 and prepared.scene_path.read_bytes() == scene.read_bytes()
+    prepared.assert_source_unchanged()
+    source.touch()
+    with pytest.raises(owner.CaseBundleError, match='changed'):
+        prepared.assert_source_unchanged()
+    folder = prepared.scene_path.parent
+    prepared.close()
+    assert not folder.exists()
+    with pytest.raises(owner.CaseBundleError, match='expired'):
+        prepared.assert_source_unchanged()
+    with pytest.raises(owner.CaseBundleError, match='cancelled'):
+        owner.prepare_case_bundle(source, cancelled=lambda: True)

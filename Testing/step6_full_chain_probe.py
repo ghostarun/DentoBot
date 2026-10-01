@@ -392,8 +392,13 @@ def run_full_chain_interruption_probe(
     capture_callback,
     process_events,
     wait_until,
+    click_guard=None,
 ) -> dict[str, object]:
-    """Run P1/P2/P3, one guarded-plan attempt, and a stopped Approach preview."""
+    """Run P1/P2/P3, one guarded-plan attempt, and a stopped Approach preview.
+
+    ``click_guard(button, name)``, when supplied, performs each production click
+    and raises instead of blocking if the click opens a modal.
+    """
 
     evidence: dict[str, object] = {
         "probe": "step6_full_chain_interruption",
@@ -443,7 +448,10 @@ def run_full_chain_interruption_probe(
             if not _button_enabled(button):
                 raise ValueError(f"production {name} button is disabled")
             invocations[name] = int(invocations.get(name, 0)) + 1
-            button.click()
+            if click_guard is None:
+                button.click()
+            else:
+                click_guard(button, name)
             process_events(0.05)
 
         diagnostics = []

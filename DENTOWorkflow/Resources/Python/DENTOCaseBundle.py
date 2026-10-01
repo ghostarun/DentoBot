@@ -598,96 +598,108 @@ def create_case_bundle(
             temporary_path.unlink(missing_ok=True)
 
 
-def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
-    bundle_path = Path(path)
-    if not bundle_path.is_file() or not zipfile.is_zipfile(bundle_path):
-        raise CaseBundleError("The selected file is not a DENTOBOT case bundle.")
-    with zipfile.ZipFile(bundle_path, "r") as archive:
-        infos = archive.infolist()
-        names = [info.filename for info in infos]
-        if len(infos) > MAX_ARCHIVE_MEMBERS:
-            raise CaseBundleError("The case bundle contains too many archive members.")
-        if len(names) != len(set(names)):
-            raise CaseBundleError("The case bundle contains duplicate archive members.")
-        for info in infos:
-            if not _safe_member_name(info.filename):
-                raise CaseBundleError(
-                    f"The case bundle contains an unsafe archive path: {info.filename}"
-                )
-            mode = (info.external_attr >> 16) & 0o170000
-            if mode == stat.S_IFLNK:
-                raise CaseBundleError(
-                    f"The case bundle contains an unsupported symbolic link: {info.filename}"
-                )
-            limit = (
-                MAX_SCENE_MEMBER_BYTES
-                if info.filename == SCENE_MEMBER
-                else MAX_METADATA_MEMBER_BYTES
+def _bundle_headers(archive):
+    infos = archive.infolist()
+    names = [info.filename for info in infos]
+    if len(infos) > MAX_ARCHIVE_MEMBERS:
+        raise CaseBundleError("The case bundle contains too many archive members.")
+    if len(names) != len(set(names)):
+        raise CaseBundleError("The case bundle contains duplicate archive members.")
+    for info in infos:
+        if not _safe_member_name(info.filename):
+            raise CaseBundleError(
+                f"The case bundle contains an unsafe archive path: {info.filename}"
             )
-            if info.file_size > limit:
-                raise CaseBundleError(
-                    f"The case-bundle member exceeds its size limit: {info.filename}"
-                )
+        mode = (info.external_attr >> 16) & 0o170000
+        if mode == stat.S_IFLNK:
+            raise CaseBundleError(
+                f"The case bundle contains an unsupported symbolic link: {info.filename}"
+            )
+        limit = (
+            MAX_SCENE_MEMBER_BYTES
+            if info.filename == SCENE_MEMBER
+            else MAX_METADATA_MEMBER_BYTES
+        )
+        if info.file_size > limit:
+            raise CaseBundleError(
+                f"The case-bundle member exceeds its size limit: {info.filename}"
+            )
 
-        required = {
-            MANIFEST_MEMBER,
-            SCENE_MEMBER,
-            CHECKSUMS_MEMBER,
-            WORKFLOW_MEMBER,
-            ROBOT_PROFILE_MEMBER,
-            SAVE_REPORT_MEMBER,
-        }
+    required = {
+        MANIFEST_MEMBER,
+        SCENE_MEMBER,
+        CHECKSUMS_MEMBER,
+        WORKFLOW_MEMBER,
+        ROBOT_PROFILE_MEMBER,
+        SAVE_REPORT_MEMBER,
+    }
+    missing = sorted(required - set(names))
+    if missing:
+        raise CaseBundleError(
+            "The case bundle is incomplete: " + ", ".join(missing)
+        )
+    manifest = _json_member(archive, MANIFEST_MEMBER)
+    if manifest.get("format") != CASE_BUNDLE_FORMAT:
+        raise CaseBundleError("The archive is not a DENTOBOT case bundle.")
+    schema_version = str(manifest.get("schemaVersion") or "")
+    if schema_version not in SUPPORTED_CASE_BUNDLE_SCHEMA_VERSIONS:
+        raise CaseBundleError(
+            "Unsupported DENTOBOT case-bundle schema: "
+            f"{manifest.get('schemaVersion') or 'missing'}"
+        )
+    if schema_version in STUDY_CASE_BUNDLE_SCHEMA_VERSIONS:
+        required.update((STUDY_INDEX_MEMBER, STUDY_ATTEMPTS_MEMBER))
         missing = sorted(required - set(names))
         if missing:
             raise CaseBundleError(
                 "The case bundle is incomplete: " + ", ".join(missing)
             )
-        manifest = _json_member(archive, MANIFEST_MEMBER)
-        if manifest.get("format") != CASE_BUNDLE_FORMAT:
-            raise CaseBundleError("The archive is not a DENTOBOT case bundle.")
-        schema_version = str(manifest.get("schemaVersion") or "")
-        if schema_version not in SUPPORTED_CASE_BUNDLE_SCHEMA_VERSIONS:
-            raise CaseBundleError(
-                "Unsupported DENTOBOT case-bundle schema: "
-                f"{manifest.get('schemaVersion') or 'missing'}"
-            )
-        if schema_version in STUDY_CASE_BUNDLE_SCHEMA_VERSIONS:
-            required.update((STUDY_INDEX_MEMBER, STUDY_ATTEMPTS_MEMBER))
-            missing = sorted(required - set(names))
-            if missing:
-                raise CaseBundleError(
-                    "The case bundle is incomplete: " + ", ".join(missing)
-                )
-        optional = (
-            {MANUAL_SIMULATION_MEMBER}
-            if schema_version in STUDY_CASE_BUNDLE_SCHEMA_VERSIONS
-            else set()
+    optional = (
+        {MANUAL_SIMULATION_MEMBER}
+        if schema_version in STUDY_CASE_BUNDLE_SCHEMA_VERSIONS
+        else set()
+    )
+    unexpected = sorted(set(names) - required - optional)
+    if unexpected:
+        raise CaseBundleError(
+            "The case bundle contains unsupported archive members: "
+            + ", ".join(unexpected)
         )
-        unexpected = sorted(set(names) - required - optional)
-        if unexpected:
-            raise CaseBundleError(
-                "The case bundle contains unsupported archive members: "
-                + ", ".join(unexpected)
-            )
-        required.update(set(names) & optional)
-        coordinate = manifest.get("coordinateSystem")
-        if not isinstance(coordinate, dict) or (
-            coordinate.get("world") != "SlicerRAS"
-            or coordinate.get("lengthUnit") != "mm"
-        ):
-            raise CaseBundleError(
-                "The case bundle does not declare Slicer world-RAS millimetres."
-            )
-        runtime = manifest.get("runtime")
-        if not isinstance(runtime, dict) or runtime.get("ros2Serialized") is not False:
-            raise CaseBundleError("The case bundle does not prohibit serialized ROS state.")
-        files = manifest.get("files")
-        expected_files = required - {MANIFEST_MEMBER, CHECKSUMS_MEMBER}
-        if not isinstance(files, dict) or set(files) != expected_files:
-            raise CaseBundleError("The case-bundle file inventory is invalid.")
-        checksum_text = archive.read(CHECKSUMS_MEMBER).decode("ascii")
-        if checksum_text.encode("ascii") != _checksum_lines(files):
-            raise CaseBundleError("The checksum inventory does not match the manifest.")
+    required.update(set(names) & optional)
+    coordinate = manifest.get("coordinateSystem")
+    if not isinstance(coordinate, dict) or (
+        coordinate.get("world") != "SlicerRAS"
+        or coordinate.get("lengthUnit") != "mm"
+    ):
+        raise CaseBundleError(
+            "The case bundle does not declare Slicer world-RAS millimetres."
+        )
+    runtime = manifest.get("runtime")
+    if not isinstance(runtime, dict) or runtime.get("ros2Serialized") is not False:
+        raise CaseBundleError("The case bundle does not prohibit serialized ROS state.")
+    files = manifest.get("files")
+    expected_files = required - {MANIFEST_MEMBER, CHECKSUMS_MEMBER}
+    if not isinstance(files, dict) or set(files) != expected_files:
+        raise CaseBundleError("The case-bundle file inventory is invalid.")
+    checksum_text = archive.read(CHECKSUMS_MEMBER).decode("ascii")
+    if checksum_text.encode("ascii") != _checksum_lines(files):
+        raise CaseBundleError("The checksum inventory does not match the manifest.")
+    return manifest, files, schema_version, names
+
+
+def read_case_bundle_metadata(path: str | Path) -> dict:
+    """Bounded unverified preview; never reads or hashes the scene member."""
+    with zipfile.ZipFile(path, "r") as archive:
+        manifest, _, _, _ = _bundle_headers(archive)
+        return {"manifest": manifest, "workflow": _json_member(archive, WORKFLOW_MEMBER)}
+
+
+def validate_case_bundle(path: str | Path, *, _scene_output=None, cancelled=None) -> CaseBundleInspection:
+    bundle_path = Path(path)
+    if not bundle_path.is_file() or not zipfile.is_zipfile(bundle_path):
+        raise CaseBundleError("The selected file is not a DENTOBOT case bundle.")
+    with zipfile.ZipFile(bundle_path, "r") as archive:
+        manifest, files, schema_version, names = _bundle_headers(archive)
         for name, expected in files.items():
             if not isinstance(expected, dict):
                 raise CaseBundleError(f"Invalid file record for {name}.")
@@ -695,8 +707,12 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
             size = 0
             with archive.open(name, "r") as stream:
                 for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    if cancelled and cancelled():
+                        raise CaseBundleError("Package verification cancelled.")
                     digest.update(block)
                     size += len(block)
+                    if name == SCENE_MEMBER and _scene_output is not None:
+                        _scene_output.write(block)
             if digest.hexdigest() != expected.get("sha256") or size != expected.get(
                 "sizeBytes"
             ):
@@ -787,25 +803,71 @@ def validate_case_bundle(path: str | Path) -> CaseBundleInspection:
         )
 
 
+def _source_signature(path):
+    info = Path(path).stat()
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+@dataclass
+class PreparedCaseBundle:
+    """Owned temporary MRB, usable only during its caller's load transaction."""
+
+    path: Path
+    scene_path: Path
+    inspection: CaseBundleInspection
+    signature: tuple
+    _temporary: object
+    _closed: bool = False
+
+    def assert_source_unchanged(self):
+        if self._closed or _source_signature(self.path) != self.signature:
+            raise CaseBundleError("The source package changed or its preparation expired.")
+
+    def close(self):
+        if not self._closed:
+            self._closed = True
+            self._temporary.cleanup()
+
+    def __enter__(self):
+        self.assert_source_unchanged()
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+
+def prepare_case_bundle(path: str | Path, *, cancelled=None) -> PreparedCaseBundle:
+    """Validate and extract in one scene read; owns cleanup until activation ends."""
+    source = Path(path).expanduser().resolve(strict=True)
+    signature = _source_signature(source)
+    temporary = tempfile.TemporaryDirectory(prefix="dentobot-case-prepared-")
+    try:
+        scene_path, inspection = extract_scene_mrb(source, temporary.name, cancelled=cancelled)
+        if _source_signature(source) != signature:
+            raise CaseBundleError("The source package changed during preparation.")
+        return PreparedCaseBundle(source, scene_path, inspection, signature, temporary)
+    except BaseException:
+        temporary.cleanup()
+        raise
+
+
 def extract_scene_mrb(
     bundle: str | Path,
     destination_directory: str | Path,
+    *, cancelled=None,
 ) -> tuple[Path, CaseBundleInspection]:
-    inspection = validate_case_bundle(bundle)
     destination = Path(destination_directory)
     destination.mkdir(parents=True, exist_ok=True)
     output = destination / "case.mrb"
     temporary = destination / ".case.mrb.tmp"
+    signature = _source_signature(bundle)
     try:
-        with zipfile.ZipFile(inspection.path, "r") as archive, archive.open(
-            SCENE_MEMBER, "r"
-        ) as source, temporary.open("wb") as target:
-            for block in iter(lambda: source.read(1024 * 1024), b""):
-                target.write(block)
-        if sha256_file(temporary) != inspection.scene_sha256:
-            raise CaseBundleError("Extracted MRB checksum does not match the manifest.")
+        with temporary.open("wb") as target:
+            inspection = validate_case_bundle(bundle, _scene_output=target, cancelled=cancelled)
+        if _source_signature(bundle) != signature:
+            raise CaseBundleError("The source package changed during extraction.")
+        audit_mrb_runtime_separation(temporary)
         os.replace(temporary, output)
     finally:
         temporary.unlink(missing_ok=True)
-    audit_mrb_runtime_separation(output)
     return output, inspection

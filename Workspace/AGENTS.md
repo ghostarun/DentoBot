@@ -239,3 +239,9 @@ Rules:
   ordinary command output. That line is exec-wrapper noise, not a graphify
   rebuild failure. Treat the refresh as successful only when the command exits
   0 and prints `Code graph updated` or `[graphify watch] Rebuilt:`.
+
+## Performance environment scope — operator direction 2026-10-01
+
+Current container/DENTOBOT performance diagnosis, watchdog improvements and acceptance target **native Ubuntu** on the consolidated integration checkout. Attribute host RAM, swap, disk/I/O, CPU and graphics measurements to that Ubuntu workstation and record its hardware/runtime identity. Do not generalize native Ubuntu results to Windows/WSL/WSLg.
+
+Windows/WSL performance verification is a separate later environment-specific campaign under existing platform owners. Adapt collection and checks to Windows host resources, WSL VM memory/swap limits, filesystem boundaries and WSLg/GPU presentation; retain separate baselines and acceptance evidence. Cross-platform support remains intended, but it does not expand the current Ubuntu investigation. Reuse existing tasks and monitoring infrastructure; no new queue, runtime authorization or change to the indefinite 5.12 hold.

@@ -1230,6 +1230,23 @@ class DENTORobotWorkflowFacade:
     def _parameter_node(self):
         return self._parameter_node_provider()
 
+    def _motionControlNodeIdentity(self) -> tuple[str, str]:
+        """Return (robot node ID, motion-control node ID) from the motion module.
+
+        These IDs live on the motion-control logic's own parameter node, not on
+        the workflow parameter node. Fail closed when they cannot be read.
+        """
+        getter = getattr(self._bridge, "get_motion_control_logic", None)
+        motion_logic = getter() if callable(getter) else None
+        motion_parameter = (
+            motion_logic.getParameterNode() if motion_logic is not None else None
+        )
+        robot_id = str(getattr(motion_parameter, "robotNodeID", "") or "")
+        motion_id = str(getattr(motion_parameter, "motionControlNodeID", "") or "")
+        if not robot_id or not motion_id:
+            raise ValueError("Workspace motion-control node identity is unavailable.")
+        return robot_id, motion_id
+
     def _require_context(self):
         parameter_node = self._parameter_node()
         if parameter_node is None:
@@ -14181,6 +14198,9 @@ class DENTORobotWorkflowFacade:
         roi_source: Optional[Mapping[str, object]] = None,
     ) -> RobotActionResult:
         """Generate ROI-limited samples and validate them through MoveIt."""
+        if getattr(self, "_workspace_generation_active", False):
+            return RobotActionResult(False, "workspace_busy", "Workspace generation is already running.")
+        self._workspace_generation_active = True
         started = monotonic()
         phase_timings_sec: dict[str, float] = {}
         counts = {
@@ -14506,6 +14526,45 @@ class DENTORobotWorkflowFacade:
                 )
             task_limits = self._logic.getTaskJointLimits(parameter_node)
 
+            def workspace_plan_identity():
+                current = self._require_context()
+                if current is not parameter_node or not self._planning_scene_synchronized:
+                    raise ValueError("Workspace context was replaced or disconnected.")
+                if not self._logic.isRos2MotionControlActive(current.robotBaseTransform):
+                    raise ValueError("Workspace ROS connection is no longer active.")
+                if self._logic.collisionSceneAuditFreshnessIssues(current):
+                    raise ValueError("Workspace collision scene is stale.")
+                if not self.taskHomeRuntimeValidated(current):
+                    raise ValueError("Task Home runtime authority was revoked.")
+                current_home = self._logic.taskHomeRecord(current)
+                current_audit = self._logic.collisionSceneAuditRecord(current)
+                if current_home is None or current_audit is None:
+                    raise ValueError("Workspace Home or scene is unavailable.")
+                motion_identity = self._motionControlNodeIdentity()
+                return fingerprint({
+                    "home": current_home.to_dict(),
+                    "base": self._logic.robotBaseFingerprint(current),
+                    "robot": self._logic.robotProfileFingerprint(),
+                    "limits": self._logic.step6TaskLimitsFingerprint(current),
+                    "trajectory": self._logic.step6TrajectoryRevision(current),
+                    "scene": current_audit.audit_fingerprint,
+                    "policy": self._strict_guard_policy_fingerprint(),
+                    "robot_node": motion_identity[0],
+                    "motion_node": motion_identity[1],
+                    "opening": self.defaultTaskSpaceRoi().payload,
+                    "target": str(getattr(current, "targetToothSegmentId", "")),
+                    "branches": str(getattr(current, "step6TrajectoryRegistryJson", "")),
+                    "imported": bool(current.step6PlanningContextImported),
+                })
+
+            submitted_workspace_identity = workspace_plan_identity()
+
+            def workspace_plan_is_current():
+                try:
+                    return workspace_plan_identity() == submitted_workspace_identity
+                except Exception:
+                    return False
+
             candidate_started = monotonic()
             candidates = deterministic_task_space_tcp_candidates(
                 selected_roi,
@@ -14819,7 +14878,12 @@ class DENTORobotWorkflowFacade:
                         allowed_planning_time_sec=2.0,
                         planner_id=STEP6_JOINT_PLANNER_ID,
                         planner_context="task_home_to_workspace_sample",
+                        responsive_wait=True,
+                        wait_progress=(lambda phase: progress(phase, order, len(home_indices))) if progress else None,
+                        context_is_current=workspace_plan_is_current,
                     )
+                    if not workspace_plan_is_current():
+                        return fail("workspace_context_changed", "Workspace inputs changed while planning; no result was accepted.")
                     scene_refreshed = True
                     connected = bool(path.success)
                     connectivity.update(
@@ -14861,6 +14925,8 @@ class DENTORobotWorkflowFacade:
                     ),
                 )
 
+            if not workspace_plan_is_current():
+                return fail("workspace_context_changed", "Workspace inputs changed; the provisional cloud was not promoted.")
             proposal_started = monotonic()
             proposal = self._logic.proposeAssistedTaskLimits(parameter_node, report)
             proposal_payload = proposal.to_dict()
@@ -14995,3 +15061,5 @@ class DENTORobotWorkflowFacade:
             )
         except Exception as exc:
             return fail("workspace_failed", _bounded_text(exc))
+        finally:
+            self._workspace_generation_active = False

@@ -1472,6 +1472,20 @@ def test_roi_candidates_solve_ik_before_static_validity_and_stale_source_rejects
     )
     logic.taskHomeRecord = lambda _parameter: home
     facade.taskHomeRuntimeValidated = lambda _parameter=None: True
+    logic.robotBaseFingerprint = lambda _parameter: "base-current"
+    logic.robotProfileFingerprint = lambda: "robot-current"
+    logic.step6TaskLimitsFingerprint = lambda _parameter: "limits-current"
+    # These IDs belong to the motion-control module's parameter node, never to
+    # the workflow node; keep the workflow fake strict so a misread fails here.
+    assert not hasattr(parameter_node, "robotNodeID")
+    assert not hasattr(parameter_node, "motionControlNodeID")
+    motion_parameter = SimpleNamespace(
+        robotNodeID="robot-current", motionControlNodeID="motion-current"
+    )
+    bridge.get_motion_control_logic = lambda: SimpleNamespace(
+        getParameterNode=lambda: motion_parameter
+    )
+    facade._strict_guard_policy_fingerprint = lambda: "policy-current"
     logic.robotWorkspaceModelNode = lambda: model
 
     def build_workspace(_parameter, *, sample_result, algorithm):
@@ -1519,6 +1533,11 @@ def test_roi_candidates_solve_ik_before_static_validity_and_stale_source_rejects
     )
 
     def reject_home_path(**_kwargs):
+        assert _kwargs["responsive_wait"] is True
+        assert _kwargs["context_is_current"]() is True
+        motion_parameter.motionControlNodeID = "motion-replaced"
+        assert _kwargs["context_is_current"]() is False
+        motion_parameter.motionControlNodeID = "motion-current"
         events.append("ompl")
         return SimpleNamespace(
             success=False,
@@ -6404,3 +6423,21 @@ def test_manual_simulation_record_reports_missing_identity():
         assert "recording is unavailable" in str(exc)
     else:
         raise AssertionError("record export must be unavailable without a complete identity")
+
+
+def test_workspace_generation_rejects_reentrant_submission():
+    facade, _parameter, _logic, _bridge = make_facade()
+    facade._workspace_generation_active = True
+    result = facade.generateWorkspaceCloud()
+    assert not result.success and result.code == "workspace_busy"
+
+
+def test_workspace_motion_identity_fails_closed_when_unavailable():
+    facade, _parameter, _logic, bridge = make_facade()
+    bridge.get_motion_control_logic = lambda: None
+    try:
+        facade._motionControlNodeIdentity()
+    except ValueError as error:
+        assert "identity is unavailable" in str(error)
+    else:
+        raise AssertionError("missing motion-control identity must fail closed")

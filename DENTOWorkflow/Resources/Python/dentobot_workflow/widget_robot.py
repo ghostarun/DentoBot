@@ -254,6 +254,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
 
         def clear_ghost() -> None:
             self._manualBaseCandidateGhostKey = None
+            bind = getattr(self, "_bindManualBaseCandidateInteractionNode", None)
+            if callable(bind):
+                bind(None)
             clear = getattr(logic, "clearManualBaseCandidateGhost", None)
             if callable(clear):
                 clear()
@@ -323,6 +326,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 shown, message = False, str(exc)
         if shown:
             self._manualBaseCandidateGhostKey = cache_key
+            bind = getattr(self, "_bindManualBaseCandidateInteractionNode", None)
+            candidate_node = getattr(logic, "manualBaseCandidateTransformNode", lambda: None)()
+            if callable(bind):
+                bind(candidate_node)
             return visible_status
 
         clear_ghost()
@@ -809,6 +816,13 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 panel.reconcileManualBaseStateButton.enabled = bool(
                     control_state["reconcile"] and not self._workflowActionBusy
                 )
+                panel.beginManualBaseReviewButton.visible = bool(
+                    not manual_base_review_staged
+                    and not manual_base_acceptance_unknown
+                    and not locked
+                )
+                panel.cancelManualBaseReviewButton.visible = bool(control_state["cancel"])
+                panel.reconcileManualBaseStateButton.visible = bool(manual_base_acceptance_unknown)
                 reconcile_base = bool(
                     control_state["reconcile"] and not self._workflowActionBusy
                 )
@@ -827,9 +841,16 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                     (control_state["accept"] or reconcile_base)
                     and not self._workflowActionBusy
                 )
+                self.ui.lockRobotBaseMountButton.visible = bool(
+                    control_state["accept"] or reconcile_base
+                )
+                self.ui.unlockRobotBaseMountButton.visible = bool(locked and not manual_base_acceptance_unknown)
             else:
                 panel.manualBaseReviewGroup.enabled = False
                 self.ui.lockRobotBaseMountButton.text = _("Accept Base")
+            self._setRobotTransformInteractionVisible(
+                self._isOfflinePlacementSurfaceActive()
+            )
             try:
                 urdf_path, _package_root = self.logic.robotDescriptionPaths()
                 mechanical_limits = default_task_joint_limits_from_urdf(urdf_path)
@@ -1356,7 +1377,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             return
         result = self._robotWorkflowFacade.unlockBase()
         self._updateStep6PlanningUi(result.message, error=not result.success)
-        if not result.success:
+        if result.success:
+            if self._isStep6ManualBaseReviewActive():
+                self._ensureStep61BaseEditCandidate()
+        else:
             slicer.util.errorDisplay(result.message)
 
     def onApplyTaskJointLimits(self, checked: bool = False) -> None:

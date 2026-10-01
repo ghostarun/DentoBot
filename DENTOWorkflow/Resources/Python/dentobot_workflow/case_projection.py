@@ -53,6 +53,9 @@ def project_package_offline(source, destination, target, checkpoint, branch=""):
     from concurrent.futures import ThreadPoolExecutor
     from .workflow_progress import WorkflowProgress
 
+    started = time.monotonic()
+    def phase(name):
+        print("DENTOCASE_PROJECTION_PHASE", name, f"{time.monotonic() - started:.6f}", flush=True)
     progress = WorkflowProgress("Preparing independent partial case")
     progress.update("Validating saved package and cutoff", can_cancel=False)
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dentocase-projection-io")
@@ -66,6 +69,7 @@ def project_package_offline(source, destination, target, checkpoint, branch=""):
     try:
         inventory, source, destination = wait_io(executor.submit(
             _inspect_prefix, source, destination, target, checkpoint, branch))
+        phase("source_verification")
         with tempfile.TemporaryDirectory(prefix="dentocase-project-", dir=slicer.app.temporaryPath) as directory:
             directory = Path(directory)
             request = directory / "request.json"
@@ -80,6 +84,7 @@ def project_package_offline(source, destination, target, checkpoint, branch=""):
             with (directory / "process.log").open("w") as log:
                 environment = dict(os.environ)
                 environment["ROS_DOMAIN_ID"] = "232"
+                print("DENTOCASE_PROJECTOR_LAUNCH", f"{time.monotonic():.6f}", flush=True)
                 process = subprocess.Popen([str(slicer.app.launcherExecutableFilePath), "--no-splash",
                     "--no-main-window", "--disable-cli-modules", "--python-code",
                     "exec(open(" + repr(str(script)) + ").read())"],
@@ -101,8 +106,14 @@ def project_package_offline(source, destination, target, checkpoint, branch=""):
                             process.wait()
                 if process.returncode or not output.is_file():
                     raise RuntimeError("Offline projection failed: " + (directory / "process.log").read_text()[-4000:])
+            for line in (directory / "process.log").read_text().splitlines():
+                if line.startswith("DENTOCASE_PROJECTOR_"):
+                    print(line, flush=True)
+            phase("projector_complete")
             progress.update("Validating and releasing the independent package", can_cancel=False)
-            return wait_io(executor.submit(_release_projection, output, source, destination, inventory))
+            result = wait_io(executor.submit(_release_projection, output, source, destination, inventory))
+            phase("release_complete")
+            return result
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
         progress.close()
@@ -111,8 +122,8 @@ def project_package_offline(source, destination, target, checkpoint, branch=""):
 def run_offline(request_path):
     """Entry called only in the disposable Slicer process."""
     import slicer
-    from DENTOCaseBundle import create_case_bundle, extract_scene_mrb
-    from dentobot_case.inspection import inspect_package
+    from DENTOCaseBundle import create_case_bundle, extract_scene_mrb, sha256_file
+    from dentobot_case.inspection import inventory_from_inspection
     from dentobot_case.projection import prepare_projection, filter_registry
     from dentobot_case.contracts import CHECKPOINTS
     from .case_inventory import capture_inventory
@@ -120,16 +131,29 @@ def run_offline(request_path):
     import importlib.util
     import sys
 
+    started = time.monotonic()
+    print("DENTOCASE_PROJECTOR_READY", f"{started:.6f}", flush=True)
+    def phase(name):
+        print("DENTOCASE_PROJECTOR_PHASE", name, f"{time.monotonic() - started:.6f}", flush=True)
     try:
         request = json.loads(Path(request_path).read_text())
-        inventory = inspect_package(request["source"])
-        if inventory.package_sha256 != request["sourceSha256"]:
-            raise ValueError("Source changed after selection.")
-        plan = prepare_projection(inventory, request["target"], request["checkpoint"], request["branch"])
         with tempfile.TemporaryDirectory(prefix="dentocase-offline-", dir=slicer.app.temporaryPath) as directory:
-            scene_path, inspection = extract_scene_mrb(request["source"], directory)
+            source = Path(request["source"])
+            signature = source.stat()
+            scene_path, inspection = extract_scene_mrb(source, directory)
+            digest = sha256_file(source)
+            after = source.stat()
+            if (signature.st_dev, signature.st_ino, signature.st_size, signature.st_mtime_ns, signature.st_ctime_ns) != (
+                    after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                raise ValueError("Source changed during projection preparation.")
+            if digest != request["sourceSha256"]:
+                raise ValueError("Source changed after selection.")
+            inventory = inventory_from_inspection(source, inspection, digest, after)
+            plan = prepare_projection(inventory, request["target"], request["checkpoint"], request["branch"])
+            phase("source_preparation")
             if not slicer.util.loadScene(str(scene_path), {"clear": True}):
                 raise ValueError("Source MRB could not be restored.")
+            phase("source_restore")
             nodes = {slicer.mrmlScene.GetNthNode(index).GetID(): slicer.mrmlScene.GetNthNode(index)
                      for index in range(slicer.mrmlScene.GetNumberOfNodes())}
             mapping = inventory.metadata["projection"]
@@ -250,6 +274,7 @@ def run_offline(request_path):
             parameter.workflowStageIndex = plan["workflowStageIndex"]
             summary = logic.caseBundleWorkflowSummary(parameter)
             summary["caseIdentity"] = {"id": plan["newCaseId"]}
+            phase("projection")
             projected_scene = Path(directory) / "projected.mrb"
             if not slicer.util.saveScene(str(projected_scene)):
                 raise ValueError("Projected MRB could not be saved.")
@@ -260,6 +285,7 @@ def run_offline(request_path):
             create_case_bundle(request["destination"], projected_scene, case_label=parameter.caseName,
                 workflow=summary, robot_profile=inspection.robot_profile,
                 application=inspection.manifest.get("application", {}), case_id=plan["newCaseId"])
+            phase("projected_save")
             # A fresh reopen, before releasing the output, validates reconstructed lineage.
             parameter_node_id = raw.GetID()
             reopened, result = extract_scene_mrb(request["destination"], Path(directory) / "reopen")
@@ -274,6 +300,7 @@ def run_offline(request_path):
                     or reopened_inventory["artifacts"] != summary["checkpointInventory"]["artifacts"]
                     or reopened_inventory["branches"] != summary["checkpointInventory"]["branches"]):
                 raise ValueError("Projected lineage did not survive fresh reopen.")
+            phase("fresh_reopen")
         slicer.util.exit(0)
     except Exception:
         import traceback

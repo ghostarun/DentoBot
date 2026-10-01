@@ -180,7 +180,9 @@ def test_step6_cartesian_goal_requires_explicit_drag_toggle_and_has_no_plan_rout
         "for group in visible_by_substep[index]", 1
     )[0]
     planning_and_diagnostics = substeps.split("3:", 1)[1].split("4:", 1)[0]
-    assert "self._robotSimulationPanel.goalGroup" in planning_and_diagnostics
+    assert "self._robotSimulationPanel.workbenchGroup" in planning_and_diagnostics
+    panel = (HELPERS / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
+    assert 'self.step63ManualTabWidget.addTab(self.goalGroup, "TCP")' in panel
 
 
 def test_tcp_ik_shell_stages_only_successful_complete_finite_j1_j5_payload():

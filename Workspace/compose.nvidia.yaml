@@ -1,0 +1,6 @@
+# Native Ubuntu NVIDIA OpenGL: clear the base Mesa DRM-node mapping.
+# The launcher also merges compose.cuda.yaml for NVIDIA device access.
+
+services:
+  slicerros2:
+    devices: !reset []

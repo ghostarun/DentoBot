@@ -5711,6 +5711,48 @@ def _copy_moveit_trajectory_result(trajectory) -> MoveItCartesianResult:
     )
 
 
+
+def _wait_for_native_joint_plan(motion_node, arguments, *, allowed_time, progress, context_is_current):
+    """Wait on an owned plan-only request while the main thread paints and spins ROS."""
+    import slicer
+
+    api = ("BeginMoveItTrajectoryFromState", "GetJointPlanStatus", "TakeJointPlanResult", "CancelJointPlan")
+    if not all(callable(getattr(motion_node, name, None)) for name in api):
+        raise RuntimeError("The loaded SlicerROS2 build lacks responsive explicit-start planning; rebuild/restart the reviewed 5.10 module.")
+    if not callable(context_is_current) or not context_is_current():
+        raise RuntimeError("Planning context is stale before submission.")
+    started = time.monotonic()
+    token = motion_node.BeginMoveItTrajectoryFromState(*arguments)
+    logging.info("Native joint plan begin returned in %.3fs token=%s", time.monotonic() - started, token)
+    if not token:
+        raise RuntimeError(str(motion_node.GetLastJointPlanMessage() or "Native joint plan was not submitted."))
+    deadline = time.monotonic() + allowed_time + 5.0
+    try:
+        while True:
+            if not context_is_current():
+                raise RuntimeError("Planning context changed; the pending result was discarded.")
+            status = str(motion_node.GetJointPlanStatus(token))
+            if status in {"ready", "error"}:
+                return motion_node.TakeJointPlanResult(token)
+            if status != "pending":
+                raise RuntimeError(f"Native joint plan is {status}; no result was accepted.")
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Native joint-plan response timed out; local result authority revoked. Backend cancellation is best effort.")
+            if progress is not None:
+                progress("Waiting for Task Home connectivity")
+            slicer.app.processEvents()
+            ros_logic = get_ros2_logic()
+            if ros_logic is not None:
+                ros_logic.Spin()
+            time.sleep(0.05)
+    finally:
+        try:
+            motion_node.CancelJointPlan(token)
+        except Exception:
+            logging.exception("Native joint-plan cleanup failed token=%s", token)
+        logging.info("Native joint plan wait ended after %.3fs token=%s", time.monotonic() - started, token)
+
+
 def plan_moveit_joint_goal(
     *,
     start_joint_positions_si: Optional[Mapping[str, float]] = None,
@@ -5720,6 +5762,9 @@ def plan_moveit_joint_goal(
     allowed_planning_time_sec: float = 10.0,
     planner_id: str = "",
     planner_context: str = "",
+    responsive_wait: bool = False,
+    wait_progress=None,
+    context_is_current=None,
 ) -> MoveItCartesianResult:
     """Plan one joint goal with explicit DENTOBOT state ownership.
 
@@ -5879,7 +5924,7 @@ def plan_moveit_joint_goal(
                         maximum_monitored_start_error=monitored_error,
                         planner_start_source=explicit_context,
                     )
-                trajectory = planner(
+                arguments = (
                     ROS2_PLANNING_GROUP,
                     list(ROS2_JOINT_SI_ORDER),
                     start_values,
@@ -5888,6 +5933,12 @@ def plan_moveit_joint_goal(
                     0.2,
                     allowed_time,
                     requested_planner_id,
+                )
+                trajectory = (
+                    _wait_for_native_joint_plan(
+                        motion_node, arguments, allowed_time=allowed_time,
+                        progress=wait_progress, context_is_current=context_is_current,
+                    ) if responsive_wait else planner(*arguments)
                 )
             else:
                 trajectory = motion_node.PlanMoveItTrajectory(

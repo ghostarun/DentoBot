@@ -1,5 +1,32 @@
 # DENTOBOT agent context
 
+## Current Step 6 chat handoff — 1 October 2026
+
+Operator confirms the checkout is now `DentoBot-step6-5.10-integration` and asks
+this chat to update progress and prepare for subsequent changes. Use this checkout
+and `integration/step6-5.10-reviewed-20260927` for future implementation; current
+HEAD is `baeee90`, with integrated source checkpoint `50ce208`. Older renovation
+paths, transfer-pending statements and performance-integration deferrals below
+are dated evidence, superseded for development routing.
+
+The recent Base notification, compact labelled joint controls, strict bounds
+diagnostics and native cache-lifetime corrections are present in this source.
+The native source SHA matches the approved renovation build; this read-only
+handoff does not establish the currently loaded binary or connected authority.
+Existing `S6-LIVE-01` Priority 0 remains open for offline/connected Base recovery,
+rendered controls and Tarun's verdict. DentoCase software gates retain recorded
+558 host passes and synthetic offline attempt4 PASS; browser/independent
+continuation verdict remains open under `DCP-09..10`. Responsiveness stays with
+`S6-P2-03` and the permanent performance-monitoring chat. No new runtime/build
+is authorized by this readiness update; 5.12 remains held.
+
+## Performance environment scope — operator direction 2026-10-01
+
+Current container/DENTOBOT performance diagnosis, watchdog improvements and acceptance target **native Ubuntu** on the consolidated integration checkout. Attribute host RAM, swap, disk/I/O, CPU and graphics measurements to that Ubuntu workstation and record its hardware/runtime identity. Do not generalize native Ubuntu results to Windows/WSL/WSLg.
+
+Windows/WSL performance verification is a separate later environment-specific campaign under existing platform owners. Adapt collection and checks to Windows host resources, WSL VM memory/swap limits, filesystem boundaries and WSLg/GPU presentation; retain separate baselines and acceptance evidence. Cross-platform support remains intended, but it does not expand the current Ubuntu investigation. Reuse existing tasks and monitoring infrastructure; no new queue, runtime authorization or change to the indefinite 5.12 hold.
+
+
 ## Permanent performance and reliability monitoring
 
 For every workflow/container quality investigation and authorized representative
@@ -521,3 +548,39 @@ Tarun agrees to and approves the proposed consolidation and complete DentoCase g
 Git evidence: integration a795f89 already contains renovation e7cd29f; no renovation commits are missing. Later source/test changes are uncommitted. Both development deltas preserved in /tmp/dentocase-consolidation-20261001 with binary patches, development-only archives and SHA manifests; engineer-owned records/generated output excluded. Forty-two clean candidate source files applied and five conflicts resolved under coordinator dispositions. Accepted performance ports, strict restoration and method splits retained. No branch/HEAD change, stage, commit, main merge or rebuild performed during parallel work.
 
 Owned worker scopes: robot-shell/manual method reconciliation; headed runner/source/planning tests; new case inventory ownership adapter/test; DentoCase catalog fixture correction. Coordinator owns remaining DentoCase persistence/projection/bootstrap/lifecycle/semantic inventory changes, verification matrix, source review, runtime and controlled records. No worker executes Slicer/ROS/build/runtime or edits controlled records. Current pending states remain under DCP-09..10, S6-REUSABLE-CASE-SETUP, S6-P2-01, S6-LIVE-01 and S6-P2-03. Source consolidation does not close native or operator acceptance.
+
+
+## 1 October — permanent performance-monitoring chat ownership
+
+Operator confirms consolidation completed and assigns Performance upgrades chat permanently to container/DENTOBOT runtime performance monitoring and periodic bounded corrections. Current development target is DentoBot-step6-5.10-integration / integration/step6-5.10-reviewed-20260927. Use existing S6-P2-03 and S6-U-01, backlog as sole queue, and PERFORMANCE_MONITORING.md as standing policy. This supersedes older renovation-routing/transfer-pending summaries; source consolidation does not imply runtime acceptance. Existing daily reviewer remains; do not create duplicate monitoring jobs.
+
+Collector capability verified by reading Workspace/scripts/dentobot-resource-watchdog.py: default five-second sampling, container-visible process RSS/CPU/threads/FDs and zombies, host/Linux-kernel MemAvailable/SwapFree/load/CPU-memory-I/O PSI, cgroup memory/OOM/CPU-throttle/PID/pressure, and free capacity on the log filesystem. It does not collect disk byte throughput/device latency/utilization, paging/swap-in/out rates, all-host process attribution, GPU/VRAM, or Windows host resources outside the WSL kernel. Shorter-than-sample spikes can be missed. Resource correlation supports investigation but does not alone prove the blocking call or leak. Preserve this evidence boundary in future reviews.
+
+
+## 1 October — bounded Ubuntu performance implementation plan
+
+Operator requests an elaborate implementation plan. Existing S6-P2-03, S6-U-01 and platform-transfer owners retain scope/priority. Contract appended to diagnostics/PERFORMANCE_INTEGRATION_AUDIT_2026-10-01.md: three finite increments—action/runtime identity plus low-cost paging/disk counters; one responsive explicit-start workspace planning path with frozen native ownership/correlation interface; nativeUbuntu NVIDIA profile port. Exact files, two disjoint LunaMax implementation lanes per qualifying increment, cheapest checks, proposed measurable acceptance and stop conditions recorded. No code/test/build/runtime/main/5.12 execution authorized by this planning turn. Prior native synchronous-call exposure is not universal freeze attribution. Windows/WSL remains a distinct later campaign.
+
+
+## Performance increment 1 checkpoint — 1 October 2026
+
+Shared UI action attribution, sanitized paired session provenance and Ubuntu paging/per-device I/O counters are implemented on the integration checkout; 26 host/fake-Qt/shell-stub tests passed. Source helpers frozen/reviewed and DentoCase chat notified that cooperative runtime hold is released within its own existing approval. Actual Slicer identity/collector overhead/clean-exit gate remains pending; no real runtime or native build in this increment. Continue existing S6-P2-03 three-increment contract, not a new plan; 5.12 indefinitely held and Windows/WSL separate. See PERFORMANCE_MONITORING.md and diagnostics/PERFORMANCE_INTEGRATION_AUDIT_2026-10-01.md.
+
+
+## S6-P2-03 increment2 native source checkpoint — 1 October 2026
+
+Four async native methods now implemented in verified isolated5.10 motion-control pair and matching canonical SlicerROS2 source; previous interrupted/unwritten status superseded. Python242host checks passed, scoped whitespace checks passed. Native compilation/wrapper/lifetime/runtime/deployment pending separate approval; installed library still lacks new API. Cancelled local authority is revoked with best-effort backend cancellation and node-recreation requirement. Source-complete does not accept responsiveness or change5.12 hold. See today logbook/performance audit for hashes/ownership/commands. NativeUbuntu NVIDIA item3 unstarted.
+
+
+## S6-P2-03 increment2 deployed checkpoint — 1 October 2026
+
+Supersedes earlier unbuilt status: isolated single-job5.10 compile/wrapper/install passed; focused empty-scene explicit-start plan SUCCESS12points,0.108s/maxQtgap56ms, consumed reply/disconnect and Slicerexit0. Reviewed native library and identical wrapper installed into normal shared checkout package after backup; independent shared-package API probe loaded all four methods and exited0. Details/hashes/commands in today logbook and PERFORMANCE_INTEGRATION_AUDIT_2026-10-01.md. This is bounded API/software integration evidence. Representative long-wait/cancellation/ordinary-window responsiveness remains open; backend MoveIt shutdown-11 reproduced separately under S6-U-01. Watchdog paired overhead and NVIDIA increment3 pending;5.12 held.
+
+
+## S6-P2-03 increment3 source/test completion — 1 October 2026
+
+Native Ubuntu NVIDIA profile now implemented on the integration checkout. Explicit nvidia rendering uses GPU reservation independently of cpu/cuda inference and clears Mesa DRM device mapping. Bounded10s host driver/Docker-runtime and container device-visibility checks provide actionable errors; device enumeration does not establish OpenGL acceleration. Existing auto/Mesa/WSL behavior, selected checkout routing and watchdog metadata preserved. Imported native profile/probe portions only from137a56e; CUDA graphics/display capabilities were already equivalent; WSL changes excluded.
+
+Verification: pure.ubuntu_graphics_profiles,13host/mock tests passed in0.08s exit0; shell syntax, owned Python syntax, scoped whitespace and frame-probe --self-check passed. Tests cover MesaCPU/CUDA, NVIDIACPU/CUDA, WSL baseline selection, missing command/driver/runtime, container visibility, invalid mode, DRM reset/capabilities and source routing. Evidence /tmp/dentobot-verification/perf-increment3-20261001/{host.log,frame-selfcheck.log,summary.json,launcher-port.diff}. No actual GPU/Docker/container/Slicer/ROS runtime, image/native rebuild, case save or hardware action. Operator explicitly excludes GPU verification on this workstation; >=60FPS and renderer verification remain deferred to approved NVIDIA hardware.
+
+All three finite increments now have source implementations. Item1 paired watchdog overhead/identity evidence and item2 representative long-wait/cancel/normal-window responsiveness remain open under existing S6-P2-03; item3 hardware acceptance deferred. Backend MoveIt cleanup-11 remains S6-U-01. No new increment, no5.12 restart, no main merge/push/commit.

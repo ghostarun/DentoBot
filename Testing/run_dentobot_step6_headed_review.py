@@ -63,7 +63,9 @@ from step6_base_home_uncertainty_probe import (  # noqa: E402
 )
 from step6_complete_cycle_probe import run_complete_cycles  # noqa: E402
 from step6_expected_error_dialog import (  # noqa: E402
+    UnexpectedModalError,
     make_expected_error_dialog_callback,
+    make_modal_watchdog_click,
 )
 
 
@@ -375,6 +377,16 @@ def _scene_evidence(logic, parameter_node) -> dict[str, object]:
         "acknowledged_object_ids": acknowledged_ids,
         "source_object_ids": source_ids,
     }
+
+
+def _modal_guarded_click(report, evidence_dir: Path, run_id: str, button, stage: str) -> None:
+    """Click a production control; a modal fails the run fast instead of blocking it."""
+    click = make_modal_watchdog_click(
+        qt,
+        qt.QApplication.activeModalWidget,
+        lambda capture_stage: _capture(report, evidence_dir, run_id, capture_stage),
+    )
+    click(button, stage)
 
 
 def _capture_screenshots(label: str, evidence_dir: Path) -> dict[str, str]:
@@ -939,6 +951,17 @@ def _visible(widget) -> bool:
     return bool(method()) if callable(method) else bool(widget.visible)
 
 
+def _show_step63_view(panel, primary: int, secondary: int = 0) -> None:
+    panel.step63TabWidget.currentIndex = primary
+    if primary == 0:
+        panel.step63ManualTabWidget.currentIndex = secondary
+    elif primary == 1:
+        panel.step63WorkspaceTabWidget.currentIndex = secondary
+    elif primary == 2:
+        panel.step63PlanTabWidget.currentIndex = secondary
+    _process_events(0.1)
+
+
 def _scroll_to_visible(widget, control, label: str) -> dict[str, object]:
     scroll_area = getattr(widget, "_workflowContentScrollArea", None)
     ensure_visible = getattr(scroll_area, "ensureWidgetVisible", None)
@@ -1027,6 +1050,56 @@ def _valid_matrix(value) -> bool:
     except (TypeError, ValueError, OverflowError):
         return False
     return len(values) == 16 and all(math.isfinite(item) for item in values)
+
+
+BASE_OFFSET_ENV = "DENTOBOT_HEADED_BASE_OFFSET_RAS_MM"
+BASE_OFFSET_MAX_MM = 20.0
+
+
+def _parse_base_offset(text: str | None) -> tuple[float, float, float] | None:
+    """Parse ``"dx,dy,dz"`` (world RAS mm); unset/blank means no offset."""
+    if text is None or not str(text).strip():
+        return None
+    parts = [part.strip() for part in str(text).split(",")]
+    if len(parts) != 3:
+        raise RuntimeError(f"{BASE_OFFSET_ENV} must be 'dx,dy,dz' in world RAS mm.")
+    try:
+        offset = tuple(float(part) for part in parts)
+    except ValueError as exc:
+        raise RuntimeError(f"{BASE_OFFSET_ENV} components must be numbers.") from exc
+    if not all(math.isfinite(value) for value in offset):
+        raise RuntimeError(f"{BASE_OFFSET_ENV} components must be finite.")
+    if math.sqrt(sum(value * value for value in offset)) > BASE_OFFSET_MAX_MM:
+        raise RuntimeError(f"{BASE_OFFSET_ENV} norm must be at most {BASE_OFFSET_MAX_MM:g} mm.")
+    return offset
+
+
+def _validate_base_offset_opt_in(offset, *, full_chain: bool, allow_jog: bool,
+                                 allow_base_home_accept: bool) -> None:
+    if offset is None:
+        return
+    if not (full_chain and allow_jog and allow_base_home_accept):
+        raise RuntimeError(
+            f"{BASE_OFFSET_ENV} requires DENTOBOT_HEADED_FULL_CHAIN=1, "
+            "DENTOBOT_HEADED_ALLOW_JOG=1 and DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1."
+        )
+    blocked = [name for name in (
+        "DENTOBOT_HEADED_STOP_AFTER_WORKSPACE", "DENTOBOT_HEADED_OFFLINE_HOME_SETUP",
+        "DENTOBOT_HEADED_COMPLETE_CYCLES", "DENTOBOT_HEADED_BASE_HOME_UNCERTAINTY",
+    ) if os.environ.get(name, "") == "1"]
+    blocked += [name for name in (
+        "DENTOBOT_HEADED_OUTPUT_CASE", "DENTOBOT_HEADED_OFFLINE_HOME_CASE_OUTPUT",
+    ) if name in os.environ]
+    if blocked:
+        raise RuntimeError(f"{BASE_OFFSET_ENV} cannot be combined with: " + ", ".join(blocked))
+
+
+def _translated_matrix(matrix, offset) -> list[float]:
+    """Return a row-major 4x4 copy with only the translation column shifted."""
+    values = [float(value) for value in matrix]
+    for row, delta in enumerate(offset):
+        values[row * 4 + 3] += float(delta)
+    return values
 
 
 def _same_matrix(left, right) -> bool:
@@ -2270,7 +2343,7 @@ def _ensure_current_home_workspace_task(
 
     widget._configureRobotSimulationShellSubstep(3)
     widget._updateStep6PlanningUi()
-    _process_events(0.1)
+    _show_step63_view(panel, 0, 0)
     state_before = _actual_joint_state(facade)
     state_fields = ("accepted_si", "monitored_si", "displayed_si")
     if (
@@ -2380,7 +2453,7 @@ def _ensure_current_home_workspace_task(
 
     widget._configureRobotSimulationShellSubstep(3)
     widget._updateStep6PlanningUi()
-    _process_events(0.1)
+    _show_step63_view(panel, 1, 1)
     saved_workspace_json_before_roi = str(
         parameter_node.step6AssistedLimitProposalJson or ""
     )
@@ -2505,11 +2578,19 @@ def _ensure_current_home_workspace_task(
         report, evidence_dir, run_id, f"{phase}-task-space-roi-before-workspace"
     )
     _write_report(report)
+    _show_step63_view(panel, 1, 0)
     if not widget.ui.generateRobotWorkspaceButton.enabled:
         stop("Production Generate Robot Workspace control is disabled after Task Home validation.")
     evidence["last_completed_boundary"] = "before_workspace_generation_click"
     _write_report(report)
-    widget.ui.generateRobotWorkspaceButton.click()
+    try:
+        _modal_guarded_click(
+            report, evidence_dir, run_id, widget.ui.generateRobotWorkspaceButton,
+            f"{phase}-workspace-generation",
+        )
+    except UnexpectedModalError as exc:
+        evidence["workspace_modal_text"] = exc.dialog_text
+        stop(f"Workspace generation raised a modal: {exc.dialog_text}")
     _process_events(0.1)
     if facade.workspaceRuntimeValidated(parameter_node) is not True:
         stop("Production workspace generation did not produce current runtime validation.")
@@ -2536,7 +2617,7 @@ def _ensure_current_home_workspace_task(
         slicer.util.exit(0)
         raise SystemExit(0)
 
-    _process_events(0.1)
+    _show_step63_view(panel, 1, 1)
     if not panel.reviewLimitsButton.enabled:
         stop("Production Review and Apply Suggested Limits control is disabled.")
     evidence["last_completed_boundary"] = "before_assisted_limit_review_click"
@@ -2556,7 +2637,7 @@ def _ensure_current_home_workspace_task(
     )
 
     widget._updateStep6PlanningUi()
-    _process_events(0.1)
+    _show_step63_view(panel, 2, 0)
     if not panel.confirmTaskButton.enabled:
         stop("Production Confirm Immutable Task control is disabled after current review.")
     panel.confirmTaskButton.click()
@@ -3138,6 +3219,18 @@ def run() -> int:
         tcp_case_opt_in = _exact_env_opt_in("DENTOBOT_HEADED_TCP_CASE")
         full_chain_opt_in = _exact_env_opt_in("DENTOBOT_HEADED_FULL_CHAIN")
         try:
+            base_offset = _parse_base_offset(os.environ.get(BASE_OFFSET_ENV))
+            _validate_base_offset_opt_in(
+                base_offset,
+                full_chain=full_chain_opt_in,
+                allow_jog=os.environ.get("DENTOBOT_HEADED_ALLOW_JOG", "") == "1",
+                allow_base_home_accept=allow_base_home_accept,
+            )
+        except RuntimeError as exc:
+            fail("base_acceptance_trial", str(exc))
+        report["base_offset_requested_ras_mm"] = list(base_offset) if base_offset else None
+        report["base_offset_applied"] = False
+        try:
             base_home_uncertainty_opt_in = _exact_env_opt_in(
                 "DENTOBOT_HEADED_BASE_HOME_UNCERTAINTY"
             )
@@ -3355,7 +3448,7 @@ def run() -> int:
         active_check = "simulation_robot_models_loaded"
         widget._configureRobotSimulationShellSubstep(1)
         widget._updateStep6PlanningUi()
-        load_button = widget.ui.loadRobotModelButton
+        load_button = panel.loadFallbackButton
         if not load_button.enabled:
             fail(active_check, "Production Load Robot control is not enabled.",
                  button_text=str(load_button.text),
@@ -3427,9 +3520,26 @@ def run() -> int:
             "group": _visible(panel.manualBaseReviewGroup),
             "review_current_base": _visible(panel.beginManualBaseReviewButton),
             "cancel_review": _visible(panel.cancelManualBaseReviewButton),
+            "unlock_base": _visible(widget.ui.unlockRobotBaseMountButton),
+            "accept_base": _visible(widget.ui.lockRobotBaseMountButton),
+            "reconcile_base": _visible(panel.reconcileManualBaseStateButton),
             "accepted_base_status": _visible(widget.ui.step6MountLockStatusLabel),
         }
-        if not all(visible_controls.values()):
+        state_action_visible = any(
+            visible_controls[name]
+            for name in (
+                "review_current_base",
+                "cancel_review",
+                "unlock_base",
+                "accept_base",
+                "reconcile_base",
+            )
+        )
+        if not (
+            visible_controls["group"]
+            and visible_controls["accepted_base_status"]
+            and state_action_visible
+        ):
             fail(active_check, "Manual Base controls or accepted Base status are not visible.",
                  controls=visible_controls)
         base_frame = _scroll_to_visible(widget, panel.manualBaseReviewGroup,
@@ -3452,7 +3562,7 @@ def run() -> int:
 
         active_check = "draft_state_control_visible"
         widget._configureRobotSimulationShellSubstep(3)
-        _process_events(0.1)
+        _show_step63_view(panel, 0, 0)
         if not _visible(panel.manualJogGroup) or not _visible(panel.checkManualDraftStateButton):
             fail(active_check, "Read-only Check Draft State control is not visible.")
         draft_frame = _scroll_to_visible(widget, panel.manualJogGroup,
@@ -3623,7 +3733,7 @@ def run() -> int:
 
             active_check = "draft_state_read_only"
             widget._configureRobotSimulationShellSubstep(3)
-            _process_events(0.1)
+            _show_step63_view(panel, 0, 0)
             before_draft = _actual_joint_state(facade)
             if not all(before_draft.get(name) for name in ("accepted_si", "monitored_si", "displayed_si")):
                 fail(active_check, "Accepted, monitored, or displayed J1–J5 state is unavailable.",
@@ -4176,6 +4286,27 @@ def run() -> int:
                          base_locked=bool(parameter_node.robotBaseMountLocked),
                          robot_base_fingerprint=logic.robotBaseFingerprint(parameter_node),
                          screenshot=report["screenshots"].get("base-acceptance-staged"))
+                expected_accept_matrix = list(base_matrix)
+                if base_offset is not None:
+                    expected_accept_matrix = _translated_matrix(base_matrix, base_offset)
+                    offset_stage = facade.stageManualBaseReview(expected_accept_matrix)
+                    offset_details = dict(offset_stage.details or {})
+                    if (not offset_stage.success
+                            or offset_details.get("staged") is not True
+                            or not _same_matrix(
+                                offset_details.get("candidateMatrixWorldRasMm"),
+                                expected_accept_matrix,
+                            )
+                            or not _same_matrix(
+                                offset_details.get("acceptedMatrixWorldRasMm"), base_matrix
+                            )
+                            or logic.robotBaseFingerprint(parameter_node) != base_fingerprint):
+                        fail(active_check,
+                             "Production Base review did not stage the requested translated candidate.",
+                             stage_result=offset_details,
+                             requested_offset_ras_mm=list(base_offset))
+                    _process_events(0.1)
+                    _capture(report, evidence_dir, run_id, "base-offset-staged")
                 base_acceptance_owner = widget.ui.lockRobotBaseMountButton
                 if not base_acceptance_owner.enabled:
                     fail(active_check, "Existing Accept Base owner is not enabled for the staged candidate.",
@@ -4201,7 +4332,7 @@ def run() -> int:
                         or base_after_details.get("acceptanceUncertainty")
                         or not bool(parameter_node.robotBaseMountLocked)
                         or not _same_matrix(
-                            base_after_details.get("acceptedMatrixWorldRasMm"), base_matrix
+                            base_after_details.get("acceptedMatrixWorldRasMm"), expected_accept_matrix
                         )
                         or facade._planning_scene_synchronized is not True
                         or scene_after_base_accept["status"] != "Acknowledged"
@@ -4222,6 +4353,7 @@ def run() -> int:
                              "staged": report["screenshots"].get("base-acceptance-staged"),
                              "accepted": report["screenshots"].get("base-acceptance-accepted"),
                          })
+                report["base_offset_applied"] = base_offset is not None
                 _record(
                     report,
                     active_check,
@@ -4233,7 +4365,9 @@ def run() -> int:
                     identity_status=base_after_details.get("identityStatus"),
                     base_locked=True,
                     accepted_matrix_world_ras_mm=base_after_details["acceptedMatrixWorldRasMm"],
-                    accepted_matrix_unchanged=True,
+                    accepted_matrix_unchanged=base_offset is None,
+                    base_offset_ras_mm=list(base_offset) if base_offset else None,
+                    base_matrix_before_world_ras_mm=list(base_matrix),
                     candidate_cleared=True,
                     native_scene_resynchronized=True,
                     planning_scene_synchronized=True,
@@ -4253,6 +4387,7 @@ def run() -> int:
                 active_check = "task_home_review_acceptance_trial"
                 widget._configureRobotSimulationShellSubstep(3)
                 widget._updateStep6PlanningUi()
+                _show_step63_view(panel, 0, 0)
                 home_before_review = facade.manualTaskHomeReview()
                 home_before_details = dict(home_before_review.details or {})
                 if (not home_before_review.success
@@ -4565,7 +4700,7 @@ def run() -> int:
             if tcp_case_opt_in:
                 active_check = "case_bound_tcp_workbench"
                 widget._configureRobotSimulationShellSubstep(3)
-                _process_events(0.1)
+                _show_step63_view(panel, 0, 1)
                 try:
                     tcp_evidence = run_case_bound_tcp_probe(
                         widget, panel, facade, evidence_dir.parent,
@@ -4597,7 +4732,7 @@ def run() -> int:
                 )
                 widget._configureRobotSimulationShellSubstep(3)
                 widget._updateStep6PlanningUi()
-                _process_events(0.1)
+                _show_step63_view(panel, 2, 0)
                 planning_controls = {
                     "plan_approach_enabled": bool(panel.planApproachButton.enabled),
                     "compare_planners_enabled": bool(panel.comparePlannersButton.enabled),
@@ -4661,7 +4796,7 @@ def run() -> int:
                     )
                 widget._configureRobotSimulationShellSubstep(3)
                 widget._updateStep6PlanningUi()
-                _process_events(0.1)
+                _show_step63_view(panel, 2, 0)
                 try:
                     cycle_evidence = run_complete_cycles(
                         widget,
@@ -4704,10 +4839,16 @@ def run() -> int:
                 active_check = "full_chain_interruption"
                 widget._configureRobotSimulationShellSubstep(3)
                 widget._updateStep6PlanningUi()
-                _process_events(0.1)
+                _show_step63_view(panel, 2, 0)
                 if not panel.checkPreEntryIKButton.enabled:
                     fail(active_check, "Current PreEntry IK diagnostic control is disabled.")
-                panel.checkPreEntryIKButton.click()
+                try:
+                    _modal_guarded_click(
+                        report, evidence_dir, run_id, panel.checkPreEntryIKButton,
+                        "chain-preentry-ik",
+                    )
+                except UnexpectedModalError as exc:
+                    fail(active_check, f"PreEntry IK raised a modal: {exc.dialog_text}")
                 _process_events(0.1)
                 try:
                     chain_evidence = run_full_chain_interruption_probe(
@@ -4716,6 +4857,9 @@ def run() -> int:
                             report, evidence_dir, run_id, f"chain-{stage}"
                         ),
                         _process_events, _wait_until,
+                        click_guard=lambda button, name: _modal_guarded_click(
+                            report, evidence_dir, run_id, button, f"chain-{name}"
+                        ),
                     )
                 except Exception as exc:
                     _retain_full_chain_probe_counts(

@@ -2005,3 +2005,8 @@ The reviewed integration candidate uses five additional sibling mixins to satisf
 ## Project DentoCase source boundary — 1 October
 
 `dentobot_case` contains plain stable checkpoint/lineage contracts, read-only validated package inspection and a rebuildable SQLite metadata catalog. MRB/.dentocase remains geometry authority. `dentobot_workflow.case_inventory` audits persisted MRML ownership; `case_library` performs I/O in one worker and dispatches callbacks on the UI thread; `case_projection` constructs independent prefixes in a disposable offline Slicer process. Full/partial activation uses the existing recovery-backed load owner. Package schema3 identity is separate from workflow-state and checkpoint-definition versions; schema1/2 reads remain supported. Saved integrity/lineage and live Unverified freshness stay distinct. Unknown ownership blocks partial construction. No new startup scan, ROS initialization or restored live authority.
+
+
+## Native Ubuntu rendering selection — 1 October 2026
+
+The consolidated5.10 integration uses explicit native NVIDIA container graphics as an alternative to Mesa DRM rendering. Rendering mode is independent of segmentation inference device: NVIDIA graphics with CPU inference is supported by configuration. NVIDIA selection uses the existing GPU reservation overlay plus a native-only DRM-device reset. It does not change workflow geometry, planner policy or Slicer version. Actual hardware/renderer/frame-pacing acceptance remains workstation-specific; nativeUbuntu results do not establish WSL/WSLg behavior.

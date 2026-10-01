@@ -1963,3 +1963,39 @@ Future source development targets `/home/light-tarun/dentobot/ros2_ws/src/DentoB
 
 
 **Verified offline DentoCase environment — 1 October:** The synthetic persistence gate uses the existing native Slicer5.10 executable and integration checkout Python/module paths directly, private Xvfb, ROS_DOMAIN_ID232 and no ROS initialization. This is not a shared-install rebuild or connected workflow acceptance. Attempt4 exits0 with clear teardown and separate full/partial case IDs. The newer guard source is SHA256 `b67bd8e223465a618eae66c9b72d6e8f24169c4f1c3415a5f67b00caae1913aa`; its previously approved renovation build/install binary SHA256 is `19cdc7800e39d241fe72fbfbc8d20a953f5ab110a9e44b511e0f2ed6c6cbe6a1`. The older isolated guard prefix above is historical evidence for its own checkpoint and does not match the consolidated newer source. Do not treat offline package verification as current connected guard/scene authority.
+
+
+## Watchdog launch provenance and Ubuntu counters — 1 October 2026
+
+The normal launcher prepares DENTOBOT_WATCHDOG_SESSION_ID and whitelisted DENTOBOT_WATCHDOG_METADATA once and passes them through Docker/handoff. Handoff selects dentobot-resource-watchdog.py from its own script directory. UI logs SESSION_METADATA and token-scoped ACTION_START/ACTION_END; progress completion restores the active parent or Idle. Recovered overdue gaps are logged before that phase resets. Next fresh Slicer launch is required for reliable deployed-source attribution; no image rebuild is needed.
+
+The existing five-second sampler additionally writes host_paging, host_disk_io (per device), cgroup_io_stat and actual_collection_duration_seconds. First/missing/reset rates are null. Paging uses SC_PAGE_SIZE; disk sectors use 512 bytes. Kernel I/O-time counters describe activity, not general latency; do not sum stacked devices. Image/native/dirty fingerprint may be unknown, and container-visible process measurements differ from host-kernel counters. Host-only verification passed; real-session overhead/correlation and clean-exit acceptance remain pending.
+
+
+## Native async joint-plan source checkpoint — 1 October 2026 (superseded below)
+
+Canonical SlicerROS2 motion-control pair and isolated /tmp/dentobot-slicerros2-shutdown-5-10 now expose BeginMoveItTrajectoryFromState/GetJointPlanStatus/TakeJointPlanResult/CancelJointPlan. Existing installed /tmp/dentobot-s6-u01-install library has not been rebuilt and lacks these methods. Workspace Python reports that deployment mismatch explicitly. Build only affected accepted5.10 native module after separate approval/resource serialization; no SuperBuild/image rebuild. Do not run the normal launcher as an implicit rebuild during another chat's runtime. Cancellation is plan-only best effort; an unresolved local cancellation requires motion-control-node recreation before another request.
+
+
+## S6-P2-03 increment2 deployed checkpoint — 1 October 2026
+
+Supersedes earlier unbuilt status: isolated single-job5.10 compile/wrapper/install passed; focused empty-scene explicit-start plan SUCCESS12points,0.108s/maxQtgap56ms, consumed reply/disconnect and Slicerexit0. Reviewed native library and identical wrapper installed into normal shared checkout package after backup; independent shared-package API probe loaded all four methods and exited0. Details/hashes/commands in today logbook and PERFORMANCE_INTEGRATION_AUDIT_2026-10-01.md. This is bounded API/software integration evidence. Representative long-wait/cancellation/ordinary-window responsiveness remains open; backend MoveIt shutdown-11 reproduced separately under S6-U-01. Watchdog paired overhead and NVIDIA increment3 pending;5.12 held.
+
+Normal launch now resolves /workspace/ros2_ws/install/slicer_ros2_module with reviewed async APIs. Package backup: container /tmp/dentobot-native-install-before-responsive-20261001.tar.gz. Library SHA256 f2e348cc56afc2c5da693a8541723386eac022d7d70bff38964ae28d3062970d. Install from build cwd to avoid ament manifest creation at /. No image/SuperBuild replacement.
+
+
+## Native Ubuntu NVIDIA rendering profile — 1 October 2026
+
+Item3 adds explicit `DENTOBOT_GRAPHICS_MODE=nvidia` to the integrated5.10 launcher. In the workstation-local `.dentobot.env`, select NVIDIA rendering independently of inference:
+
+```bash
+DENTOBOT_GRAPHICS_MODE=nvidia
+DENTOBOT_BACKEND_DEVICE=cpu
+# Or cuda:0 with its separately pinned CUDA backend interpreter.
+```
+
+Prerequisites are a working Ubuntu NVIDIA driver (`nvidia-smi`) and the NVIDIA Container Toolkit Docker runtime. Explicit mode fails with actionable diagnostics when unavailable; no software fallback or automatic NVIDIA selection. NVIDIA graphics combines `compose.nvidia.yaml` (remove Mesa DRM mapping) with `compose.cuda.yaml` (GPU reservation and compute/utility/graphics/display capabilities), even with CPU inference. Mesa auto/default behavior and selected checkout paths remain unchanged. WSL configuration is preserved and separately assessed.
+
+Host/mock/profile tests and frame-probe `--self-check` are authorized here. GPU runtime, container reconfiguration and FPS verification are deliberately not run on this GPU-less workstation. On a later approved NVIDIA workstation, record device/driver/VRAM, container exposure and Slicer OpenGL vendor/renderer/viewport. The frame probe measures forced VTK EndEvent throughput, not presented/VSync FPS; software rendering cannot establish the >=60FPS requirement. Save/close Slicer before a normal profile launch, which may recreate the container. No new image/Slicer rebuild or5.12 promotion is required.
+
+Profile host test result:13passed/0.08s; shell syntax and frame-probe self-check passed. These are source/mock evidence only; NVIDIA workstation verification deliberately deferred. Existing container on this PC was not reconfigured.

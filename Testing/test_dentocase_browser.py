@@ -295,87 +295,138 @@ def pump_until(timer, predicate, timeout=2.0):
     assert predicate(), "asynchronous browser operation did not complete"
 
 
-def test_filesystem_revalidation_runs_off_thread_and_callbacks_run_on_ui_thread(monkeypatch, tmp_path):
-    ui_thread = threading.get_ident()
+# The browser now uses QTableWidget and paged queries; keep a compact host
+# adapter for thread/reset behavior, then verify real PythonQt separately.
+class Control(Widget):
+    def __init__(self, *args):
+        super().__init__()
+        self.text = str(args[0]) if args and isinstance(args[0], str) else ""
+        self.clicked = Signal()
+        self.toggled = Signal()
+        self.textChanged = Signal()
+        self.returnPressed = Signal()
+        self.itemSelectionChanged = Signal()
+        self.currentIndexChanged = Signal()
+        self.currentIndex = 0
+        self.items = []
+        self.cells = {}
+        self.row = -1
+        self.blocked = False
+    def __getattr__(self, name):
+        if name.startswith('set') or name in {'resize', 'show'}:
+            return lambda *args: None
+        raise AttributeError(name)
+    @property
+    def currentText(self):
+        return self.items[self.currentIndex][0] if self.items else ''
+    def addItem(self, label, data=None): self.items.append((label, data))
+    def addItems(self, labels):
+        for label in labels: self.addItem(label)
+    def clear(self): self.items = []; self.currentIndex = 0
+    def itemData(self, index): return self.items[index][1] if 0 <= index < len(self.items) else None
+    def setCurrentIndex(self, index):
+        self.currentIndex = index
+        if not self.blocked: self.currentIndexChanged.emit(index)
+    def blockSignals(self, value): self.blocked = value
+    def currentRow(self): return self.row
+    def setCurrentCell(self, row, col):
+        self.row = row
+        self.itemSelectionChanged.emit()
+    def setItem(self, row, col, value): self.cells[row, col] = value
+    def horizontalHeader(self): return Control()
+    def verticalHeader(self): return Control()
+    def click(self):
+        if self.enabled: self.clicked.emit()
+
+class TableLayout(Layout):
+    def addWidget(self, widget, *args): self.items.append(widget)
+    def addStretch(self, *args): pass
+    def setContentsMargins(self, *args): pass
+
+class BrowserDialog(Dialog, Control):
+    def __init__(self, *args):
+        Control.__init__(self, *args)
+        self.finished = Signal()
+        self.destroyed = Signal()
+    def setMinimumSize(self, *args): pass
+    def resize(self, *args): pass
+
+class BrowserTimer(Timer):
+    def setSingleShot(self, *args): pass
+
+
+def browser_qt():
+    result = fake_qt_module()
+    result.QDialog = BrowserDialog
+    result.QVBoxLayout = result.QHBoxLayout = TableLayout
+    result.QTimer = BrowserTimer
+    for name in ('QLineEdit', 'QComboBox', 'QTableWidget', 'QTableWidgetItem',
+                 'QWidget', 'QLabel', 'QPushButton', 'QGroupBox', 'QPlainTextEdit', 'QProgressBar'):
+        setattr(result, name, Control)
+    result.QSettings = lambda: SimpleNamespace(value=lambda *args: 'light')
+    result.QAbstractItemView = SimpleNamespace(SelectRows=1, SingleSelection=1, NoEditTriggers=1)
+    return result
+
+
+def test_browser_io_main_thread_activation_and_clear_generation(monkeypatch, tmp_path):
+    import DENTOCaseBundle as owner
+    import dentobot_case.inspection as inspector
+    ui = threading.get_ident()
     inv = inventory()
-    db = tmp_path / "library.sqlite"
-    db.touch()
-    worker_threads = []
-    received = []
-    session_ref = []
-
+    summary = {'case_key': inv.case_id, 'package_id': inv.package_id, 'path': inv.path,
+               'label': inv.label, 'teeth': ['FDI11'], 'saved_at_utc': '',
+               'package_status': 'Checked', 'workflow_status': 'Current'}
+    state = {'cleared': False, 'threads': [], 'closed': False}
+    scan_started, scan_stopped = threading.Event(), threading.Event()
     class FakeCatalog:
-        def __init__(self, _path):
-            worker_threads.append(threading.get_ident())
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            pass
-
-        def list_cases(self):
-            assert threading.get_ident() != ui_thread
-            return catalog_case(inv)
-
-        def revalidate(self, path):
-            assert threading.get_ident() != ui_thread
-            assert path == inv.path
-            return inv
-
-    monkeypatch.setattr(case_library, "Catalog", FakeCatalog)
-    monkeypatch.setitem(sys.modules, "qt", fake_qt_module())
-
-    def on_full_load(path):
-        assert threading.get_ident() == ui_thread
-        assert session_ref[0]._case_library_tree.enabled is False
-        assert all(not button.enabled for button in session_ref[0].dialog.layout.items[2].items)
-        received.append(("full", path))
-        # MRML progress dialogs pump Qt events during activation. The same
-        # completed job must not be dispatched recursively by the timer.
-        session_ref[0]._case_library_timer.fire()
-        assert received == [("full", path)]
-
-    def on_partial_load(path, target_id, checkpoint_id, branch_id):
-        assert threading.get_ident() == ui_thread
-        assert session_ref[0]._case_library_tree.enabled is False
-        assert all(not button.enabled for button in session_ref[0].dialog.layout.items[2].items)
-        received.append(("partial", path, target_id, checkpoint_id, branch_id))
-        session_ref[0]._case_library_timer.fire()
-        assert len(received) == 2
-
-    session = case_library.show_case_library(
-        None,
-        database_path=str(db),
-        on_full_load=on_full_load,
-        on_partial_load=on_partial_load,
-        on_partial_save=lambda *_args: pytest.fail("unexpected partial save callback"),
-    )
-    session_ref.append(session)
+        def __init__(self, path):
+            state['threads'].append(threading.get_ident())
+            assert threading.get_ident() != ui
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def list_case_summaries(self, **kwargs):
+            return {'items': [] if state['cleared'] else [summary], 'total': 0 if state['cleared'] else 1}
+        def get_case_details(self, key):
+            return {'case_key': inv.case_id, 'revisions': [{'package_id': inv.package_id,
+                'saved_at_utc': '', 'inventory': inv, 'metadata': inv.metadata,
+                'locations': [{'path': inv.path, 'status': 'Valid', 'error': None}]}]}
+        def record_verified(self, value): assert value == inv
+        def scan(self, **kwargs):
+            scan_started.set()
+            while not kwargs['cancelled']():
+                time.sleep(.001)
+            scan_stopped.set()
+        def clear(self):
+            assert scan_stopped.is_set(), 'Reset must await the catalog writer'
+            state['cleared'] = True
+    prepared = SimpleNamespace(path=inv.path, inspection=object(),
+        assert_source_unchanged=lambda: None, close=lambda: state.update(closed=True))
+    monkeypatch.setattr(case_library, 'Catalog', FakeCatalog)
+    monkeypatch.setitem(sys.modules, 'qt', browser_qt())
+    monkeypatch.setattr(owner, 'prepare_case_bundle', lambda *args, **kwargs: prepared)
+    monkeypatch.setattr(owner, 'sha256_file', lambda *args: inv.package_sha256)
+    monkeypatch.setattr(inspector, 'inventory_from_inspection', lambda *args: inv)
+    received = []
+    session = None
+    def loaded(value):
+        assert threading.get_ident() == ui and value is prepared
+        assert not session._buttons['clear'].enabled
+        received.append(value)
+        session._case_library_timer.fire()
+        assert len(received) == 1
+    session = case_library.show_case_library(None, database_path=str(tmp_path/'library.sqlite'),
+        on_full_load=loaded, on_partial_load=lambda *args: None, on_partial_save=lambda *args: None)
     timer = session._case_library_timer
-    pump_until(timer, lambda: bool(session._case_library_tree.top))
-    items = flatten_items(session._case_library_tree.top)
-    location = next(item for item in items if item.text.startswith(inv.path))
-    session._case_library_tree.select(location)
-    assert "Integrity checked (UTC): 2026-10-01T00:00:00Z" in session.dialog.layout.items[1].text
-    load_button = next(item for item in session.dialog.layout.items[2].items if item.text == "Load full case")
-    load_button.click()
-    pump_until(timer, lambda: len(received) == 1)
+    pump_until(timer, lambda: session._details is not None and session._buttons['full'].enabled)
+    session._buttons['full'].click()
+    pump_until(timer, lambda: bool(received))
+    assert state['closed']
+    session._buttons['refresh'].click()
+    pump_until(timer, scan_started.is_set)
+    session._buttons['clear'].click()
+    pump_until(timer, lambda: state['cleared'] and not session._rows)
+    assert session._case_library_total == 0  # stale scan completion cannot repopulate
 
-    checkpoint_item = next(
-        item for item in flatten_items(session._case_library_tree.top)
-        if "trajectory.plan" in item.text and "cutoff: available" in item.text
-    )
-    session._case_library_tree.select(checkpoint_item)
-    assert "Integrity checked (UTC): 2026-10-01T00:00:00Z" in session.dialog.layout.items[1].text
-    assert "Saved state:" in session.dialog.layout.items[1].text
-    partial_button = next(item for item in session.dialog.layout.items[2].items if item.text == "Load selected prefix")
-    partial_button.click()
-    pump_until(timer, lambda: len(received) == 2)
-
-    assert worker_threads and all(thread_id != ui_thread for thread_id in worker_threads)
-    assert received[0] == ("full", inv.path)
-    assert received[1] == ("partial", inv.path, "target-1", "trajectory.plan", "branch-1")
+    assert state['threads'] and all(value != ui for value in state['threads'])
     session.dialog.finished.emit(0)
-    assert session._case_library_closed is True
-    assert timer.running is False
+    assert session._case_library_closed and not timer.running

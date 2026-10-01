@@ -541,8 +541,158 @@ def _target_tooth_associations(workflow: dict[str, Any]) -> list[dict[str, str |
     return sorted(associations, key=lambda item: (item["fdi"], item["targetId"]))
 
 
-def inspect_package(path: str | Path) -> CaseInventory:
-    """Validate and summarize one package without loading its MRB geometry."""
+def _saved_at_utc(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _recorded_previews(workflow: dict[str, Any]) -> tuple[list[dict], list[dict]]:
+    raw_inventory = workflow.get("checkpointInventory")
+    if not isinstance(raw_inventory, dict):
+        return [], []
+    raw_artifacts = raw_inventory.get("artifacts")
+    checkpoint_preview = []
+    if isinstance(raw_artifacts, list):
+        for artifact in raw_artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            checkpoint_id = artifact.get("checkpoint_id")
+            if not isinstance(checkpoint_id, str) or not checkpoint_id.strip():
+                continue
+            values = {}
+            for key in ("state", "target_id", "branch_id", "scope"):
+                value = artifact.get(key)
+                values[key] = value.strip() if isinstance(value, str) else ""
+            checkpoint_preview.append({"checkpoint_id": checkpoint_id.strip(), **values})
+
+    raw_branches = raw_inventory.get("branches")
+    branch_preview = []
+    if isinstance(raw_branches, list):
+        for branch in raw_branches:
+            if not isinstance(branch, dict):
+                continue
+            identifier = branch.get("id")
+            target_id = branch.get("target_id")
+            trajectory_ids = branch.get("trajectory_ids")
+            if not isinstance(identifier, str) or not identifier.strip():
+                continue
+            branch_preview.append({
+                "id": identifier.strip(),
+                "target_id": target_id.strip() if isinstance(target_id, str) else "",
+                "trajectory_ids": [value.strip() for value in trajectory_ids
+                                   if isinstance(value, str) and value.strip()]
+                                  if isinstance(trajectory_ids, list) else [],
+                "pairing_intent": branch.get("pairing_intent", "").strip()
+                                  if isinstance(branch.get("pairing_intent"), str) else "",
+            })
+    return checkpoint_preview, branch_preview
+
+
+def _workflow_status(checkpoints: list[dict]) -> str:
+    states = [item["state"].strip().casefold() for item in checkpoints if item["state"].strip()]
+    if any(state == "stale" for state in states):
+        return "Stale"
+    if any(state in {"incomplete", "blocked"} for state in states):
+        return "Incomplete"
+    if any(state not in {"current"} for state in states) or len(states) != len(checkpoints):
+        return "Unknown"
+    return "Current" if states else "Missing"
+
+
+def _all_target_tooth_associations(workflow: dict[str, Any]) -> list[dict[str, Any]]:
+    associations = _target_tooth_associations(workflow)
+    reviewed = workflow.get("reviewedTargets")
+    if isinstance(reviewed, list):
+        associations.extend(
+            dict(item) for item in reviewed
+            if isinstance(item, dict) and isinstance(item.get("targetId"), str)
+            and isinstance(item.get("fdi"), str)
+        )
+    return associations
+
+
+def _fdi_label(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    raw = value.strip().upper()
+    digits = raw[3:] if raw.startswith("FDI") else raw
+    if len(digits) != 2 or digits[0] not in "1234" or digits[1] not in "12345678":
+        return None
+    return f"FDI{digits}"
+
+
+def discovery_from_metadata(
+    path: str | Path, metadata: object, stat_result=None
+) -> dict[str, Any]:
+    """Normalize a bounded ZIP preview as explicitly unverified display data."""
+
+    if not isinstance(metadata, dict):
+        raise ValueError("DentoCase metadata must be an object.")
+    manifest = metadata.get("manifest")
+    workflow = metadata.get("workflow")
+    if not isinstance(manifest, dict) or not isinstance(workflow, dict):
+        raise ValueError("DentoCase manifest and workflow must be objects.")
+    case_record = manifest.get("case")
+    if not isinstance(case_record, dict):
+        case_record = {}
+    raw_label = case_record.get("label")
+    if not isinstance(raw_label, str) or not raw_label.strip():
+        raw_label = workflow.get("caseLabel")
+    label = raw_label.strip() if isinstance(raw_label, str) and raw_label.strip() else "Unknown"
+    saved_at_utc = _saved_at_utc(manifest.get("createdAtUtc"))
+    associations = _all_target_tooth_associations(workflow)
+    teeth = sorted({
+        label for item in associations
+        if (label := _fdi_label(item.get("fdi"))) is not None
+    })
+    checkpoints, branches = _recorded_previews(workflow)
+    case_identity = workflow.get("caseIdentity")
+    if not isinstance(case_identity, dict):
+        case_identity = {}
+    preview_metadata = {
+        "saved_at_utc": saved_at_utc,
+        "targetToothAssociations": associations,
+        "checkpointPreview": checkpoints,
+        "branchPreview": branches,
+        "savedHome": _saved_home_summary(workflow),
+    }
+    raw_inventory = workflow.get("checkpointInventory")
+    if isinstance(raw_inventory, dict) and isinstance(raw_inventory.get("schemaVersion"), str):
+        preview_metadata["checkpointInventorySchemaVersion"] = raw_inventory["schemaVersion"]
+    if isinstance(workflow.get("projectionOwnership"), dict):
+        preview_metadata["projection"] = workflow["projectionOwnership"]
+    if stat_result is not None:
+        preview_metadata["stat_size"] = stat_result.st_size
+        preview_metadata["stat_mtime_ns"] = stat_result.st_mtime_ns
+        preview_metadata["stat_dev"] = stat_result.st_dev
+        preview_metadata["stat_ino"] = stat_result.st_ino
+        preview_metadata["stat_ctime_ns"] = stat_result.st_ctime_ns
+    return {
+        "path": str(Path(path).expanduser().resolve()),
+        "package_id": manifest.get("packageId") if isinstance(manifest.get("packageId"), str) else "",
+        "case_id": case_record.get("id") if isinstance(case_record.get("id"), str)
+                   else case_identity.get("id") if isinstance(case_identity.get("id"), str) else "",
+        "label": label,
+        "saved_at_utc": saved_at_utc,
+        "teeth": teeth,
+        "workflow_status": _workflow_status(checkpoints),
+        "metadata": preview_metadata,
+    }
+
+
+def _stat_identity(info) -> tuple[int, int, int, int, int]:
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def inspect_discovery(path: str | Path) -> dict[str, Any]:
+    """Read bounded bundle metadata only; the result is never a validated inventory."""
 
     owner = _load_case_bundle_owner()
     try:
@@ -550,21 +700,26 @@ def inspect_package(path: str | Path) -> CaseInventory:
         before = package_path.stat()
         if not package_path.is_file():
             raise ValueError("DentoCase path must be a regular file.")
-        inspected = owner.validate_case_bundle(package_path)
-        package_sha256 = owner.sha256_file(package_path)
+        metadata = owner.read_case_bundle_metadata(package_path)
         after = package_path.stat()
     except owner.CaseBundleError as exc:
-        raise ValueError(str(exc) or "DentoCase archive validation failed.") from exc
+        raise ValueError(str(exc) or "DentoCase metadata could not be read.") from exc
     except OSError as exc:
         raise ValueError("DentoCase file could not be read.") from exc
-
-    before_identity = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
-    after_identity = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
-    if before_identity != after_identity:
+    if _stat_identity(before) != _stat_identity(after):
         raise ValueError("DentoCase file changed during inspection.")
+    return discovery_from_metadata(package_path, metadata, after)
 
-    manifest = inspected.manifest
-    workflow = inspected.workflow
+
+def inventory_from_inspection(
+    path: str | Path, inspection, package_sha256: str, stat_result=None
+) -> CaseInventory:
+    """Normalize an already fully validated bundle into its trusted inventory."""
+
+    package_path = Path(path).expanduser().resolve(strict=False)
+    stat_result = stat_result or package_path.stat()
+    manifest = inspection.manifest
+    workflow = inspection.workflow
     if not isinstance(manifest, dict) or not isinstance(workflow, dict):
         raise ValueError("DentoCase manifest and workflow must be objects.")
     package_id = _text(manifest.get("packageId"), "manifest.packageId")
@@ -638,16 +793,20 @@ def inspect_package(path: str | Path) -> CaseInventory:
             target_ids, artifacts, branches, ownership_complete, unknown_ownership = (
                 _explicit_inventory(raw_inventory)
             )
+    discovery = discovery_from_metadata(
+        package_path, {"manifest": manifest, "workflow": workflow}, stat_result
+    )
     metadata = {
         "savedHome": _saved_home_summary(workflow),
-        "historicalRecordCount": len(inspected.manual_simulation_records),
-        "studyAttemptCount": len(inspected.study_attempts),
+        "historicalRecordCount": len(inspection.manual_simulation_records),
+        "studyAttemptCount": len(inspection.study_attempts),
         "projectionValidity": "Unverified",
-        "targetToothAssociations": _target_tooth_associations(workflow) + [
-            dict(item) for item in workflow.get("reviewedTargets", [])
-            if isinstance(item, dict) and isinstance(item.get("targetId"), str)
-            and isinstance(item.get("fdi"), str)
-        ],
+        "targetToothAssociations": discovery["metadata"]["targetToothAssociations"],
+        "saved_at_utc": discovery["saved_at_utc"],
+        "teeth": discovery["teeth"],
+        "workflow_status": discovery["workflow_status"],
+        "checkpointPreview": discovery["metadata"]["checkpointPreview"],
+        "branchPreview": discovery["metadata"]["branchPreview"],
     }
     if isinstance(workflow.get("projectionOwnership"), dict):
         metadata["projection"] = workflow["projectionOwnership"]
@@ -669,8 +828,30 @@ def inspect_package(path: str | Path) -> CaseInventory:
         definition_version=definition_version,
         live_freshness=LIVE_FRESHNESS,
         legacy_identity=legacy_identity,
-        historical_record_count=len(inspected.manual_simulation_records),
-        stat_size=after.st_size,
-        stat_mtime_ns=after.st_mtime_ns,
+        historical_record_count=len(inspection.manual_simulation_records),
+        stat_size=stat_result.st_size,
+        stat_mtime_ns=stat_result.st_mtime_ns,
         metadata=metadata,
     )
+
+
+def inspect_package(path: str | Path) -> CaseInventory:
+    """Validate and summarize one package without loading its MRB geometry."""
+
+    owner = _load_case_bundle_owner()
+    try:
+        package_path = Path(path).expanduser().resolve(strict=True)
+        before = package_path.stat()
+        if not package_path.is_file():
+            raise ValueError("DentoCase path must be a regular file.")
+        inspected = owner.validate_case_bundle(package_path)
+        package_sha256 = owner.sha256_file(package_path)
+        after = package_path.stat()
+    except owner.CaseBundleError as exc:
+        raise ValueError(str(exc) or "DentoCase archive validation failed.") from exc
+    except OSError as exc:
+        raise ValueError("DentoCase file could not be read.") from exc
+
+    if _stat_identity(before) != _stat_identity(after):
+        raise ValueError("DentoCase file changed during inspection.")
+    return inventory_from_inspection(package_path, inspected, package_sha256, after)

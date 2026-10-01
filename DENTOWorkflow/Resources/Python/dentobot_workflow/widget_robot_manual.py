@@ -587,6 +587,8 @@ class RobotManualWidgetMixin:
             else:
                 self._applyStep6RecommendedView()
             self._ensureOfflinePlacementSceneVisible()
+            if self._isStep6ManualBaseReviewActive():
+                self._ensureStep61BaseEditCandidate()
         except (RuntimeError, ValueError) as exc:
             self._robotSimulationPanel.visualizationStatusLabel.text = str(exc)
             slicer.util.errorDisplay(str(exc))
@@ -645,6 +647,30 @@ class RobotManualWidgetMixin:
                 and acceptance_unknown
             ),
         }
+
+    def _ensureStep61BaseEditCandidate(self) -> None:
+        try:
+            active = self._isStep6ManualBaseReviewActive()
+        except (RuntimeError, ValueError):
+            return
+        if (
+            not active
+            or not self._parameterNode
+            or self._parameterNode.robotBaseMountLocked
+            or not self._robotWorkflowFacade
+            or getattr(self, "_workflowActionBusy", False)
+        ):
+            return
+        review = self._robotWorkflowFacade.manualBaseReview()
+        details = getattr(review, "details", {}) or {}
+        if (
+            review.success
+            and details.get("identityStatus") == "current"
+            and not details.get("staged")
+            and str(details.get("acceptanceStatus") or "") != "unknown"
+            and not details.get("acceptanceUncertainty")
+        ):
+            self._onStep6BeginManualBaseReview()
 
     def _onStep6BeginManualBaseReview(self) -> None:
         panel = self._robotSimulationPanel

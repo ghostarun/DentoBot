@@ -271,3 +271,59 @@ def test_original_button_exception_is_preserved_and_timer_is_cleaned():
     assert caught.value is failure
     assert button.click_count == 1
     _finish(timers[0])
+
+
+def _watchdog_qt():
+    timers = []
+
+    def create():
+        timer = _Timer()
+        timers.append(timer)
+        return timer
+
+    return SimpleNamespace(QTimer=create), timers
+
+
+def test_watchdog_click_without_modal_returns_none_and_cleans_timer():
+    qt, timers = _watchdog_qt()
+    click = dialog_probe.make_modal_watchdog_click(qt, lambda: None, lambda stage: stage)
+    button = _Button(lambda: None)
+    assert click(button, "workspace") is None
+    assert button.click_count == 1
+    assert timers and not timers[0].active and timers[0].timeout.callbacks == []
+
+
+def test_watchdog_captures_dismisses_and_raises_on_modal_during_click():
+    qt, timers = _watchdog_qt()
+    state = {"dialog": None}
+    captures = []
+
+    def open_modal():
+        state["dialog"] = _Dialog("'X' object has no attribute 'robotNodeID'",
+                                  lambda: state.update(dialog=None))
+        timers[0].tick()  # nested event loop while the modal is open
+
+    click = dialog_probe.make_modal_watchdog_click(
+        qt, lambda: state["dialog"], lambda stage: captures.append(stage) or stage
+    )
+    with pytest.raises(dialog_probe.UnexpectedModalError) as error:
+        click(_Button(open_modal), "workspace")
+    assert "robotNodeID" in error.value.dialog_text
+    assert error.value.capture_reference == "workspace-unexpected-modal"
+    assert captures == ["workspace-unexpected-modal"]
+    assert state["dialog"] is None
+    assert not timers[0].active
+
+
+def test_watchdog_never_accepts_and_handles_pre_existing_modal():
+    qt, _timers = _watchdog_qt()
+    state = {}
+    dialog = _Dialog("stale", lambda: state.update(closed=True))
+    current = {"dialog": dialog}
+    dialog.on_dismiss = lambda: current.update(dialog=None)
+    click = dialog_probe.make_modal_watchdog_click(qt, lambda: current["dialog"], lambda stage: stage)
+    button = _Button(lambda: None)
+    with pytest.raises(dialog_probe.UnexpectedModalError):
+        click(button, "pre")
+    assert button.click_count == 0
+    assert dialog.accept_count == 0 and dialog.reject_count == 1

@@ -99,10 +99,75 @@ class RobotPlacementWidgetMixin:
             return
         self._nudgeRobotBase(translationAxis, rotationAxis, direction)
 
+    def _bindManualBaseCandidateInteractionNode(self, node) -> None:
+        current = getattr(self, "_manualBaseCandidateInteractionNode", None)
+        if current is node:
+            return
+        if current is not None:
+            self.removeObserver(current, vtk.vtkCommand.ModifiedEvent,
+                                self._onManualBaseCandidateInteractionModified)
+        self._manualBaseCandidateInteractionNode = node
+        if node is not None:
+            self.addObserver(
+                node,
+                vtk.vtkCommand.ModifiedEvent,
+                self._onManualBaseCandidateInteractionModified,
+            )
+
+    def _onManualBaseCandidateInteractionModified(self, caller=None, event=None) -> None:
+        del event
+        if (
+            caller is None
+            or caller is not getattr(self, "_manualBaseCandidateInteractionNode", None)
+            or getattr(self, "_updatingManualBaseCandidateFromViewport", False)
+            or not self._isStep6ManualBaseReviewActive()
+            or not self._parameterNode
+            or self._parameterNode.robotBaseMountLocked
+            or not self._robotWorkflowFacade
+        ):
+            return
+        matrix = vtk.vtkMatrix4x4()
+        message = "viewport candidate update failed"
+        try:
+            caller.GetMatrixTransformToWorld(matrix)
+            values = tuple(
+                float(matrix.GetElement(row, column))
+                for row in range(4)
+                for column in range(4)
+            )
+            if not all(math.isfinite(value) for value in values):
+                raise ValueError("candidate transform contains non-finite values")
+            self._updatingManualBaseCandidateFromViewport = True
+            result = self._robotWorkflowFacade.stageManualBaseReview(values)
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            result = None
+            message = str(exc) or "viewport candidate update failed"
+        finally:
+            self._updatingManualBaseCandidateFromViewport = False
+        panel = getattr(self, "_robotSimulationPanel", None)
+        if result is not None and result.success:
+            self._manualBaseCandidateGhostKey = None
+            if panel is not None:
+                panel.setBaseInteractionStatus(
+                    "ok",
+                    "Base unlocked · viewport drag active on the detached candidate.",
+                )
+                panel.manualBaseReviewStatusLabel.text = (
+                    "Detached Base candidate updated from the viewport. "
+                    "The accepted Base is unchanged until Accept Base."
+                )
+        elif panel is not None:
+            panel.setBaseInteractionStatus(
+                "error",
+                "Base unlocked · drag update rejected: "
+                + str(getattr(result, "message", "") or message),
+            )
+
     def _setRobotTransformInteractionVisible(self, visible: bool) -> None:
         if not self.logic:
             return
         robotStageActive = self._isStep6RobotWorkflowActive()
+        manualReviewActive = self._isStep6ManualBaseReviewActive()
         baseTransform = (
             self._parameterNode.robotBaseTransform if self._parameterNode else None
         )
@@ -127,6 +192,55 @@ class RobotPlacementWidgetMixin:
                     method = getattr(displayNode, methodName, None)
                     if method:
                         method(value)
+        candidate_enabled = False
+        candidate_message = ""
+        acceptance_unknown = False
+        if robotStageActive and manualReviewActive and self._robotWorkflowFacade:
+            review = self._robotWorkflowFacade.manualBaseReview()
+            details = getattr(review, "details", {}) or {}
+            acceptance_unknown = bool(
+                str(details.get("acceptanceStatus") or "") == "unknown"
+                or details.get("acceptanceUncertainty")
+            )
+            candidate_enabled = bool(
+                visible
+                and self._parameterNode
+                and not self._parameterNode.robotBaseMountLocked
+                and review.success
+                and details.get("staged") is True
+                and str(details.get("identityStatus") or "unknown") == "current"
+                and not acceptance_unknown
+            )
+        interaction = getattr(
+            self.logic, "setManualBaseCandidateInteractionEnabled", None
+        )
+        if callable(interaction):
+            available, candidate_message = interaction(candidate_enabled)
+        else:
+            available = False
+            candidate_message = "candidate interaction API is unavailable"
+        panel = getattr(self, "_robotSimulationPanel", None)
+        if panel is not None and robotStageActive and manualReviewActive:
+            if acceptance_unknown:
+                panel.setBaseInteractionStatus(
+                    "error",
+                    "Base outcome uncertain · drag blocked · Reconcile Base State.",
+                )
+            elif self._parameterNode and self._parameterNode.robotBaseMountLocked:
+                panel.setBaseInteractionStatus(
+                    "ok", "Base locked · viewport drag off."
+                )
+            elif candidate_enabled and available:
+                panel.setBaseInteractionStatus(
+                    "ok",
+                    "Base unlocked · viewport drag active on the detached candidate.",
+                )
+            else:
+                panel.setBaseInteractionStatus(
+                    "blocked",
+                    "Base unlocked · drag unavailable: "
+                    + str(candidate_message or "stage a current Base candidate"),
+                )
         if self.logic.isRobotMountPlaneNode(planeNode):
             planeNode.CreateDefaultDisplayNodes()
             displayNode = planeNode.GetDisplayNode()

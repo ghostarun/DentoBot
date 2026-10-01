@@ -1,5 +1,5 @@
-# NVIDIA GPU access for CUDA inference inside the SlicerROS2 container.
-# Merged by launch-dentoworkflow.bash when DENTOBOT_BACKEND_DEVICE=cuda:0.
+# NVIDIA GPU access for rendering and/or CUDA inference inside the SlicerROS2 container.
+# Merged for DENTOBOT_GRAPHICS_MODE=nvidia or DENTOBOT_BACKEND_DEVICE=cuda:0.
 
 services:
   slicerros2:

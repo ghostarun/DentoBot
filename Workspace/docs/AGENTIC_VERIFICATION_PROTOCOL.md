@@ -357,3 +357,8 @@ claim.
 - Builds run only when their owned production sources changed or the operator
   requests a clean rebuild.
 - Manual gates have no executable command and are never delegated.
+
+
+## Model-routing supersession — operator supplied 1 October 2026
+
+Latest operator-supplied AGENTS.md expressly replaces all earlier supplied AGENTS instructions: Sol low default coordination and optional bounded GPT-6 Luna xhigh auxiliary; more than one needs explicit operator/approved-plan scope. This supersedes the dated mandatory-two LunaMax statement above for future dispatch. Existing approved disjoint worker assignments retain their recorded provenance. Runtime approvals, serialization, retry ceiling, controlled-document ownership and operator-verdict gates are unchanged.

@@ -306,6 +306,23 @@ class _Control:
         pass
 
 
+class _PresentationControl(_Control):
+    def __init__(self):
+        super().__init__()
+        self.text = ""
+        self.toolTip = ""
+        self.visible = True
+
+    def setText(self, text):
+        self.text = str(text)
+
+    def setToolTip(self, text):
+        self.toolTip = str(text)
+
+    def setVisible(self, visible):
+        self.visible = bool(visible)
+
+
 class _TwoDecimalSpinBox(_Control):
     """Faithful host stand-in for the jog QDoubleSpinBox display precision."""
 
@@ -328,6 +345,170 @@ def _joint_limits(ranges):
             for index, (low, high) in enumerate(ranges, start=1)
         }
     )
+
+
+def _manual_jog_presentation_controls():
+    return {
+        joint: {
+            field: _PresentationControl()
+            for field in ("comparison", "lower", "upper", "notice", "details")
+        }
+        for joint in JOINT_NAMES
+    }
+
+
+def test_manual_jog_joint_presentation_compares_accepted_state_and_keeps_draft_visible():
+    methods = _methods(
+        PYTHON / "DENTORobotSimulationPanel.py",
+        "DENTORobotSimulationPanel",
+        {"_updateManualJogJointPresentation"},
+        {
+            "JOINT_NAMES": JOINT_NAMES,
+            "degrees": degrees,
+            "isfinite": isfinite,
+            "Mapping": Mapping,
+        },
+    )
+    panel = type("PanelProbe", (), methods)()
+    units = ("deg", "mm", "deg", "mm", "deg")
+    accepted_display = (10.0, 2.0, -20.0, -1.0, 5.0)
+    draft_display = (12.0, 1.0, -23.0, 1.5, 9.0)
+    accepted = {
+        joint: radians(value) if unit == "deg" else value / 1000.0
+        for joint, value, unit in zip(
+            JOINT_NAMES, accepted_display, units, strict=True
+        )
+    }
+    mechanical = (
+        (-30.0, 30.0),
+        (-8.0, 8.0),
+        (-40.0, 40.0),
+        (-5.0, 5.0),
+        (-50.0, 50.0),
+    )
+    reviewed = (
+        (-20.0, 20.0),
+        (-3.0, 3.0),
+        (-30.0, 30.0),
+        (-4.0, 4.0),
+        (-45.0, 45.0),
+    )
+    panel._manualJogJointPresentation = _manual_jog_presentation_controls()
+    panel.manualJogJointControls = {
+        joint: (_Control(), _PresentationControl(), _PresentationControl())
+        for joint in JOINT_NAMES
+    }
+    panel._manualJogDisplayValues = draft_display
+    panel._manualJogAcceptedJointPositionsSi = accepted
+    panel._manualJogSliderRanges = reviewed
+    panel._manualJogMechanicalLimits = mechanical
+    panel._manualJogLimits = (reviewed, reviewed)
+    panel._manualJogLimitsValid = True
+    panel._manualJogCommandLimitsValid = True
+    panel._manualJogAvailable = True
+    panel._manualJogDraftInitialized = False
+    panel._manualJogBusy = False
+    panel._taskHomeSetupMode = "connected"
+    panel.manualJogReconciliationRequired = False
+    action_calls = []
+    panel._invoke = lambda *args, **kwargs: action_calls.append((args, kwargs))
+
+    panel._updateManualJogJointPresentation()
+    for joint in JOINT_NAMES:
+        comparison = panel._manualJogJointPresentation[joint]["comparison"]
+        assert comparison.text == "Draft unavailable"
+        assert "not been initialized" in comparison.toolTip
+        assert "Δ" not in comparison.text
+
+    panel._manualJogDraftInitialized = True
+    panel._updateManualJogJointPresentation()
+
+    comparisons = [
+        panel._manualJogJointPresentation[joint]["comparison"].text
+        for joint in JOINT_NAMES
+    ]
+    for text, accepted_value, delta, unit in zip(
+        comparisons,
+        accepted_display,
+        (2.0, -1.0, -3.0, 2.5, 4.0),
+        units,
+        strict=True,
+    ):
+        assert f"Accepted {accepted_value:.2f} {unit}" in text
+        assert f"{delta:+.2f} {unit}" in text
+    for index, (joint, unit, bounds) in enumerate(
+        zip(JOINT_NAMES, units, reviewed, strict=True), start=1
+    ):
+        lower, upper = bounds
+        presentation = panel._manualJogJointPresentation[joint]
+        assert unit in presentation["lower"].text
+        assert f"{lower:.2f}" in presentation["lower"].text
+        assert f"{upper:.2f}" in presentation["upper"].text
+        detail = presentation["details"].text.lower()
+        assert f"j{index}" in detail
+        assert "mechanical" in detail
+        assert "reviewed" in detail
+        assert "command" in detail
+
+    panel._manualJogDisplayValues = (25.0, *draft_display[1:])
+    panel.manualJogJointControls[JOINT_NAMES[0]][1].value = 25.0
+    panel._updateManualJogJointPresentation()
+    notice = panel._manualJogJointPresentation[JOINT_NAMES[0]]["notice"]
+    assert notice.text == "Outside slider range; draft retained."
+    assert notice.visible
+    assert panel.manualJogJointControls[JOINT_NAMES[0]][1].value == 25.0
+    assert panel._manualJogAcceptedJointPositionsSi == accepted
+    assert action_calls == []
+
+    def expect_unavailable(expected, reason):
+        panel._updateManualJogJointPresentation()
+        for joint in JOINT_NAMES:
+            comparison = panel._manualJogJointPresentation[joint]["comparison"]
+            assert comparison.text == expected
+            assert reason in comparison.toolTip.lower()
+            assert "Δ" not in comparison.text
+
+    panel._taskHomeSetupMode = "offline"
+    expect_unavailable("Accepted — offline", "offline")
+    panel._taskHomeSetupMode = "unknown"
+    expect_unavailable("Accepted unavailable", "unknown")
+    panel._taskHomeSetupMode = "connected"
+    panel._manualJogBusy = True
+    expect_unavailable("Accepted — pending", "guarded jog")
+    panel._manualJogBusy = False
+    panel.manualJogReconciliationRequired = True
+    expect_unavailable("Accepted — uncertain", "reconciliation")
+    panel.manualJogReconciliationRequired = False
+    panel._manualJogAcceptedJointPositionsSi = None
+    expect_unavailable("Accepted unavailable", "accepted")
+    panel._manualJogAcceptedJointPositionsSi = {
+        **accepted,
+        "extra-joint": 0.0,
+    }
+    expect_unavailable("Accepted unavailable", "invalid")
+    panel._manualJogAcceptedJointPositionsSi = {
+        **accepted,
+        JOINT_NAMES[0]: math.nan,
+    }
+    expect_unavailable("Accepted unavailable", "invalid")
+
+    panel._manualJogAcceptedJointPositionsSi = accepted
+    panel._manualJogAvailable = False
+    panel._manualJogDraftInitialized = True
+    panel._manualJogSliderRanges = ()
+    panel._manualJogMechanicalLimits = None
+    panel._manualJogLimits = None
+    panel._manualJogLimitsValid = False
+    panel._manualJogCommandLimitsValid = False
+    panel._updateManualJogJointPresentation()
+    # Limits unavailable does not erase a previously initialized numeric draft.
+    assert panel._manualJogDisplayValues[0] == 25.0
+    for joint in JOINT_NAMES:
+        presentation = panel._manualJogJointPresentation[joint]
+        assert presentation["lower"].text == "--"
+        assert presentation["upper"].text == "--"
+        assert "-20.00" not in presentation["details"].text
+        assert "20.00" not in presentation["details"].text
 
 
 def test_manual_jog_availability_accepts_taskless_current_identity_and_fails_closed():
@@ -451,6 +632,7 @@ def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limit
         "_onManualJogNumericChanged",
         "_updateManualJogDraftFromControls",
         "manualJogJointPositionsSi",
+        "_updateManualJogJointPresentation",
         "setManualJogAcceptedState",
         "_formatManualJogDisplayValues",
         "_setManualJogStatus",
@@ -461,6 +643,7 @@ def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limit
         names,
         {
             "JOINT_NAMES": JOINT_NAMES,
+            "Mapping": Mapping,
             "degrees": degrees,
             "isfinite": isfinite,
             "joint_positions_si_from_display": to_si,
@@ -471,6 +654,12 @@ def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limit
     panel.manualJogJointControls = {
         name: (_Control(), _Control(), _Control()) for name in JOINT_NAMES
     }
+    panel._manualJogJointPresentation = _manual_jog_presentation_controls()
+    for index, (joint, unit) in enumerate(
+        zip(JOINT_NAMES, ("deg", "mm", "deg", "mm", "deg"), strict=True),
+        start=1,
+    ):
+        panel.manualJogJointControls[joint][2].text = f"J{index} ({unit})"
     panel.manualJogAcceptedStateLabel = _Control()
     panel.taskHomeCurrentStateLabel = _Control()
     panel.taskHomeCandidateLabel = _Control()
@@ -508,6 +697,17 @@ def test_manual_jog_numeric_drafts_use_mechanical_bounds_and_gate_reviewed_limit
         ((-90, 100), (-2, 4), (-45, 60), (-2, 2), (-170, 170))
     )
     panel.setManualJogLimits(mechanical, reviewed)
+
+    units = ("deg", "mm", "deg", "mm", "deg")
+    for index, (joint, unit) in enumerate(
+        zip(JOINT_NAMES, units, strict=True), start=1
+    ):
+        assert panel.manualJogJointControls[joint][2].text == f"J{index} ({unit})"
+        detail = panel._manualJogJointPresentation[joint]["details"].text.lower()
+        assert f"j{index}" in detail
+        assert "mechanical" in detail
+        assert "reviewed" in detail
+        assert "command" in detail
 
     assert panel._manualJogLimits[0] == (
         (-90.0, 100.0),
@@ -792,14 +992,17 @@ def test_manual_jog_native_evidence_is_visible_finite_and_locks_jog():
         {
             "setManualJogAvailability",
             "setManualJogStatus",
+            "_updateManualJogJointPresentation",
             "_updateManualJogKeyboardControlState",
             "_formatManualJogNativeEvidence",
+            "_formatManualJogDisplayValues",
             "_setManualJogStatus",
         },
         {
             "JOINT_NAMES": JOINT_NAMES,
             "Mapping": Mapping,
             "isfinite": math.isfinite,
+            "degrees": degrees,
         },
     )
     panel_type = type("PanelProbe", (), methods)
@@ -812,6 +1015,7 @@ def test_manual_jog_native_evidence_is_visible_finite_and_locks_jog():
         (-180, 180),
     )
     panel._manualJogLimits = (mechanical, mechanical)
+    panel._manualJogSliderRanges = mechanical
     panel._manualJogMechanicalLimits = mechanical
     panel._manualJogLimitsValid = True
     panel._manualJogCommandLimitsValid = True
@@ -822,10 +1026,15 @@ def test_manual_jog_native_evidence_is_visible_finite_and_locks_jog():
     panel._manualJogGuardAvailable = True
     panel._manualJogGuardContextAvailable = True
     panel._manualJogBusy = False
-    panel._manualJogAcceptedJointPositionsSi = {JOINT_NAMES[0]: 0.0}
-    panel._manualJogDisplayValues = (0.0,) * 5
+    panel._manualJogDraftInitialized = True
+    panel._manualJogAcceptedJointPositionsSi = dict.fromkeys(JOINT_NAMES, 0.0)
+    panel._manualJogDisplayValues = (1.0, 2.0, 3.0, 4.0, 5.0)
     panel.manualJogReconciliationRequired = False
-    panel.manualJogJointControls = {}
+    panel.manualJogJointControls = {
+        joint: (_Control(), _Control(value), _Control())
+        for joint, value in zip(JOINT_NAMES, panel._manualJogDisplayValues, strict=True)
+    }
+    panel._manualJogJointPresentation = _manual_jog_presentation_controls()
     panel.resetManualJogDraftButton = _Control()
     panel.checkManualDraftStateButton = _Control()
     panel.reconcileManualJogButton = _Control()
@@ -845,7 +1054,12 @@ def test_manual_jog_native_evidence_is_visible_finite_and_locks_jog():
             "minimumWorldDistanceM": 0.00475,
         },
     }
+    panel._updateManualJogJointPresentation()
+    assert "Δ" in panel._manualJogJointPresentation[JOINT_NAMES[0]]["comparison"].text
     panel.setManualJogStatus("blocked", "Reconciliation required.", evidence)
+    comparison = panel._manualJogJointPresentation[JOINT_NAMES[0]]["comparison"]
+    assert comparison.text == "Accepted — uncertain"
+    assert "reconciliation" in comparison.toolTip.lower()
     assert "first body: arm_link_4" in panel.manualJogStatusLabel.text
     assert "second body: case_surface" in panel.manualJogStatusLabel.text
     assert "required clearance: 0.00125 m" in panel.manualJogStatusLabel.text
@@ -1339,7 +1553,7 @@ def test_explicit_base_and_task_home_acceptance_use_the_facade_owners():
         encoding="utf-8"
     )
     assert '"Review Draft as Task Home"' in panel_source
-    assert '"Cancel Home Review"' in panel_source
+    assert '"Back to Edit / Cancel Review"' in panel_source
     assert '"Save Home Configuration"' in panel_source
     assert '"Accept and Validate Task Home"' in panel_source
     assert '"save_home"' not in panel_source
@@ -1575,7 +1789,54 @@ def test_manual_base_candidate_ghost_refresh_shows_only_current_draft_and_clears
     assert all(call[0] in {"show", "clear"} for call in logic.calls)
     panel_source = (PYTHON / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
     assert "cyan translucent ghost" in panel_source
-    assert "does not change the accepted robot or ROS scene" in panel_source
+
+
+def test_viewport_base_drag_updates_only_the_detached_review_candidate():
+    class Matrix:
+        def GetElement(self, row, column):
+            return 1.0 if row == column else (12.0 if (row, column) == (0, 3) else 0.0)
+
+    method = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_placement.py",
+        "RobotPlacementWidgetMixin",
+        {"_onManualBaseCandidateInteractionModified"},
+        {"vtk": SimpleNamespace(vtkMatrix4x4=Matrix), "math": math},
+    )["_onManualBaseCandidateInteractionModified"]
+    staged = []
+    messages = []
+    node = SimpleNamespace(GetMatrixTransformToWorld=lambda _matrix: None)
+    panel = SimpleNamespace(
+        setBaseInteractionStatus=lambda state, text: messages.append((state, text)),
+        manualBaseReviewStatusLabel=SimpleNamespace(text=""),
+    )
+    host = SimpleNamespace(
+        _manualBaseCandidateInteractionNode=node,
+        _updatingManualBaseCandidateFromViewport=False,
+        _isStep6ManualBaseReviewActive=lambda: True,
+        _parameterNode=SimpleNamespace(robotBaseMountLocked=False),
+        _robotWorkflowFacade=SimpleNamespace(
+            stageManualBaseReview=lambda values: (
+                staged.append(tuple(values))
+                or SimpleNamespace(success=True, message="staged")
+            )
+        ),
+        _robotSimulationPanel=panel,
+        _manualBaseCandidateGhostKey="old",
+    )
+
+    method(host, node)
+
+    assert len(staged) == 1
+    assert staged[0][3] == 12.0
+    assert host._manualBaseCandidateGhostKey is None
+    assert messages == [
+        ("ok", "Base unlocked · viewport drag active on the detached candidate.")
+    ]
+    assert "accepted Base is unchanged" in panel.manualBaseReviewStatusLabel.text
+
+    host._parameterNode.robotBaseMountLocked = True
+    method(host, node)
+    assert len(staged) == 1
 
 
 def test_step6_base_nudge_stages_detached_candidate_and_never_mutates_accepted_base():
@@ -2388,6 +2649,7 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
             "_formatManualJogDisplayValues",
             "_updateManualJogResetLabel",
             "setManualTaskHomeReviewResult",
+            "_updateManualJogJointPresentation",
         },
         {
             "JOINT_NAMES": JOINT_NAMES,
@@ -2480,7 +2742,7 @@ def test_task_home_mode_labels_and_offline_configuration_never_claim_live_accept
     methods = _methods(
         PYTHON / "DENTORobotSimulationPanel.py",
         "DENTORobotSimulationPanel",
-        {"_formatManualJogDisplayValues", "_updateManualJogResetLabel", "setManualTaskHomeReviewResult"},
+        {"_formatManualJogDisplayValues", "_updateManualJogResetLabel", "setManualTaskHomeReviewResult", "_updateManualJogJointPresentation"},
         {
             "JOINT_NAMES": JOINT_NAMES,
             "Mapping": Mapping,
@@ -2570,6 +2832,7 @@ def test_offline_draft_uses_mechanical_limits_and_disables_native_jog_actions():
         "_setManualJogDraftValues",
         "manualJogJointPositionsSi",
         "_formatManualJogDisplayValues",
+        "_updateManualJogJointPresentation",
         "_setManualJogStatus",
     }
     methods = _methods(
@@ -2578,6 +2841,7 @@ def test_offline_draft_uses_mechanical_limits_and_disables_native_jog_actions():
         names,
         {
             "JOINT_NAMES": JOINT_NAMES,
+            "Mapping": Mapping,
             "degrees": degrees,
             "isfinite": isfinite,
             "joint_positions_si_from_display": to_si,
@@ -2587,6 +2851,12 @@ def test_offline_draft_uses_mechanical_limits_and_disables_native_jog_actions():
     panel.manualJogJointControls = {
         name: (_Control(), _Control(), _Control()) for name in JOINT_NAMES
     }
+    panel._manualJogJointPresentation = {}
+    for index, (joint, unit) in enumerate(
+        zip(JOINT_NAMES, ("deg", "mm", "deg", "mm", "deg"), strict=True),
+        start=1,
+    ):
+        panel.manualJogJointControls[joint][2].text = f"J{index} ({unit})"
     for name in (
         "manualJogAcceptedStateLabel",
         "taskHomeCurrentStateLabel",
@@ -2640,8 +2910,11 @@ def test_offline_draft_uses_mechanical_limits_and_disables_native_jog_actions():
 
     assert panel._manualJogAvailable is True
     assert panel._manualJogSliderRanges == ((-10.0, 10.0),) * 5
-    assert "Home configuration mechanical bounds" in panel.manualJogJointControls[JOINT_NAMES[0]][2].text
-    assert "reviewed guard limits" in panel.manualJogJointControls[JOINT_NAMES[0]][2].text
+    for index, (joint, unit) in enumerate(
+        zip(JOINT_NAMES, ("deg", "mm", "deg", "mm", "deg"), strict=True),
+        start=1,
+    ):
+        assert panel.manualJogJointControls[joint][2].text == f"J{index} ({unit})"
     assert "within mechanical limits" in panel.manualJogDraftLimitLabel.text
     assert panel.manualJogJointControls[JOINT_NAMES[0]][0].enabled
     assert panel.manualJogJointControls[JOINT_NAMES[0]][1].enabled
@@ -3249,27 +3522,13 @@ def test_step6_two_area_navigation_ownership_and_preview_authority():
             visible_assignment.value.keys, visible_assignment.value.values, strict=True
         )
     }
-    assert {
-        "self.ui.step6TaskJointLimitsGroupBox",
-        "self.ui.step6WorkspaceGroupBox",
-        "self._robotSimulationPanel.homeGroup",
-        "self._robotSimulationPanel.workspaceReviewGroup",
-        "self._robotSimulationPanel.confirmationGroup",
-        "self._robotSimulationPanel.manualJogGroup",
-        "self._robotSimulationPanel.approachGroup",
-        "self._robotSimulationPanel.drillingGroup",
-    } <= visible[3]
+    assert visible[3] == {"self._robotSimulationPanel.workbenchGroup"}
     assert visible[2] == {"self._robotSimulationPanel.homeGroup"}
     assert "self._robotSimulationPanel.manualJogGroup" not in visible[2]
     assert visible[4] == {"self._robotSimulationPanel.previewControlGroup"}
-    home_reparent = shell_source.index("controls.setParent(panel.homeGroup)")
-    home_show = shell_source.index("controls.show()", home_reparent)
-    home_insert = shell_source.index("panel.homeGroup.layout().insertWidget", home_show)
-    manual_reparent = shell_source.index("controls.setParent(panel.manualJogGroup)")
-    manual_show = shell_source.index("controls.show()", manual_reparent)
-    manual_insert = shell_source.index("panel.manualJogGroup.layout().insertWidget", manual_show)
-    assert home_reparent < home_show < home_insert
-    assert manual_reparent < manual_show < manual_insert
+    assert "controls.setParent(panel.homeGroup)" not in shell_source
+    assert "controls.setParent(panel.manualJogGroup)" not in shell_source
+    assert "panel._manualJogControlsInHomeGroup = index == 2" in shell_source
     home_action_visibility = [
         ast.unparse(node.value)
         for node in ast.walk(navigator)
@@ -3294,6 +3553,15 @@ def test_step6_two_area_navigation_ownership_and_preview_authority():
 
     panel_source = panel_path.read_text(encoding="utf-8")
     assert panel_source.count("self.manualJogJointControls = {}") == 1
+    assert 'self.step63TabWidget.addTab(self.step63ManualPage, "Manual")' in panel_source
+    assert 'self.step63TabWidget.addTab(self.step63WorkspacePage, "Workspace")' in panel_source
+    assert 'self.step63TabWidget.addTab(self.step63PlanPage, "Plan")' in panel_source
+    assert 'self.step63ManualTabWidget.addTab(self.manualJogGroup, "Joints")' in panel_source
+    assert 'self.step63ManualTabWidget.addTab(self.goalGroup, "TCP")' in panel_source
+    assert "qt.QVBoxLayout(dialog).addWidget(self.manualHistoryGroup)" in panel_source
+    assert "qt.QVBoxLayout(dialog).addWidget(self.anatomyReviewGroup)" in panel_source
+    assert "self.manualHistoryGroup.hide()" in panel_source
+    assert "self.anatomyReviewGroup.hide()" in panel_source
     for button in (
         "previewApproachButton",
         "previewDrillingButton",
@@ -3363,6 +3631,41 @@ def test_step6_two_area_navigation_ownership_and_preview_authority():
         _method_node(shell_path, "RobotShellWidgetMixin", "_onStep6StopPreview")
     )
     assert "resetPreviewProgress(result.message)" in stop
+
+
+def test_step63_owner_handoff_preserves_originating_workbench_tab():
+    panel_path = PYTHON / "DENTORobotSimulationPanel.py"
+    methods = _methods(
+        panel_path,
+        "DENTORobotSimulationPanel",
+        {"_openStep63Owner", "_returnToStep63"},
+        {},
+    )
+    panel = type("Step63OwnerHandoffProbe", (), methods)()
+    navigation = []
+    panel._activeSubstep = 3
+    panel._step63Navigate = navigation.append
+    panel._step63ReturnTab = 0
+    panel.step63TabWidget = SimpleNamespace(currentIndex=2)
+    button_type = type(
+        "Button",
+        (),
+        {"visible": False, "hide": lambda self: setattr(self, "visible", False)},
+    )
+    panel.returnFromBaseButton = button_type()
+    panel.returnFromHomeButton = button_type()
+
+    panel._openStep63Owner(1)
+    assert navigation == [1]
+    assert panel._step63ReturnTab == 2
+    assert panel.returnFromBaseButton.visible
+    assert not panel.returnFromHomeButton.visible
+
+    panel._returnToStep63()
+    assert navigation == [1, 3]
+    assert panel.step63TabWidget.currentIndex == 2
+    assert not panel.returnFromBaseButton.visible
+    assert not panel.returnFromHomeButton.visible
 
 
 def test_manual_jog_action_buttons_are_split_into_narrow_rows():
@@ -4477,6 +4780,7 @@ def test_manual_jog_exact_draft_survives_two_decimal_spinbox_rounding():
             "_updateManualJogDraftFromControls",
             "manualJogJointPositionsSi",
             "_formatManualJogDisplayValues",
+            "_updateManualJogJointPresentation",
             "_setManualJogStatus",
         },
         {
@@ -4492,6 +4796,7 @@ def test_manual_jog_exact_draft_survives_two_decimal_spinbox_rounding():
         joint: (_Control(), _TwoDecimalSpinBox(), _Control())
         for joint in JOINT_NAMES
     }
+    panel._manualJogJointPresentation = {}
     for name in (
         "manualJogAcceptedStateLabel",
         "taskHomeCurrentStateLabel",
@@ -4979,23 +5284,42 @@ def test_joint_tcp_and_diagnostic_layouts_wrap_without_content_sized_widths():
         panel_path, "DENTORobotSimulationPanel", "__init__"
     )
     initialize_source = ast.get_source_segment(source, initialize)
-    assert "joint_label.wordWrap = True" in initialize_source
+    assert 'joint_labels = ("J1", "J2", "J3", "J4", "J5")' in initialize_source
+    assert 'units = ("deg", "mm", "deg", "mm", "deg")' in initialize_source
+    assert 'joint_label = qt.QLabel(f"{label} ({unit})", row)' in initialize_source
+    assert "joint_label.wordWrap = False" in initialize_source
     assert "joint_label.setMinimumWidth(56)" in initialize_source
     assert (
         "qt.QSizePolicy.Minimum, qt.QSizePolicy.Fixed" in initialize_source
     )
+    assert "comparison.wordWrap = True" in initialize_source
+    assert "header.addWidget(joint_label)" in initialize_source
+    assert "header.addWidget(comparison, 1)" in initialize_source
+    assert "header.addWidget(value)" in initialize_source
+    assert "self.manualJogJointControls[joint] = (slider, value, joint_label)" in initialize_source
+    assert "row_layout.addLayout(header)" in initialize_source
+    assert "row_layout.addWidget(slider)" in initialize_source
+    assert "row_layout.addLayout(endpoints)" in initialize_source
+    assert "row_layout.addWidget(notice)" in initialize_source
+    assert "joint_rows.setRowStretch" not in initialize_source
     assert "slider.setMinimumWidth(0)" in initialize_source
     assert "qt.QSizePolicy.Expanding, qt.QSizePolicy.Fixed" in initialize_source
-    assert "value.setMinimumWidth(0)" in initialize_source
+    assert "value.setMinimumWidth(95)" in initialize_source
+    assert 'self.taskHomeJointEditor = qt.QGroupBox(' in initialize_source
+    assert 'joint_rows.addWidget(row)' in initialize_source
+    assert 'home_joint_layout.addWidget(slider, index * 2, 2)' in initialize_source
     assert "qt.QSizePolicy.Preferred, qt.QSizePolicy.Fixed" in initialize_source
     assert "self.manualJogControlsGroup.setSizePolicy(" in initialize_source
     assert "qt.QSizePolicy.Preferred, qt.QSizePolicy.Maximum" in initialize_source
-    assert "joint_rows.setHorizontalSpacing(6)" in initialize_source
-    assert "joint_rows.setVerticalSpacing(3)" in initialize_source
-    assert "joint_rows.setColumnStretch(1, 1)" in initialize_source
+    assert "manualJogDetailsToggle = qt.QToolButton" in initialize_source
+    assert "self.manualJogDetailsToggle.setCheckable(True)" in initialize_source
+    assert "self.manualJogDetailsToggle.toggled.connect(" in initialize_source
+    assert "self._manualJogDetailsWidget.hide()" in initialize_source
     assert "linear_step_label.wordWrap = True" in initialize_source
     assert "angular_step_label.wordWrap = True" in initialize_source
     assert "label_widget.setMinimumWidth(0)" in initialize_source
+    assert "Home configuration mechanical bounds" not in initialize_source
+    assert "reviewed guard limits" not in initialize_source
 
     diagnostics = _method_node(
         panel_path, "DENTORobotSimulationPanel", "showMotionDiagnostics"

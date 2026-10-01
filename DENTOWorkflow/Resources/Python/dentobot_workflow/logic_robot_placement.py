@@ -213,6 +213,40 @@ class RobotPlacementLogicMixin:
                 ):
                     scene.RemoveNode(node)
 
+    @staticmethod
+    def manualBaseCandidateTransformNode():
+        nodes = [
+            node
+            for node in slicer.util.getNodesByClass("vtkMRMLLinearTransformNode")
+            if node.GetAttribute("DENTOBOT.ManualBaseCandidateGhost") == "true"
+            and node.GetAttribute("DENTOBOT.ManualBaseCandidateGhostNodeType")
+            == "CandidateBase"
+        ]
+        return nodes[0] if len(nodes) == 1 else None
+
+    def setManualBaseCandidateInteractionEnabled(
+        self, enabled: bool
+    ) -> tuple[bool, str]:
+        candidate = self.manualBaseCandidateTransformNode()
+        if candidate is None:
+            return False, _("detached Base candidate transform is unavailable")
+        candidate.CreateDefaultDisplayNodes()
+        display = candidate.GetDisplayNode()
+        if display is None:
+            return False, _("detached Base candidate handles are unavailable")
+        active = bool(enabled)
+        for method_name, value in (
+            ("SetEditorVisibility", active),
+            ("SetHandlesInteractive", active),
+            ("SetTranslationHandleVisibility", active),
+            ("SetRotationHandleVisibility", active),
+            ("SetScaleHandleVisibility", False),
+        ):
+            method = getattr(display, method_name, None)
+            if callable(method):
+                method(value)
+        return True, ""
+
     def showManualBaseCandidateGhost(
         self, candidate_matrix_world_ras_mm
     ) -> tuple[bool, str]:
@@ -294,14 +328,14 @@ class RobotPlacementLogicMixin:
                 "The seven local robot link models and poses are not available."
             )
 
-        def own(node, node_type=None):
+        def own(node, node_type=None, *, hidden=True):
             if not node:
                 raise RuntimeError(_("Slicer could not create the candidate ghost."))
             node.SetAttribute(marker, "true")
             node.SetSaveWithScene(False)
-            hide = getattr(node, "SetHideFromEditors", None)
-            if hide:
-                hide(True)
+            set_hidden = getattr(node, "SetHideFromEditors", None)
+            if callable(set_hidden):
+                set_hidden(bool(hidden))
             if node_type:
                 node.SetAttribute(
                     "DENTOBOT.ManualBaseCandidateGhostNodeType", node_type
@@ -316,11 +350,14 @@ class RobotPlacementLogicMixin:
                     "[Step 6] Manual Base Candidate Ghost",
                 ),
                 "CandidateBase",
+                hidden=False,
             )
             candidate_base.SetAndObserveTransformNodeID(None)
             candidate_base.SetMatrixTransformToParent(
                 self._vtkFromNumpyMatrix(candidate)
             )
+            candidate_base.CreateDefaultDisplayNodes()
+            self.setManualBaseCandidateInteractionEnabled(False)
             for link_name, source_polydata, local_matrix in sources:
                 link_transform = own(
                     scene.AddNewNodeByClass(

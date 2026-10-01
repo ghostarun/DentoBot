@@ -6926,3 +6926,113 @@ Owned worker scopes: robot-shell/manual method reconciliation; headed runner/sou
 ### DentoCase ownership corrections before first integration release — 1 October
 
 Checkpoint definition1.0 has not been released/accepted. Exact current-source ownership corrects label-derived assumptions: `TemplateShellTrimROI` / `templateShellRoi` is template.build (5B); `TemplateFinalizationPlane` / `templateTrimPlane` and `TemplateFinalizationCurve` / `templateTrimCurve` are template.verify (5C). Known 5C cut auxiliaries inherit their exact AuxiliaryOwnerNodeID's ownership; unknown geometry stays blocked. Geometry artifact IDs are MRML node IDs for exact restored rebinding; case/package UUIDs remain separate. Nonempty Home/assisted-limit configurations are inherited case/base evidence for each explicitly inventoried target, never current live validity. Partial projection clears omitted 5C verification attributes/revision on retained 5B geometry as well as omitted nodes/parameters/references. The Qt library dispatch guard prevents reentrant progress-event polling from activating a completed request twice. These are coordinator-reviewed corrections within the approved integration contract, not broader workflow/safety changes.
+
+## Performance environment scope — operator direction 2026-10-01
+
+Current container/DENTOBOT performance diagnosis, watchdog improvements and acceptance target **native Ubuntu** on the consolidated integration checkout. Attribute host RAM, swap, disk/I/O, CPU and graphics measurements to that Ubuntu workstation and record its hardware/runtime identity. Do not generalize native Ubuntu results to Windows/WSL/WSLg.
+
+Windows/WSL performance verification is a separate later environment-specific campaign under existing platform owners. Adapt collection and checks to Windows host resources, WSL VM memory/swap limits, filesystem boundaries and WSLg/GPU presentation; retain separate baselines and acceptance evidence. Cross-platform support remains intended, but it does not expand the current Ubuntu investigation. Reuse existing tasks and monitoring infrastructure; no new queue, runtime authorization or change to the indefinite 5.12 hold.
+
+
+## 1 October — Step 6 chat adopts consolidated integration checkout
+
+Operator: “checkout has been updated to step6-5.10 integration. Update progress and get ready for next changes”. This confirms this chat's future development root as `/home/light-tarun/dentobot/ros2_ws/src/DentoBot-step6-5.10-integration`, branch `integration/step6-5.10-reviewed-20260927`, inspected HEAD `baeee9001a842966e01a5ae8c575f99743e3af75`; source checkpoint `50ce208` and documentation checkpoint `baeee90` are recorded existing commits, not commits created in this turn.
+
+Read-only source inspection confirms compact J1–J5 labels/size policies, the Base lock notification transaction, strict bounds evidence and strong native cache-object references are integrated. Guard source SHA256 `b67bd8e223465a618eae66c9b72d6e8f24169c4f1c3415a5f67b00caae1913aa` matches the previously approved build source. Installed/loaded binary provenance was not re-inspected. Prior 339 affected host checks and Release build remain evidence at their original scope; consolidated records report558host passes and synthetic offline persistence attempt4, whose result.json was read as PASS/liveAuthority Unverified.
+
+Existing `S6-LIVE-01` Priority0 retains offline/connected Base recovery, rendered joint layout and robotics/usability verdict. `DCP-09..10` retains browser/independent continuation verdict; `S6-P2-03` retains normal-window responsiveness, owned by the performance-monitoring chat. No new task, priority change, implementation, build, GUI/ROS/planner trial, main promotion or 5.12 work follows from this readiness request. Subsequent changes use the integrated source and existing contracts; prior runtime approval is not expanded.
+
+
+## 1 October — bounded Ubuntu performance implementation plan
+
+Operator requests an elaborate implementation plan. Existing S6-P2-03, S6-U-01 and platform-transfer owners retain scope/priority. Contract appended to diagnostics/PERFORMANCE_INTEGRATION_AUDIT_2026-10-01.md: three finite increments—action/runtime identity plus low-cost paging/disk counters; one responsive explicit-start workspace planning path with frozen native ownership/correlation interface; nativeUbuntu NVIDIA profile port. Exact files, two disjoint LunaMax implementation lanes per qualifying increment, cheapest checks, proposed measurable acceptance and stop conditions recorded. No code/test/build/runtime/main/5.12 execution authorized by this planning turn. Prior native synchronous-call exposure is not universal freeze attribution. Windows/WSL remains a distinct later campaign.
+
+
+## 1 October — joint-editor redesign requested before implementation
+
+Operator: “not happy with the joint sliders revamped fix, still looks ugly”; requests proper UI/UX planning before the next implementation. Existing spacing fix is unaccepted at usability scope. Reuse S6-LIVE-01 Priority0; do not reopen broad UI-P3-01/Studio redesign or infer a numeric/ROS failure. Source inspection finds setManualJogLimits expands short joint labels into long limit paragraphs, conflicting with compact fixed-height identity rows. This concrete refresh-path defect was missed by the prior spacing change; latest rendered appearance is not independently observed here.
+
+Proposed design and acceptance contract appended to diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md: five stable ID/unit rows, exact numeric draft, coarse slider, accepted comparison/delta, compact visible blocking status, detailed limit evidence outside labels, context-specific Home/manual actions, existing single editor/backend and strict draft/command separation. Two inline alternatives prepared: All joints visible (recommended) and Precision table. They use example screenshot values/schematic tracks and perform no application/ROS actions. Design selection remains open; implementation is not performed this turn. Input commit timing, guard policy, ranges, conversions and update cadence remain separate from presentation.
+
+
+## 1 October — All joints visible iteration1 implementation authorized
+
+Operator selects “all joints visible iteration #1” and directs implementation. This supersedes the design-selection hold for that bounded joint-editor change under S6-LIVE-01 Priority0. Implement in the integration checkout, preserving shared Home/manual ownership, draft-only editing, exact callbacks/SI conversion/range policy and explicit acceptance/guard actions. No Slicer/ROS/planner/motion trial or native build is inferred. Rendered usability verdict remains required after source/host closure.
+
+Exactly two GPT-6 Luna Max workers: joint_editor_source owns only DENTORobotSimulationPanel.py; joint_editor_tests owns only Testing/test_robot_manual_jog_ui.py. Coordinator owns specifications, integration review, checks and controlled records. Source scope is native Qt stable ID/unit rows, numeric drafts, accepted comparison/delta, range endpoints and explicit outside-slider notice, collapsible detailed limits/state, contextual editor title. Test scope is focused regression/harness changes after source freezes. No worker checks against changing files. Performance watchdog/progress/resource/launcher reservation and concurrent DentoCase files are excluded and preserved. Existing input timing/wheel behavior is not altered in this presentation pass.
+
+Smallest acceptance check: matrix pure.step6_manual_tcp_workbench (four-file host selection), compile changed source/test, diff review and whitespace checks. Question: do presentation refreshes preserve short labels and honest accepted/draft/range displays with no implicit commands? Stop after applicable passing source checks; rendered Qt acceptance is a separate bounded manual verdict. No new task or priority change.
+
+
+### 2026-10-01 — DentoCase metadata and prepared restore
+
+Under approved DCP-09..10 redesign, bounded ZIP metadata previews are untrusted browsing records separate from checked package inventories/digests; stat signatures optimize rescans and cannot authorize activation. One shared archive preparation validates member checksums while extracting the MRB, audits runtime separation, and owns temporary cleanup/source-change checks. Qt/MRML activation uses that short-lived result within existing recovery and rollback. Render delivery is paused across restore and resumed in finally after the restore barrier ends; scene events, lineage/hydration checks and queued callbacks still execute on Slicer's owning thread. This targets measured restore/display/event overhead without changing hydration semantics or accepted fingerprint owners. Native before/after evidence must establish the benefit before acceptance. Clear Library cancels/awaits writer and invalidates stale generations, transactionally removes only database entries and roots.
+
+
+## 1 October — bounded watchdog integration decision
+
+Use existing shared progress lifecycle and stdlib Linux counters; no monitoring framework, new dependency, privileged agent, alert threshold or scheduler. Normalize launcher/UI environment to native-ubuntu and share one session UUID. Keep unknown provenance null; label launcher revision and on-disk module digest distinctly. Preserve resource snapshot API and five-second interval. 26 host checks passed; this is diagnostic capability, not an algorithm speedup or native-runtime verdict. Latest operator-supplied AGENTS.md replaces the previous mandatory-two LunaMax routing with optional bounded Luna xhigh/default solo. Already-dispatched disjoint worker edits were reviewed locally after workers stopped; no new workers were dispatched on continuation.
+
+
+## 1 October — All joints visible iteration1 source/host closure
+
+Selected UI implemented in DENTORobotSimulationPanel.py: five unframed native Qt rows with permanent J1–J5/unit labels, numeric draft fields, full-width sliders, compact range endpoints, accepted-state/signed-delta comparison, full-row conditional warning and collapsed Limits and state details. Shared Home/manual editor and context title retained. Dynamic limit refresh no longer replaces IDs with prose. Comparison suppresses deltas for offline/unknown/pending/reconciliation-required/uninitialized/invalid states. Detailed numerical draft summary moves into the expandable area; actionable limit/guard reasons stay visible. Existing slider/numeric callbacks, draft updates, SI conversion, reset and request bodies are AST-identical to pre-edit snapshot. No range/policy/input timing/persistence/native change.
+
+The two originally authorized Luna Max scopes were dispatched under the then-current delegation rule. Source worker froze its file; test worker stopped on usage limit. Tarun then supplied replacement AGENTS instructions permitting solo work and said continue. Coordinator finished the interrupted test file directly, preserving parallel edits; no replacement worker/model was substituted. Review corrections included compact unavailable messages/endpoints, full-width warning, explicit IDs in details and no synthetic zero-draft delta.
+
+Matrix-derived pure.step6_manual_tcp_workbench command, from integration checkout:
+`PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_robot_manual_jog_ui.py Testing/test_ros2_bridge.py Testing/test_robot_workflow_facade.py Testing/test_application_shell.py -k 'not test_new_empty_case_resets_entire_workflow_to_step_zero and not test_saved_case_navigation_keeps_every_workspace_selectable'`
+Final **312 passed, 2 deselected in1.64s, exit0**. Two unrelated case-backend tests excluded because that file is concurrently edited under DentoCase ownership; no claim of a complete four-file suite. First run310passed/2failed/2deselected: incomplete extracted Home-review harnesses omitted the new helper; coordinator added it and repeated the same selection. Regression coverage includes accepted conversion/delta, uncertainty/offline/pending/uninitialized no-delta display, stale range clearing, preserved out-of-range numeric draft, short IDs after limit refresh, reconciliation transition and existing no-implicit-command behavior.
+
+Changed panel and test compile passed with PYTHONPYCACHEPREFIX under /tmp/dentobot-joint-editor-iteration1-20261001/pycache; git diff --check exit0. Logs and pre-edit snapshots: /tmp/dentobot-joint-editor-iteration1-20261001/. No Slicer/ROS trial, planner/motion, native build, commit/stage/push or reset. Performance and DentoCase reserved files remain untouched. Source/host scope is complete; rendered narrow/default/wide/large-font and Home/manual usability verdict remains OPEN under S6-LIVE-01. No runtime owned by this chat.
+
+
+### 2026-10-01 — DentoCase native compatibility and measured restore reuse
+
+The native Slicer SQLite runtime rejected the initial ROW_NUMBER summary-query shape, although hostSQLite passed. Replace it with a portable candidate-selection query; final1000summary benchmark remains below requested bounds. Trusted filename fallback is display-only; tooth/checkpoint identities remain recorded data.
+
+Native profiling identifies391segmentation-fingerprint calls (~4.1s/load). Reuse only canonical metricsdigest when raw metrics text exactly matches, within the operation-owned restorecache. Preserve every segment/representation modification-time and geometry fingerprint inputcheck; clear/restore digestcache in finally. No policy/geometry fingerprint change or cross-case readiness cache. Renderpause+shared preparation+bounded digestreuse yield21.589% lower median in the equivalent r29 offline comparison; not an attribution claim that digestreuse alone provides this reduction.
+
+
+## 1 October — pending native request cancellation ownership
+
+Under S6-P2-03 increment2, locally timed-out/cancelled requests revoke result authority and best-effort cancel an already-known goal handle. Release the per-request MoveGroupInterface on the MRML thread without waiting for backend ACK; retain only an unresolved tombstone blocking later plan/execution until node recreation. This avoids indefinite executor retention. It cannot guarantee cancellation of a goal accepted after client release, so wording must say backend cancellation unconfirmed. No robot execution is submitted. Source/native implementation remained unwritten at the turn interruption; build/runtime acceptance pending.
+
+
+### 2026-10-01 — S6-LIVE-01 6.1–6.3 UX consolidation proposal
+
+Operator requests planning of duplicate/redundant controls across 6.1–6.3. Source-derived proposal appended to `diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md`: retain Base & Connection / Task Home / Workbench & Planning owners; consolidate duplicated recovery/Home/status presentation, group workspace/limits and joint/TCP work, preserve all distinct validation/authority operations. Planning only; source/runtime authorization and operator design/visual verdict remain open. Existing iteration1 source/host result remains unchanged; no new queue or acceptance claim.
+
+
+2026-10-01 S6-LIVE-01: operator narrow-module/no-long-scroll constraint and three-step interactive button-placement sketch appended to existing renovation plan. Content switches in place; secondary dialogs replace expanding detail stacks. Planning/design evidence only, source and rendered acceptance remain open.
+
+
+## 1 October — native async source implementation
+
+Explicit “finish it now” supersedes interrupted-source hold. Coordinator delivered native pair locally without another delegation loop. Reuse MoveIt's own explicit-start request configurator and action client; callbacks capture weak copied reply state, no MRML/VTK. Reject conflicting legacy planning/execution while pending/cancelled; retain prior shutdown fixes. The canonical native pair matched baseline before scoped port. Compilation/deployment/runtime remain gated; no source-only responsiveness verdict.
+
+
+2026-10-01 S6-LIVE-01 operator corrects the compressed narrow-panel sketch: preserve all essential controls, especially always-discoverable ROS connection, existing virtual-forehead/automatic-Base proposal and automatic unlocked-Base viewport handles with actual-state GUI status. Existing renovation plan now contains an explicit same-step control destination ledger and drag target/authority requirement; this supersedes the incomplete sketch. Source inspection finds Step6 suppresses Base handles despite unlock helper enabling them, so implementation must resolve candidate targeting before removing that gate. Planning/sketch only; no source/runtime acceptance or new task/priority.
+
+
+## S6-P2-03 increment2 deployed checkpoint — 1 October 2026
+
+Supersedes earlier unbuilt status: isolated single-job5.10 compile/wrapper/install passed; focused empty-scene explicit-start plan SUCCESS12points,0.108s/maxQtgap56ms, consumed reply/disconnect and Slicerexit0. Reviewed native library and identical wrapper installed into normal shared checkout package after backup; independent shared-package API probe loaded all four methods and exited0. Details/hashes/commands in today logbook and PERFORMANCE_INTEGRATION_AUDIT_2026-10-01.md. This is bounded API/software integration evidence. Representative long-wait/cancellation/ordinary-window responsiveness remains open; backend MoveIt shutdown-11 reproduced separately under S6-U-01. Watchdog paired overhead and NVIDIA increment3 pending;5.12 held.
+
+
+2026-10-01 S6-LIVE-01 continuity review: existing renovation plan now recommends one inline review/accept mode, single navigation presentation, three visible 6.3 tabs (Manual/Workspace/Plan), named complete diagnostic/history tools, explicit return context and truthful downstream invalidation. Essential-function ledger preserved. Existing HTML is earlier illustrative evidence; coherent state walkthrough/native fit not yet accepted. Review/design only, no source/runtime change.
+
+### 2026-10-01 — S6-LIVE-01 coherent sketch supersedes earlier compressed mockups
+
+The current design artifact is `/home/light-tarun/dentobot/data/visualizations/step6-continuity-sketch.html`. It keeps every unique action, status, fault and recovery path from the corrected ledger and removes only duplicate action/navigation presentations, repeated explanatory prose and quarantined Legacy Plane/Flip/Snap routine controls. The workflow uses one continuous narrow module, inline review decisions, visible 6.3 Manual/Workspace/Plan destinations, named complete tools and explicit return/staleness behavior. Scenario states make offline, connected, review, uncertain, stale and blocked conditions inspectable. This supersedes the earlier incomplete sketches as the current proposal; it does not authorize source implementation or establish native Qt/viewport success.
+
+### 2026-10-01 — implement accepted Step 6 continuity with existing state owners
+
+Tarun's later explicit approval supersedes the design-only hold for 6.1–6.3. Reuse the existing Qt groups, callbacks and state records: 6.1 owns Base/runtime, 6.2 owns Task Home and 6.3 owns Manual/Workspace/Plan. Secondary Records, planner-comparison and anatomy groups live in named modeless tools and are detached from the main narrow layout until opened. Base/Home handoffs store only the originating tab index; they do not introduce another workflow state store. Leaving Manual/TCP or 6.3 disables TCP drag. Existing acceptance, collision, authority, staleness and no-hardware gates are unchanged.
+
+The real-Qt headless sequence is accepted as encapsulation evidence only. Case-bound Base/Home repeatability is not accepted: after three serialized attempts the runner had not submitted either acceptance trial. The tab-aware runner correction is host-tested, and the next runtime campaign requires fresh authorization under the retry-ceiling rule.
+
+
+## 1 October — scoped Ubuntu NVIDIA port and deferred hardware evidence
+
+Operator authorizes finishing performance increment3 and tests while excluding GPU verification on this GPU-less PC. Apply explicit nativeUbuntu NVIDIA rendering independently of inference device through existing Compose GPU reservation, not an image rebuild. Preserve current Mesa/auto/WSL selection and watchdog integration. Require bounded driver/runtime/device prerequisites with actionable failure; neither device enumeration nor driver identity proves OpenGL acceleration. Only host/mock/self-check evidence is produced here; later approved workstation rendering/FPS remains separate. This changes the preceding unstarted increment3 state, not the indefinite5.12 hold or planner policy.

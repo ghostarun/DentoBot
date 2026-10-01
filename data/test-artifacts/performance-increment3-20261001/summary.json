@@ -1,0 +1,25 @@
+{
+  "task": "S6-P2-03 increment3",
+  "environment_scope": "native Ubuntu",
+  "source_state": "IMPLEMENTED",
+  "host_tests": {
+    "count": 13,
+    "seconds": 0.08,
+    "exit": 0
+  },
+  "shell_syntax": "PASS",
+  "frame_probe_selfcheck": "PASS",
+  "gpu_runtime": "NOT_RUN operator excludes on GPU-less workstation",
+  "container_reconfiguration": "NOT_RUN",
+  "slicer_ros_runtime": "NOT_RUN",
+  "hardware_fps": "NOT_VERIFIED",
+  "source_sha256": {
+    "Workspace/scripts/launch-dentoworkflow.bash": "bb5ee31cef702352461aad8577baf33cc65f373a0526ac4ca63bfd4e3c410e43",
+    "Workspace/compose.nvidia.yaml": "3a59643863653b3bd4a589809d114209006f1b89efd02e7dee4e7fd67735c7cc",
+    "Workspace/compose.cuda.yaml": "26d36bce338194a0e6b119af9be1c73e581e9c3900ff807051c986f0c078f651",
+    "Workspace/.dentobot.env.example": "e24370c40ae0a450b5fc500b549375dabb7bced017207f0150cda6155a32df0a",
+    "Testing/test_dentobot_graphics_profiles.py": "2b5d379c4b249a3982e2735132ecbb028c63c53dac889ea89dad1edfa7293ddb",
+    "Testing/run_dentobot_render_frame_probe.py": "efa2fa9f83220b80736d84ce05fdfbb32de92ddceb2155da342f1df39c2b3a05"
+  },
+  "five_twelve": "indefinitely held"
+}
