@@ -343,6 +343,8 @@ class ViewCompositionWidgetMixin:
                 visibleKeys.discard("nodes:step6MouthBarrier")
             if not bool(getattr(self._parameterNode, "step6ShowReachEnvelope", True)):
                 visibleKeys.discard("nodes:step6ReachEnvelope")
+            if not bool(getattr(self._parameterNode, "step6ShowTaskSpaceBox", False)):
+                visibleKeys.discard("nodes:step6TaskSpaceBox")
         if (
             self._parameterNode
             and self.logic

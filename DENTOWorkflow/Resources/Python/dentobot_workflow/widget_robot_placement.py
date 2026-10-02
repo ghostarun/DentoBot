@@ -385,6 +385,49 @@ class RobotPlacementWidgetMixin:
         panel = getattr(self, "_robotSimulationPanel", None)
         self._syncCheckBox(getattr(panel, "showMouthBarrierCheckBox", None) if panel is not None else None, checked)
 
+    def _onSetMouthBarrierOpacity(self, opacity: float) -> None:
+        """Display-only opacity of the 3D mouth barrier (default 0.12)."""
+        if not self._parameterNode:
+            return
+        opacity = min(1.0, max(0.0, float(opacity)))
+        if abs(float(self._parameterNode.step6MouthBarrierOpacity) - opacity) > 1e-9:
+            self._parameterNode.step6MouthBarrierOpacity = opacity
+        if self.logic:
+            self.logic.setStep6MouthBarrierOpacity(opacity)
+
+    def _step6TaskSpaceBoxCenter(self):
+        """ROI draft centre when loaded, else the current opened-incisor midpoint."""
+        panel = getattr(self, "_robotSimulationPanel", None)
+        if panel is not None and getattr(panel, "_taskSpaceRoiInitialized", False):
+            return tuple(float(spin.value) for spin in panel.taskSpaceRoiCenterSpinBoxes)
+        facade = getattr(self, "_robotWorkflowFacade", None)
+        result = facade.defaultTaskSpaceRoi() if facade is not None else None
+        if result is None or not result.success:
+            return None
+        return tuple(float(value) for value in result.payload["centerWorldRasMm"])
+
+    def _onSetTaskSpaceBox(self, visible: bool, side_mm: float, opacity: float) -> None:
+        """Optional incisor-centred task-space box; display only (operator 2026-10-03)."""
+        if not self._parameterNode or not self.logic:
+            return
+        node = self._parameterNode
+        visible, side_mm, opacity = bool(visible), float(side_mm), min(1.0, max(0.0, float(opacity)))
+        if bool(node.step6ShowTaskSpaceBox) != visible:
+            node.step6ShowTaskSpaceBox = visible
+        if abs(float(node.step6TaskSpaceBoxSideMm) - side_mm) > 1e-9:
+            node.step6TaskSpaceBoxSideMm = side_mm
+        if abs(float(node.step6TaskSpaceBoxOpacity) - opacity) > 1e-9:
+            node.step6TaskSpaceBoxOpacity = opacity
+        center = self._step6TaskSpaceBoxCenter() if visible else None
+        self.logic.updateStep6TaskSpaceBox(center, side_mm, opacity, visible)
+        panel = getattr(self, "_robotSimulationPanel", None)
+        label = getattr(panel, "taskSpaceBoxStatusLabel", None) if panel is not None else None
+        if label is not None:
+            label.text = (
+                "" if not visible or center is not None else
+                "Task-space box needs the current Case Foundation incisor midpoint."
+            )
+
     def _onSetShowReachEnvelope(self, checked: bool) -> None:
         """Display-only toggle for the 6.3 reach envelope and Home-connected samples."""
         if not self._parameterNode:
@@ -506,6 +549,16 @@ class RobotPlacementWidgetMixin:
                            bool(self._parameterNode.step6ShowMouthBarrier))
         self._syncCheckBox(getattr(self, "_showReachEnvelopeCheckBox", None),
                            bool(self._parameterNode.step6ShowReachEnvelope))
+        if panel is not None and hasattr(panel, "syncStep6OverlayControls"):
+            panel.syncStep6OverlayControls(
+                barrier_opacity=float(self._parameterNode.step6MouthBarrierOpacity),
+                show_task_space_box=bool(self._parameterNode.step6ShowTaskSpaceBox),
+                task_space_box_side_mm=float(self._parameterNode.step6TaskSpaceBoxSideMm),
+                task_space_box_opacity=float(self._parameterNode.step6TaskSpaceBoxOpacity),
+            )
+        if bool(self._parameterNode.step6ShowTaskSpaceBox) and not self.logic.step6TaskSpaceBoxShown():
+            self._onSetTaskSpaceBox(True, float(self._parameterNode.step6TaskSpaceBoxSideMm),
+                                    float(self._parameterNode.step6TaskSpaceBoxOpacity))
         baseTransform = self._parameterNode.robotBaseTransform
         modelCount = len(self.logic.robotModelNodes())
         if message:

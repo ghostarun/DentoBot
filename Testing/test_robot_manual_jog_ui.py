@@ -5977,3 +5977,52 @@ def test_drill_preview_gate_follows_completed_approach_not_task_home():
     approach_gate = robot[robot.index("panel.previewApproachButton.enabled = bool("):]
     approach_gate = approach_gate[:approach_gate.index("\n            )")]
     assert "away_from_home" in approach_gate or "returnHomeRequired" in robot
+
+
+def test_task_space_box_is_optional_off_by_default_with_side_and_opacity_controls():
+    """Operator 2026-10-03: incisor-centred task-space box off by default, adjustable
+    side, distinct colour from the mouth barrier, low default opacities."""
+    panel = (PYTHON / "DENTORobotSimulationPanel.py").read_text()
+    shell = (PYTHON / "dentobot_workflow/widget_robot_shell.py").read_text()
+    logic = (PYTHON / "dentobot_workflow/logic_robot_scene_sync.py").read_text()
+    state = (PYTHON / "dentobot_workflow/parameter_state.py").read_text()
+    assert "self.showTaskSpaceBoxCheckBox.checked = False" in panel
+    assert "self.taskSpaceBoxSideSpinBox.value = 200.0" in panel
+    assert "self.taskSpaceBoxOpacitySlider.value = 10" in panel
+    assert "self.mouthBarrierOpacitySlider.value = 12" in panel
+    assert "step6ShowTaskSpaceBox: bool = False" in state
+    assert "step6MouthBarrierOpacity: float = 0.12" in state
+    assert '"set_task_space_box": self._onSetTaskSpaceBox' in shell
+    assert "self.logic.setStep6ViewFrameBoxVisible(False)" in shell
+    assert "display.SetColor(0.20, 0.55, 1.0)" in logic  # box: cool blue
+    assert "display.SetColor(0.95, 0.45, 0.60)" in logic  # barrier: rose
+    assert 'SetAttribute("DENTOBOT.DisplayOpacity", "0.35")' not in logic
+    methods = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_placement.py",
+        "RobotPlacementWidgetMixin",
+        {"_onSetTaskSpaceBox", "_onSetMouthBarrierOpacity", "_step6TaskSpaceBoxCenter"},
+        {"_": lambda text: text},
+    )
+    boxes, opacities = [], []
+    host = SimpleNamespace(
+        _parameterNode=SimpleNamespace(step6ShowTaskSpaceBox=False, step6TaskSpaceBoxSideMm=200.0,
+                                       step6TaskSpaceBoxOpacity=0.1, step6MouthBarrierOpacity=0.12),
+        logic=SimpleNamespace(
+            updateStep6TaskSpaceBox=lambda *args: boxes.append(args),
+            setStep6MouthBarrierOpacity=opacities.append,
+        ),
+        _robotSimulationPanel=SimpleNamespace(
+            _taskSpaceRoiInitialized=False, taskSpaceBoxStatusLabel=SimpleNamespace(text="x")),
+        _robotWorkflowFacade=SimpleNamespace(defaultTaskSpaceRoi=lambda: SimpleNamespace(
+            success=True, payload={"centerWorldRasMm": (1.0, 2.0, 3.0)})),
+    )
+    host._step6TaskSpaceBoxCenter = lambda: methods["_step6TaskSpaceBoxCenter"](host)
+    methods["_onSetTaskSpaceBox"](host, True, 120.0, 0.25)
+    assert boxes == [((1.0, 2.0, 3.0), 120.0, 0.25, True)]
+    assert host._parameterNode.step6ShowTaskSpaceBox is True
+    assert host._parameterNode.step6TaskSpaceBoxSideMm == 120.0
+    assert host._robotSimulationPanel.taskSpaceBoxStatusLabel.text == ""
+    methods["_onSetTaskSpaceBox"](host, False, 120.0, 0.25)
+    assert boxes[-1] == (None, 120.0, 0.25, False)
+    methods["_onSetMouthBarrierOpacity"](host, 1.7)
+    assert opacities == [1.0] and host._parameterNode.step6MouthBarrierOpacity == 1.0

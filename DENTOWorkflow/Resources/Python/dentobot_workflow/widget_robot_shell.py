@@ -47,6 +47,8 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 "set_spindle_guide_contact": self._onSetSpindleGuideContact,
                 "set_mouth_barrier_edge_mode": self._onSetMouthBarrierEdgeMode,
                 "set_show_mouth_barrier": self._onSetShowMouthBarrier,
+                "set_mouth_barrier_opacity": self._onSetMouthBarrierOpacity,
+                "set_task_space_box": self._onSetTaskSpaceBox,
                 "cancel_manual_base_review": self._onStep6CancelManualBaseReview,
                 "reconcile_manual_base": self._onStep6ReconcileManualBaseAcceptance,
                 "appearance_changed": self._onStep6AppearanceChanged,
@@ -1419,6 +1421,8 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                     pass
         self._step6SubstepIndex = index
         self._robotSimulationPanel.setActiveSubstep(index)
+        if self.logic:  # Slicer's magenta view frame is not task space (2026-10-03).
+            self.logic.setStep6ViewFrameBoxVisible(False)
         self._updatingStep6SubstepNavigation = True
         try:
             if self._step6SubstepComboBox is not None:

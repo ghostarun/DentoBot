@@ -146,6 +146,12 @@ class DENTOWorkflowParameterNode:
     # Display toggles (6.3): mouth barrier model and the workspace reach envelope.
     step6ShowMouthBarrier: bool = True
     step6ShowReachEnvelope: bool = True
+    # Display (6.3, operator 2026-10-03): barrier opacity and the optional
+    # incisor-centred task-space box (display only; sampling ROI unchanged).
+    step6MouthBarrierOpacity: float = 0.12
+    step6ShowTaskSpaceBox: bool = False
+    step6TaskSpaceBoxSideMm: float = 200.0
+    step6TaskSpaceBoxOpacity: float = 0.1
     # Retained only for older .dentocase/MRML packages. Planner v4 validates
     # the complete PreEntry→Entry line with the independent phase guard.
     step6TerminalContactToleranceMm: float = 0.25

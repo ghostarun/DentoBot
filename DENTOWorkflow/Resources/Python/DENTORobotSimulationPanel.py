@@ -1550,6 +1550,50 @@ class DENTORobotSimulationPanel:
             "the planner still avoids the barrier unless its edges are set to Off."
         )
         planning_advanced_layout.addWidget(self.showMouthBarrierCheckBox)
+        # Operator 2026-10-03: low default opacities, explicit opacity controls and
+        # an optional incisor-centred task-space box (display only, off by default).
+        barrier_opacity_row = qt.QHBoxLayout()
+        barrier_opacity_row.addWidget(qt.QLabel("Mouth barrier opacity:", self.planningAdvancedGroup))
+        self.mouthBarrierOpacitySlider = qt.QSlider(qt.Qt.Horizontal, self.planningAdvancedGroup)
+        self.mouthBarrierOpacitySlider.objectName = "DENTOBOTMouthBarrierOpacity63"
+        self.mouthBarrierOpacitySlider.minimum, self.mouthBarrierOpacitySlider.maximum = 0, 100
+        self.mouthBarrierOpacitySlider.value = 12
+        self.mouthBarrierOpacitySlider.toolTip = "Mouth barrier opacity (display only)."
+        barrier_opacity_row.addWidget(self.mouthBarrierOpacitySlider, 1)
+        planning_advanced_layout.addLayout(barrier_opacity_row)
+        self.showTaskSpaceBoxCheckBox = qt.QCheckBox(
+            "Show task-space box (incisor-centred)", self.planningAdvancedGroup
+        )
+        self.showTaskSpaceBoxCheckBox.objectName = "DENTOBOTShowTaskSpaceBox63"
+        self.showTaskSpaceBoxCheckBox.checked = False
+        self.showTaskSpaceBoxCheckBox.toolTip = (
+            "Blue cube centred between the upper and opened-lower incisors (the "
+            "workspace ROI draft centre when loaded). Display only: it does not "
+            "change workspace sampling, the MoveIt scene or any planning gate."
+        )
+        planning_advanced_layout.addWidget(self.showTaskSpaceBoxCheckBox)
+        task_box_row = qt.QHBoxLayout()
+        task_box_row.addWidget(qt.QLabel("Side:", self.planningAdvancedGroup))
+        self.taskSpaceBoxSideSpinBox = qt.QDoubleSpinBox(self.planningAdvancedGroup)
+        self.taskSpaceBoxSideSpinBox.objectName = "DENTOBOTTaskSpaceBoxSide63"
+        self.taskSpaceBoxSideSpinBox.minimum, self.taskSpaceBoxSideSpinBox.maximum = 10.0, 400.0
+        self.taskSpaceBoxSideSpinBox.decimals, self.taskSpaceBoxSideSpinBox.singleStep = 1, 5.0
+        self.taskSpaceBoxSideSpinBox.suffix = " mm"
+        self.taskSpaceBoxSideSpinBox.value = 200.0
+        self.taskSpaceBoxSideSpinBox.toolTip = "Task-space box side length (display only)."
+        task_box_row.addWidget(self.taskSpaceBoxSideSpinBox)
+        task_box_row.addWidget(qt.QLabel("Opacity:", self.planningAdvancedGroup))
+        self.taskSpaceBoxOpacitySlider = qt.QSlider(qt.Qt.Horizontal, self.planningAdvancedGroup)
+        self.taskSpaceBoxOpacitySlider.objectName = "DENTOBOTTaskSpaceBoxOpacity63"
+        self.taskSpaceBoxOpacitySlider.minimum, self.taskSpaceBoxOpacitySlider.maximum = 0, 100
+        self.taskSpaceBoxOpacitySlider.value = 10
+        self.taskSpaceBoxOpacitySlider.toolTip = "Task-space box opacity (display only)."
+        task_box_row.addWidget(self.taskSpaceBoxOpacitySlider, 1)
+        planning_advanced_layout.addLayout(task_box_row)
+        self.taskSpaceBoxStatusLabel = qt.QLabel("", self.planningAdvancedGroup)
+        self.taskSpaceBoxStatusLabel.wordWrap = True
+        self.taskSpaceBoxStatusLabel.setProperty("dentobotRole", "status")
+        planning_advanced_layout.addWidget(self.taskSpaceBoxStatusLabel)
         approach_layout.addWidget(self.planningAdvancedGroup)
         approach_buttons = qt.QHBoxLayout()
         self.planApproachButton = qt.QPushButton("Plan Guarded Approach", self.approachGroup)
@@ -1692,6 +1736,12 @@ class DENTORobotSimulationPanel:
         self.allowSpindleGuideContactCheckBox.toggled.connect(
             lambda checked: self._invoke("set_spindle_guide_contact", bool(checked))
         )
+        self.mouthBarrierOpacitySlider.valueChanged.connect(
+            lambda value: self._invoke("set_mouth_barrier_opacity", float(value) / 100.0)
+        )
+        self.showTaskSpaceBoxCheckBox.toggled.connect(lambda _checked: self._invoke_task_space_box())
+        self.taskSpaceBoxSideSpinBox.valueChanged.connect(lambda _value: self._invoke_task_space_box())
+        self.taskSpaceBoxOpacitySlider.valueChanged.connect(lambda _value: self._invoke_task_space_box())
         self.showMouthBarrierCheckBox.toggled.connect(
             lambda checked: self._invoke("set_show_mouth_barrier", bool(checked))
         )
@@ -3847,6 +3897,29 @@ class DENTORobotSimulationPanel:
         callback = self._callbacks.get("roi_edited")
         if callback:
             callback()
+
+    def _invoke_task_space_box(self) -> None:
+        self._invoke(
+            "set_task_space_box",
+            bool(self.showTaskSpaceBoxCheckBox.checked),
+            float(self.taskSpaceBoxSideSpinBox.value),
+            float(self.taskSpaceBoxOpacitySlider.value) / 100.0,
+        )
+
+    def syncStep6OverlayControls(self, *, barrier_opacity: float, show_task_space_box: bool,
+                                 task_space_box_side_mm: float, task_space_box_opacity: float) -> None:
+        """Mirror persisted 6.3 overlay settings without re-emitting actions."""
+        values = (
+            (self.mouthBarrierOpacitySlider, "value", int(round(100.0 * float(barrier_opacity)))),
+            (self.showTaskSpaceBoxCheckBox, "checked", bool(show_task_space_box)),
+            (self.taskSpaceBoxSideSpinBox, "value", float(task_space_box_side_mm)),
+            (self.taskSpaceBoxOpacitySlider, "value", int(round(100.0 * float(task_space_box_opacity)))),
+        )
+        for widget, attribute, value in values:
+            if getattr(widget, attribute) != value:
+                was = widget.blockSignals(True)
+                setattr(widget, attribute, value)
+                widget.blockSignals(was)
 
     def _invoke_appearance(self, key: str) -> None:
         placement_ok = bool(self._placementSurfaceActive)

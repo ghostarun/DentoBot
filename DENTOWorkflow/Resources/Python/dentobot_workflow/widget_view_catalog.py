@@ -727,6 +727,12 @@ class ViewCatalogWidgetMixin:
             "robot_mount",
         )
         addNodes(
+            "nodes:step6TaskSpaceBox",
+            _("[Step 6] Task-space box (incisor-centred, display only)"),
+            role_models("Step6TaskSpaceBox"),
+            "robot_mount",
+        )
+        addNodes(
             "nodes:step6MrmlRobot",
             _("[Step 6] MRML robot links"),
             self.logic.robotModelNodes(),
