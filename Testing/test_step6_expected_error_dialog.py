@@ -327,3 +327,55 @@ def test_watchdog_never_accepts_and_handles_pre_existing_modal():
         click(button, "pre")
     assert button.click_count == 0
     assert dialog.accept_count == 0 and dialog.reject_count == 1
+
+
+class _ProgressDialog:
+    def __init__(self):
+        self.reject_count = 0
+        self.close_count = 0
+
+    def wasCanceled(self):
+        return False
+
+    def labelText(self):
+        return "TCP workspace: Starting"
+
+    def reject(self):
+        self.reject_count += 1
+
+    def close(self):
+        self.close_count += 1
+
+
+def test_watchdog_ignores_production_progress_dialog_and_still_catches_error_on_top():
+    qt, timers = _watchdog_qt()
+    progress = _ProgressDialog()
+    state = {"dialog": progress}
+
+    def long_action():
+        timers[0].tick()  # progress dialog active: must be ignored
+        state["dialog"] = _Dialog("real failure", lambda: state.update(dialog=progress))
+        timers[0].tick()  # error message box on top: captured and dismissed
+        timers[0].tick()  # back to progress: still ignored
+        state["dialog"] = None
+
+    click = dialog_probe.make_modal_watchdog_click(qt, lambda: state["dialog"], lambda stage: stage)
+    with pytest.raises(dialog_probe.UnexpectedModalError) as error:
+        click(_Button(long_action), "workspace")
+    assert error.value.dialog_text == "real failure"
+    assert progress.reject_count == 0 and progress.close_count == 0
+
+
+def test_watchdog_progress_only_click_returns_none():
+    qt, timers = _watchdog_qt()
+    progress = _ProgressDialog()
+    state = {"dialog": None}
+
+    def action():
+        state["dialog"] = progress
+        timers[0].tick()
+        state["dialog"] = None
+
+    click = dialog_probe.make_modal_watchdog_click(qt, lambda: state["dialog"], lambda stage: stage)
+    assert click(_Button(action), "workspace") is None
+    assert progress.reject_count == 0

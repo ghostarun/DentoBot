@@ -7036,3 +7036,81 @@ The real-Qt headless sequence is accepted as encapsulation evidence only. Case-b
 ## 1 October — scoped Ubuntu NVIDIA port and deferred hardware evidence
 
 Operator authorizes finishing performance increment3 and tests while excluding GPU verification on this GPU-less PC. Apply explicit nativeUbuntu NVIDIA rendering independently of inference device through existing Compose GPU reservation, not an image rebuild. Preserve current Mesa/auto/WSL selection and watchdog integration. Require bounded driver/runtime/device prerequisites with actionable failure; neither device enumeration nor driver identity proves OpenGL acceleration. Only host/mock/self-check evidence is produced here; later approved workstation rendering/FPS remains separate. This changes the preceding unstarted increment3 state, not the indefinite5.12 hold or planner policy.
+
+
+## 2 October — iterative forehead-plane Base placement by IK reachability preflight
+
+Operator direction: return to the virtual forehead + auto Base placement and place the Base iteratively from the current forehead-plane centre by IK reachability preflight, +-30 mm in the forehead plane, depth axis locked, orientation locked; implement and comment the locked depth/orientation logic for later use. Operator chose both stages now and "stage it for review" for the selected Base.
+
+Decision:
+- Stage 1 (kinematic, offline, production): `dentobot_workflow/base_placement_search.py` evaluates Base candidates `F @ T(u x + v y + n z) @ R(rx,ry,rz) @ F^-1 @ reference` outward from the plane centre (5 mm coarse, 1 mm refine). Active: u, v in +-30 mm. Locked by default (single value 0, logic implemented): depth n and rotations about the forehead axes (pivot at the reference Base origin). Each candidate must reach the whole PreEntry->Target stroke (2 mm stations) with a native-identical IK replica seeded from Task Home, with >= 1 mm slider and >= 1 deg revolute margins. Ranking: nearest to the plane centre, then larger margin.
+- Use: "Propose virtual forehead + base" applies it automatically when a valid trajectory exists; Step 6.1 "Find Reachable Base" stages the best candidate through production `stageManualBaseReview` for explicit Review/Accept. No automatic acceptance.
+- Stage 2 (connected, simulation): `Testing/run_step6_base_candidate_confirmation.py` runs the existing headed full chain once per top spatially-distinct candidate and classifies the outcome (full_chain_pass / base_acceptance_failed / preentry_ik_unreachable / preentry_collision / planner_failed:<stage>) to attribute placement vs collision vs planner.
+- Supersedes the S6-LIVE-01 P3 subfeature bound of +-20 mm failure-triggered translation; the runner's base-offset cap is 42.5 mm (+-30 mm per axis). Tolerances, guard, depth, standoff, joint limits and planner policy are unchanged. Kinematic pass is not collision, planning or physical-mount evidence.
+
+
+## 2 October — Entry burr contact, spindle-housing truncation, template feedback loop, mouth-portal gate
+
+Operator directions (verbatim in the 2 October logbook).
+
+1. **Burr↔target-tooth contact at Entry and while drilling is allowed.** P2/P3 static endpoint checks accept a MoveIt static rejection only if every reported contact is burr↔target tooth and the contact list is not truncated; any other contact (spindle, template, other anatomy) still fails. This matches the native guard's existing contact-phase policy (`collision_guard.cpp`, terminal_contact/drilling).
+2. **Spindle-housing truncation is a normal planned outcome.** When the composed-chain guard rejects a drilling waypoint and names `pneumatic_spindle-Copy`, the drilling route is cut at the last collision-free waypoint, the shortened chain is re-validated by the guard, and that waypoint's TCP becomes the effective target. Plan Approach status, preview (endpoint check uses the effective target), records and later hardware steps treat it as a successful plan. The unreachable remainder (effective target → drafted Target, depths, blocking pair) is reported in plan details / P3 stage evidence (`drilling_truncation`, `facade.drillingTruncation`) and highlighted in magenta in the viewport. Guard, corridor, tolerances and every other collision rule are unchanged.
+3. **Template must be closed-loop per case and per burr (design only; build later).** Planned design: a burr profile (diameter, working length, shank/housing envelope) selects the guide bore/channel/sleeve inner diameter = burr diameter + clearance; the Step 5B/5C generator recomputes the guide when the profile changes; planner/guard guide-collision evidence (burr↔template, spindle↔guide) feeds back as a proposed guide-geometry adjustment that must keep the trajectory guide's entry point and axis locked (bore stays coaxial, sleeve height/collar only shortened or relieved, never re-angled), then requires template regeneration, verification and operator review. Existing hooks: `_guide_fit_evidence`, `PROVISIONAL_BURR_DIAMETER_MM`, `templateSleeveInnerDiameterMm` (≥ 2.0 mm floor), `DENTOGuideGeometry`.
+4. **Mouth-portal prefix gate (new; design accepted, implementation next).** Quadrilateral through the 4 canine crown points (FDI 13/23/33/43; lower after mouth opening), auto-derived cusp tips as editable markups; missing canine → first premolar, then lateral incisor (flagged). Best-fit plane with outward normal on the Home side. Gate: the planned Home→PreEntry TCP path must cross the plane inside the quadrilateral, outside→inside, before PreEntry. Tool-body virtual wall in MoveIt is a later step.
+
+## 2 October — 3D mouth barrier replaces the plane-only portal; opening edges selectable
+
+Operator: "3d barrier go, but how do we determine the height"; edge choice "Both, GUI switch".
+
+- The mouth portal becomes solid virtual soft tissue published to the MoveIt scene for the whole
+  robot (`dentobot_mouth_barrier_*`, role `mouth-barrier`): a lip slab from the lip-line plane
+  outward 8 mm with the opening tunnelled through it, outline = case teeth + jaw extent + 10 mm;
+  two 2 mm cheek walls 2 mm outside the buccal-most teeth, back to the last tooth + 2 mm. No
+  native change: unlisted world objects are already hard obstacles in MoveIt and the phase guard.
+- Opening height (6.3 Advanced options, `step6MouthBarrierEdgeMode`): `gum_line` default (upper and
+  lower edges at the most apical anterior gum point = most occlusal jaw-bone-covered tooth point +
+  2 mm; crown-height 9 mm estimate when no jaw bone is segmented), `biting_edge` (canine cusp
+  tips), `off` (diagnosis only; no barrier, gate skipped). Then the existing 5 mm enlargement.
+- TCP gate rule generalised after r4: the path may cross the lip line any number of times, but every
+  crossing must pass through the opening; a Home behind the lip line must lie within the opening.
+- Virtual anatomy for simulation planning only; not a measured soft-tissue model.
+
+## 2 October — 6.3 FK workspace becomes an optional visual
+
+Operator answer to the 6.3 purpose question: "Optional visual (Recommended)" (`S6-WORKSPACE-PURPOSE`).
+
+- Evidence used: r4/r5 workspace = 600 ROI candidates, 66–73 IK-reachable, all static-valid, 13/13
+  Home-connected, 234–242 s; r2/r31 workspace seeds all converged to the same J2-pinned PreEntry
+  state; the PreEntry blocker was found by the offline stroke check, not the workspace.
+- Plan Approach no longer requires current workspace evidence or assisted-limit review. It requires
+  the accepted Base to reach the whole PreEntry→Target stroke (native-replica IK, Task Home seed);
+  failure names the first unreachable station and points to Find Reachable Base.
+- Workspace results are shown as a reach envelope (display only, not task proof). Home-connected
+  samples stay available as PreEntry IK seeds and Plan Approach clearance routes when present.
+- MoveIt scene, phase guard, URDF limits and all other planning gates are unchanged.
+
+## 2 October — Diagnose This Base; truncated drilling shown as a warning; manual stage planning on hold
+
+Operator answers after the Step 6 workflow review:
+"diagnose this base is necessary and agreed for implementation";
+"we can put manual planning as an idea but hold this, not trying this now";
+"shortened drill should show as a warning and also highlight the remaining drill trajectory that could not be completed due to collision/invalid states."
+
+1. **Diagnose This Base (`S6-BASE-DIAGNOSE`).** One 6.3 Plan-tab action runs the existing checks in a fixed order and stops at the first failure, naming the cause class:
+   (a) whole-stroke reach at the accepted Base (`step6CurrentBaseStrokeReachability`) → *Base placement*, first unreachable station, pointer to Find Reachable Base;
+   (b) PreEntry/Entry/Target endpoint states (existing PreEntry IK, P2, P3 checks) → *Collision*, named body pair;
+   (c) Home→PreEntry route (existing P1) → *Planner / corridor*;
+   (d) drilling stroke → *Tool geometry*, depth reached of requested when the spindle housing/template blocks.
+   Display and diagnostics only: no route or preview authority, no change to guard, scene, limits, tolerances or the Plan Approach gate.
+2. **Truncated drilling is a warning.** Policy 2b (2 October) is unchanged: a spindle-housing truncation remains a valid plan and does not block preview. The Plan Approach and Drill status show warning state and a "WARNING: drilling shortened" line with reached/requested depth and the blocking pair. The unreachable remainder (effective target → drafted Target) stays highlighted in the viewport and is labelled as not completed because of collision/invalid states.
+3. **Manual single-stage planning from a jogged state: idea only, on hold** (`S6-MANUAL-STAGE-PLAN`). Not implemented now.
+
+## 3 October — Plan Approach evaluates all candidates; development fast mode only
+
+Operator: "all recommendations are accepted for implementation. Lets check from r15 as you need as well" (after the drawbacks of not checking all 11 candidates were listed).
+
+1. **Default stays all candidates (A).** Plan Approach plans and guards every IK candidate (≤ `GOAL1_MAX_PLANNED_IK_CANDIDATES`) before selecting; this is required for any recorded, accepted or cross-case result.
+2. **Development fast mode (B), off by default.** `DENTOBOT_STEP6_DEV_FIRST_COMPLETE_ROUTE=1` (or the session command `dev_fast_mode`) stops at the first Complete chain. Every such plan message starts "DEVELOPMENT FAST MODE: N of M candidates not evaluated; not for acceptance or case comparison" and details carry `candidateEvaluation`.
+3. **Best-of-3 (C) not implemented.** Decide from the r15 per-candidate scores.
+4. **Open question for the operator (found 3 Oct while implementing):** a spindle-truncated chain becomes `Complete` with the same rank (0) as a full-depth chain; among Complete chains the score orders by post-PreEntry arm motion only, so a shallower truncated chain can outrank a deeper or full one. No change made; r15 records per-candidate depths.
+5. **Operator 3 Oct (answer to item 4): "recommendation is accepted and valid. we can apply this condition logic".** Complete chains (full or spindle-truncated) now rank by drilled depth first (rounded to 0.01 mm so equal depths tie), then post-PreEntry arm motion, then the Stage-1 score. Partial-chain tiers unchanged. Best-of-3 (C) not built: r16 data showed no benefit.

@@ -706,6 +706,26 @@ class ViewCatalogWidgetMixin:
             parameterNode.robotForeheadProxyModel,
             "forehead_proxy",
         )
+        # Planning aids (2026-10-02): listed so view presets show them instead of
+        # hiding them as unmanaged DENTOBOT models; the 6.3 toggles filter them.
+        def role_models(*roles):
+            return [
+                node for node in slicer.util.getNodesByClass("vtkMRMLModelNode")
+                if node.GetAttribute("DENTOBOT.ModelRole") in roles
+            ]
+
+        addNodes(
+            "nodes:step6MouthBarrier",
+            _("[Step 6] Mouth barrier — virtual lips/cheeks"),
+            role_models("Step6MouthBarrierDisplay"),
+            "robot_mount",
+        )
+        addNodes(
+            "nodes:step6ReachEnvelope",
+            _("[Step 6] Reach envelope and workspace samples"),
+            role_models("Step6ReachEnvelope", "Step6WorkspaceHomeConnected", "RobotWorkspaceCloud"),
+            "robot_mount",
+        )
         addNodes(
             "nodes:step6MrmlRobot",
             _("[Step 6] MRML robot links"),

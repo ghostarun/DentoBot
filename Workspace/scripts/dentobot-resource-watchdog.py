@@ -2,6 +2,7 @@
 """Sample one Slicer/ROS container session without touching its processes."""
 
 import argparse
+from collections import deque
 from datetime import datetime, timezone
 import json
 import os
@@ -22,6 +23,22 @@ SESSION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 HEX_RE = re.compile(r"[0-9a-f]{7,64}")
 CHECKOUT_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
 SLICER_VERSION_RE = re.compile(r"5\.\d{1,2}")
+RUN_ID_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
+# Directory names that hold many runs' logs and therefore do not identify one run.
+SHARED_LOG_DIRECTORIES = {"ui-watchdog", "dentobot-runs", "tmp"}
+# Host alert thresholds, chosen from the 24 Sep - 2 Oct 2026 native Ubuntu
+# evidence: pressure that high occurred in about 1% of Slicer samples and
+# coincided with a 2.5x higher chance of a UI stall.
+ALERT_HOST_MEM_AVAILABLE_KIB = 2 * 1024 * 1024
+ALERT_HOST_SWAP_USED_FRACTION = 0.75
+ALERT_MEMORY_PRESSURE_FULL_AVG10 = 5.0
+ALERT_IO_PRESSURE_FULL_AVG10 = 20.0
+ALERT_CPU_PRESSURE_SOME_AVG10 = 80.0
+ALERT_SWAP_BYTES_PER_SECOND = 20 * 1024 * 1024
+ALERT_SLICER_RSS_MIB = 5 * 1024
+ALERT_SLICER_RSS_GROWTH_MIB = 1024
+ALERT_SLICER_RSS_GROWTH_WINDOW_SECONDS = 120
+ALERT_LOAD_PER_CPU = 2.0
 METADATA_KEYS = (
     "session_id",
     "environment",
@@ -285,6 +302,7 @@ def process(pid, previous, elapsed):
     ticks = int(parts[11]) + int(parts[12])
     status = fields(path / "status")
     rss_kib = number(status.get("VmRSS", "").split(" ", 1)[0])
+    swap_kib = number(status.get("VmSwap", "").split(" ", 1)[0])
     try:
         fds = len(os.listdir(path / "fd"))
     except OSError:
@@ -296,10 +314,99 @@ def process(pid, previous, elapsed):
         "ppid": number(parts[1]),
         "rss_mib": round(rss_kib / 1024, 1) if rss_kib is not None else None,
         "threads": number(status.get("Threads")),
+        "vm_swap_mib": round(swap_kib / 1024, 1) if swap_kib is not None else None,
+        "major_faults": number(parts[7]),
         "fds": fds,
         "cpu_percent": round(100 * max(0, ticks - previous.get(pid, ticks)) / (HZ * elapsed), 1),
         "ticks": ticks,
     }
+
+
+def pressure_average(text, kind, window="avg10"):
+    match = re.search(rf"^{kind} .*?\b{window}=([0-9.]+)", text or "", re.MULTILINE)
+    return float(match.group(1)) if match else None
+
+
+def host_alerts(mem_available_kib, swap_total_kib, swap_free_kib, pressure, load_average, cpu_count):
+    """Host-wide conditions that coincided with Slicer stalls; cgroup rules stay in snapshot()."""
+    alerts = []
+    if mem_available_kib is not None and mem_available_kib < ALERT_HOST_MEM_AVAILABLE_KIB:
+        alerts.append("host_mem_available_below_2_gib")
+    if swap_total_kib and swap_free_kib is not None and (
+        1 - swap_free_kib / swap_total_kib >= ALERT_HOST_SWAP_USED_FRACTION
+    ):
+        alerts.append("host_swap_used_above_75_percent")
+    memory_full = pressure_average(pressure.get("memory"), "full")
+    if memory_full is not None and memory_full >= ALERT_MEMORY_PRESSURE_FULL_AVG10:
+        alerts.append("host_memory_pressure_full_above_5_percent")
+    io_full = pressure_average(pressure.get("io"), "full")
+    if io_full is not None and io_full >= ALERT_IO_PRESSURE_FULL_AVG10:
+        alerts.append("host_io_pressure_full_above_20_percent")
+    cpu_some = pressure_average(pressure.get("cpu"), "some")
+    if cpu_some is not None and cpu_some >= ALERT_CPU_PRESSURE_SOME_AVG10:
+        alerts.append("host_cpu_pressure_some_above_80_percent")
+    if load_average and load_average[0] >= ALERT_LOAD_PER_CPU * max(cpu_count, 1):
+        alerts.append("host_load_above_2x_cpu_count")
+    return alerts
+
+
+def slicer_summary(slicer_processes):
+    """The Slicer main process (largest RSS) condensed so trends need no top_processes scan."""
+    if not slicer_processes:
+        return None
+    main = max(slicer_processes, key=lambda item: item["rss_mib"] or 0)
+    return {
+        "pid": main["pid"],
+        "state": main["state"],
+        "rss_mib": main["rss_mib"],
+        "vm_swap_mib": main["vm_swap_mib"],
+        "threads": main["threads"],
+        "fds": main["fds"],
+        "cpu_percent": main["cpu_percent"],
+        "major_faults": main["major_faults"],
+    }
+
+
+def counter_alerts(data, counters, interval):
+    """Alerts that need the counter deltas or the sampler's own timing."""
+    alerts = []
+    paging = counters["host_paging"]
+    swap_rates = [paging.get("swap_in_bytes_per_second"), paging.get("swap_out_bytes_per_second")]
+    if sum(rate for rate in swap_rates if rate is not None) >= ALERT_SWAP_BYTES_PER_SECOND:
+        alerts.append("host_swapping_above_20_mib_per_second")
+    if data["zombie_count"]:
+        alerts.append("zombie_processes_present")
+    if data["sample_gap_seconds"] > 2 * interval:
+        alerts.append("sample_gap_over_twice_interval")
+    return alerts
+
+
+def rss_growth_alert(history, now, data):
+    """Alert when the Slicer main process grew by more than 1 GiB inside two minutes."""
+    slicer = data.get("slicer")
+    if not slicer or slicer["rss_mib"] is None:
+        history.clear()
+        return []
+    history.append((now, slicer["rss_mib"]))
+    while history and now - history[0][0] > ALERT_SLICER_RSS_GROWTH_WINDOW_SECONDS:
+        history.popleft()
+    alerts = []
+    if slicer["rss_mib"] >= ALERT_SLICER_RSS_MIB:
+        alerts.append("slicer_rss_above_5_gib")
+    if slicer["rss_mib"] - history[0][1] >= ALERT_SLICER_RSS_GROWTH_MIB:
+        alerts.append("slicer_rss_growth_over_1_gib_in_2_min")
+    return alerts
+
+
+def derive_run_id(output_path, explicit=None):
+    """Name the run so this log joins the UI watchdog's SESSION_METADATA run_id."""
+    for candidate in (explicit, os.environ.get("DENTOBOT_RUN_ID")):
+        if isinstance(candidate, str) and RUN_ID_RE.fullmatch(candidate):
+            return candidate
+    parent = Path(output_path).resolve().parent.name
+    if RUN_ID_RE.fullmatch(parent) and parent not in SHARED_LOG_DIRECTORIES:
+        return parent
+    return None
 
 
 def snapshot(previous, elapsed, output_root):
@@ -320,7 +427,17 @@ def snapshot(previous, elapsed, output_root):
         for key in ("memory.current", "memory.max", "memory.events", "memory.pressure",
                     "cpu.max", "cpu.stat", "cpu.pressure", "pids.current", "pids.max", "io.pressure")
     }
-    alerts = []
+    host_pressure = {kind: read(PROC / "pressure" / kind) for kind in ("cpu", "memory", "io")}
+    mem_total_kib = number(mem.get("MemTotal", "").split(" ", 1)[0])
+    swap_total_kib = number(mem.get("SwapTotal", "").split(" ", 1)[0])
+    mem_available_kib = number(mem.get("MemAvailable", "").split(" ", 1)[0])
+    swap_free_kib = number(mem.get("SwapFree", "").split(" ", 1)[0])
+    load_average = tuple(round(value, 2) for value in os.getloadavg())
+    slicer_processes = [item for item in processes if item["name"] in {"Slicer", "SlicerApp-real"}]
+    alerts = host_alerts(
+        mem_available_kib, swap_total_kib, swap_free_kib, host_pressure, load_average,
+        os.cpu_count() or 1,
+    )
     memory_max = number(cgroup["memory.max"])
     memory_used = number(cgroup["memory.current"])
     if memory_max and memory_used is not None and memory_used / memory_max >= 0.9:
@@ -338,14 +455,24 @@ def snapshot(previous, elapsed, output_root):
         "process_count": len(processes),
         "zombie_count": sum(item["state"] == "Z" for item in processes),
         "top_processes": sorted(processes, key=lambda item: item["rss_mib"] or 0, reverse=True)[:12],
-        "slicer_present": any(item["name"] in {"Slicer", "SlicerApp-real"} for item in processes),
-        "host_mem_available_kib": number(mem.get("MemAvailable", "").split(" ", 1)[0]),
-        "host_swap_free_kib": number(mem.get("SwapFree", "").split(" ", 1)[0]),
-        "host_load_average": tuple(round(value, 2) for value in os.getloadavg()),
-        "host_pressure": {kind: read(PROC / "pressure" / kind) for kind in ("cpu", "memory", "io")},
+        "slicer_present": bool(slicer_processes),
+        "slicer": slicer_summary(slicer_processes),
+        "host_mem_total_kib": mem_total_kib,
+        "host_mem_available_kib": mem_available_kib,
+        "host_swap_total_kib": swap_total_kib,
+        "host_swap_free_kib": swap_free_kib,
+        "host_load_average": load_average,
+        "host_pressure": host_pressure,
         "cgroup": cgroup,
         "log_disk_free_gib": free_gib,
     }, next_ticks
+
+
+def parent_alive(pid):
+    """A zombie parent has already exited; its unreaped /proc entry must not keep the sampler running."""
+    stat = read(PROC / str(pid) / "stat")
+    tail = stat.rpartition(") ")[2].split()
+    return bool(tail) and tail[0] != "Z"
 
 
 def on_signal(_signum, _frame):
@@ -362,6 +489,7 @@ def main():
     parser.add_argument("--metadata-fallback", action="store_true")
     parser.add_argument("--source-root", type=Path)
     parser.add_argument("--slicer-version", default="")
+    parser.add_argument("--run-id")
     args = parser.parse_args()
     if args.metadata_once or args.metadata_fallback:
         if args.source_root is None:
@@ -387,11 +515,20 @@ def main():
         os.environ.get("DENTOBOT_WATCHDOG_METADATA", ""),
         session_id=os.environ.get("DENTOBOT_WATCHDOG_SESSION_ID"),
     )
+    metadata_source = "launcher"
+    if session_id is None:
+        # Harnesses that start the sampler directly (no launcher/handoff) pass no
+        # metadata; derive it from this checkout so the log is never anonymous.
+        session_id, metadata = prepare_metadata(Path(__file__).resolve().parents[2])
+        metadata_source = "sampler_derived"
+    run_id = derive_run_id(path, args.run_id)
+    rss_history = deque()
     with path.open("a", encoding="utf-8", buffering=1) as log:
         log.write(json.dumps({"event": "MONITOR_START", "utc": datetime.now(timezone.utc).isoformat(),
                               "parent_pid": args.parent_pid, "interval_seconds": args.interval,
-                              "session_id": session_id, "metadata": metadata}) + "\n")
-        while not stop and (PROC / str(args.parent_pid)).exists():
+                              "session_id": session_id, "run_id": run_id,
+                              "metadata_source": metadata_source, "metadata": metadata}) + "\n")
+        while not stop and parent_alive(args.parent_pid):
             now = time.monotonic()
             try:
                 collection_started = time.monotonic()
@@ -399,6 +536,8 @@ def main():
                 data, previous = snapshot(previous, elapsed, path.parent)
                 counters, previous_counters = resource_counters(previous_counters, elapsed)
                 data.update(counters)
+                data["alerts"] += counter_alerts(data, counters, args.interval)
+                data["alerts"] += rss_growth_alert(rss_history, now, data)
                 data["actual_collection_duration_seconds"] = round(
                     max(time.monotonic() - collection_started, 0.0), 3
                 )

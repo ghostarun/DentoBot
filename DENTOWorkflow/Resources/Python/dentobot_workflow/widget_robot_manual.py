@@ -514,7 +514,19 @@ class RobotManualWidgetMixin:
         if label is None:
             return
         label.text = result.message
-        label.setProperty("dentobotState", "ok" if result.success else "error")
+        details = getattr(result, "details", None) or {}
+        warning = bool(
+            result.success
+            and (
+                details.get("drillingTruncation")
+                or (details.get("baseDiagnosis") or {}).get("status") == "WARNING"
+            )
+        )
+        # Operator 2026-10-02: a shortened drill is a valid plan shown as a warning.
+        label.setProperty(
+            "dentobotState",
+            "warning" if warning else "ok" if result.success else "error",
+        )
         label.style().unpolish(label)
         label.style().polish(label)
 

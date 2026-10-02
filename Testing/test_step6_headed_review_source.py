@@ -1186,9 +1186,9 @@ def test_base_home_acceptance_is_exactly_opt_in_and_keeps_default_checklist():
     acceptance_path = ast.unparse(gate.orelse)
     assert "'base_acceptance_trial', 'NOT_RUN'" in default_path
     assert "'task_home_review_acceptance_trial', 'NOT_RUN'" in default_path
-    assert "base_acceptance_owner.click()" not in default_path
+    assert "base_acceptance_owner, 'base-acceptance-accept'" not in default_path
     assert "task_home_accept_owner.click()" not in default_path
-    assert "base_acceptance_owner.click()" in acceptance_path
+    assert "base_acceptance_owner, 'base-acceptance-accept'" in acceptance_path
     assert "task_home_accept_owner.click()" in acceptance_path
 
 
@@ -1286,7 +1286,8 @@ def test_stale_restored_base_rebind_precedes_connect_without_scene_ack():
     later_sources = [ast.unparse(node.func) for node in later_run_clicks]
     assert "panel.beginManualBaseReviewButton.click" in later_sources
     assert "panel.cancelManualBaseReviewButton.click" in later_sources
-    assert "base_acceptance_owner.click" in later_sources
+    assert any(_is_guarded_click(node, "base_acceptance_owner")
+               and node.lineno > connect_click.lineno for node in ast.walk(run))
     assert "panel.reviewTaskHomeButton.click" in later_sources
     assert "task_home_accept_owner.click" in later_sources
 
@@ -1333,16 +1334,21 @@ def test_migrated_prerequisite_recovery_uses_production_controls_and_checks_evid
     ensure = next(node for node in TREE.body
                   if isinstance(node, ast.FunctionDef)
                   and node.name == "_ensure_current_home_workspace_task")
-    source = ast.unparse(ensure)
-    controls = (
-        "reviewTaskHomeButton",
-        "acceptTaskHomeButton",
-        "generateRobotWorkspaceButton",
-        "reviewLimitsButton",
-        "confirmTaskButton",
+    # Home staging/acceptance lives in a helper shared with session commands
+    # (2026-10-02); ensure calls it before the workspace/limits/confirm clicks.
+    home = next(node for node in TREE.body
+                if isinstance(node, ast.FunctionDef)
+                and node.name == "_accept_current_state_as_task_home")
+    source = ast.unparse(ensure) + "\n" + ast.unparse(home)
+    home_lines = [next(node for node in _button_clicks(home, control)).lineno
+                  for control in ("reviewTaskHomeButton", "acceptTaskHomeButton")]
+    assert home_lines == sorted(home_lines)
+    helper_call = next(
+        node for node in ast.walk(ensure)
+        if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "_accept_current_state_as_task_home"
     )
-    click_lines = []
-    for control in controls:
+    click_lines = [helper_call.lineno]
+    for control in ("generateRobotWorkspaceButton", "reviewLimitsButton", "confirmTaskButton"):
         click = next(node for node in _button_clicks(ensure, control))
         click_lines.append(click.lineno)
     assert click_lines == sorted(click_lines)
@@ -1571,8 +1577,7 @@ def test_migration_prerequisites_are_rechecked_after_base_home_acceptance_before
                 for keyword in node.keywords)
     )
     base_accept = next(node for node in ast.walk(run)
-                       if isinstance(node, ast.Call)
-                       and ast.unparse(node.func) == "base_acceptance_owner.click")
+                       if _is_guarded_click(node, "base_acceptance_owner"))
     home_accept = next(node for node in ast.walk(run)
                        if isinstance(node, ast.Call)
                        and ast.unparse(node.func) == "task_home_accept_owner.click")
@@ -1634,7 +1639,7 @@ def test_opt_in_acceptance_verifies_base_home_owners_and_stops_on_first_failure(
     for required in (
         "panel.beginManualBaseReviewButton.click()",
         "base_acceptance_owner = widget.ui.lockRobotBaseMountButton",
-        "base_acceptance_owner.click()",
+        "_modal_guarded_click(report, evidence_dir, run_id, base_acceptance_owner, 'base-acceptance-accept')",
         "_same_matrix(base_acceptance_stage_details.get('candidateMatrixWorldRasMm'), base_matrix)",
         "expected_accept_matrix = list(base_matrix)",
         "_same_matrix(base_after_details.get('acceptedMatrixWorldRasMm'), expected_accept_matrix)",
@@ -1723,7 +1728,9 @@ def test_opt_in_acceptance_verifies_base_home_owners_and_stops_on_first_failure(
         and "Stopped after first failure" in ast.unparse(node)
     )
     assert "complete_not_run(CHECK_NAMES" in ast.unparse(stopped_handler)
-    assert "except" not in acceptance
+    # The only handler is the modal watchdog, which still stops on first failure.
+    assert acceptance.count("except") == acceptance.count("except UnexpectedModalError as exc:")
+    assert "fail(active_check, f'Accept Base raised a modal: {exc.dialog_text}'" in acceptance
 
 
 def test_checklist_records_three_verdicts_and_no_case_save():
@@ -2943,7 +2950,7 @@ def test_workspace_and_preentry_clicks_fail_fast_on_modal():
 
 def _base_offset_helpers(environ=None):
     fake_os = SimpleNamespace(environ=dict(environ or {}))
-    extra = {"BASE_OFFSET_ENV": "DENTOBOT_HEADED_BASE_OFFSET_RAS_MM", "BASE_OFFSET_MAX_MM": 20.0,
+    extra = {"BASE_OFFSET_ENV": "DENTOBOT_HEADED_BASE_OFFSET_RAS_MM", "BASE_OFFSET_MAX_MM": 42.5,
              "os": fake_os}
     return (
         _extract_helper("_parse_base_offset", extra),
@@ -2956,7 +2963,7 @@ def test_base_offset_parser_accepts_bounded_finite_triplet_only():
     parse, _validate, _translate = _base_offset_helpers()
     assert parse(None) is None and parse("  ") is None
     assert parse("-0.4, -2.5, 12.9") == (-0.4, -2.5, 12.9)
-    for bad in ("1,2", "1,2,x", "nan,0,0", "inf,0,0", "15,15,0"):
+    for bad in ("1,2", "1,2,x", "nan,0,0", "inf,0,0", "31,31,0"):
         with pytest.raises(RuntimeError):
             parse(bad)
 
@@ -2988,7 +2995,34 @@ def test_base_offset_is_staged_through_production_review_before_accept_owner():
     source = ast.unparse(TREE)
     stage = source.index("facade.stageManualBaseReview(expected_accept_matrix)")
     owner = source.index("base_acceptance_owner = widget.ui.lockRobotBaseMountButton")
-    accept_click = source.index("base_acceptance_owner.click()")
+    accept_click = source.index("base_acceptance_owner, 'base-acceptance-accept'")
     assert stage < owner < accept_click
     assert "base_after_details.get('acceptedMatrixWorldRasMm'), expected_accept_matrix" in source
     assert "report['base_offset_applied'] = base_offset is not None" in source
+
+
+def test_identity_viewport_candidate_is_cancelled_only_when_equal_to_accepted_base():
+    source = ast.unparse(TREE)
+    unlock = source.index("Disposable-scene Base unlock did not complete.")
+    guard = source.index("_same_matrix(pre_details.get('candidateMatrixWorldRasMm'), pre_details.get('acceptedMatrixWorldRasMm'))")
+    cancel = source.index("report['identity_viewport_candidate_cancelled'] = True")
+    review = source.index("base_before = _base_review(facade)")
+    assert unlock < guard < cancel < review
+    assert "pre_details.get('identityStatus') == 'current'" in source
+
+
+def test_complete_cycles_run_preentry_ik_first_and_optional_base_diagnosis():
+    branch = SOURCE[SOURCE.index('active_check = "complete_cycles"'):]
+    branch = branch[:branch.index("run_complete_cycles(")]
+    assert '"complete-cycle-preentry-ik"' in branch  # r13: probe needs a current PreEntry session
+    assert 'os.environ.get("DENTOBOT_HEADED_DIAGNOSE_BASE", "") == "1"' in SOURCE
+    assert "def _run_base_diagnosis(" in SOURCE and '"base_diagnosis",' in SOURCE
+    assert "click_guard=lambda button, name: _modal_guarded_click(" in SOURCE
+
+
+def test_session_mode_checkpoints_after_scene_ack_and_serves_commands():
+    hook = SOURCE.index('if _exact_env_opt_in("DENTOBOT_HEADED_SESSION"):')
+    assert hook < SOURCE.index('active_check = "profile_migration_recovery_after_scene_ack"', hook)
+    assert "_serve_command_session(" in SOURCE and "run_session(namespace, session_dir, _process_events)" in SOURCE
+    assert '"panel_callbacks_rebound": rebind_callbacks(panel._callbacks, widget)' in SOURCE
+    assert '"Testing/step6_session_driver.py",' in SOURCE

@@ -742,6 +742,310 @@ class RobotSceneSyncLogicMixin:
             display.SetLineWidth(2.0)
         return node
 
+    MOUTH_PORTAL_NODE_NAME = "[Step 6] Mouth Portal Vertices"
+    MOUTH_PORTAL_ROLE = "Step6MouthPortalVertices"
+
+    def _step6ToothSegmentIdsByFdi(self, segmentation) -> dict[str, str]:
+        records = self.getSegmentationReviewRecords(segmentation)
+        return {
+            str(record["canonicalFdiNumber"]): str(record["segmentId"])
+            for record in records
+            if record.get("structureType") == "TOOTH" and record.get("canonicalFdiNumber")
+        }
+
+    def step6MouthPortalVerticesNode(self):
+        for node in slicer.util.getNodesByClass("vtkMRMLMarkupsFiducialNode"):
+            if node.GetAttribute("DENTOBOT.MarkupsRole") == self.MOUTH_PORTAL_ROLE:
+                return node
+        return None
+
+    def buildStep6MouthPortalVertices(self, parameterNode, *, replace_existing: bool = False):
+        """Auto-derive the 4 canine cusp tips (editable markups) for the mouth portal.
+
+        Lower canines are taken after the virtual mouth opening. A missing
+        canine is replaced by the first premolar, then the lateral incisor, and
+        the substitution is labelled. Existing operator-edited points are kept
+        unless ``replace_existing``.
+        """
+        from dentobot_workflow.mouth_portal import PORTAL_VERTEX_FDI, choose_vertex_teeth, cusp_tip
+        from vtk.util.numpy_support import vtk_to_numpy
+
+        existing = self.step6MouthPortalVerticesNode()
+        if existing is not None and existing.GetNumberOfControlPoints() == 4 and not replace_existing:
+            return existing
+        segmentation = parameterNode.teethSegmentation
+        if segmentation is None:
+            raise ValueError(_("Load the teeth segmentation before building the mouth portal."))
+        by_fdi = self._step6ToothSegmentIdsByFdi(segmentation)
+        chosen = choose_vertex_teeth(by_fdi)
+        points = {}
+        for vertex, choice in chosen.items():
+            world = self._segmentationSegmentsSurfaceWorld(segmentation, {by_fdi[choice["fdi"]]})
+            if world is None or world.GetNumberOfPoints() == 0:
+                raise ValueError(_("Mouth portal tooth %1 has no surface.").replace("%1", choice["fdi"]))
+            if vertex.startswith(("3", "4")):
+                world = self._step6CaseJawPolydataWorld(parameterNode, world)
+            points[vertex] = vtk_to_numpy(world.GetPoints().GetData()).astype(float)
+        upper = np.mean([points[v].mean(axis=0) for v in ("13", "23")], axis=0)
+        lower = np.mean([points[v].mean(axis=0) for v in ("33", "43")], axis=0)
+        occlusal_upper = lower - upper  # upper crowns bite toward the lower arch
+        tips = {v: cusp_tip(points[v], occlusal_upper if v in ("13", "23") else -occlusal_upper)
+                for v in PORTAL_VERTEX_FDI}
+        node = existing or slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLMarkupsFiducialNode", self.MOUTH_PORTAL_NODE_NAME
+        )
+        node.SetAttribute("DENTOBOT.MarkupsRole", self.MOUTH_PORTAL_ROLE)
+        node.SetAttribute("DENTOBOT.IntendedUse", "SimulationPlanningGate")
+        node.SetAttribute("DENTOBOT.MouthPortalVertexTeeth", json.dumps(chosen, sort_keys=True))
+        # Outward = anterior: away from the posterior teeth (molars, else premolars).
+        posterior = []
+        for group in (("16", "26", "36", "46"), ("17", "27", "37", "47"), ("15", "25", "35", "45")):
+            for fdi in group:
+                if fdi in by_fdi:
+                    world = self._segmentationSegmentsSurfaceWorld(segmentation, {by_fdi[fdi]})
+                    if world is not None and world.GetNumberOfPoints() > 0:
+                        if fdi.startswith(("3", "4")):
+                            world = self._step6CaseJawPolydataWorld(parameterNode, world)
+                        posterior.append(vtk_to_numpy(world.GetPoints().GetData()).astype(float).mean(axis=0))
+            if posterior:
+                break
+        if not posterior:
+            raise ValueError(_("No molar or premolar is available to orient the mouth portal outward."))
+        node.SetAttribute(
+            "DENTOBOT.MouthPortalPosteriorCentroidMm",
+            ",".join(f"{float(v):.6f}" for v in np.mean(posterior, axis=0)),
+        )
+        node.RemoveAllControlPoints()
+        for vertex in PORTAL_VERTEX_FDI:
+            label = vertex if not chosen[vertex]["substituted"] else f"{vertex}->{chosen[vertex]['fdi']}"
+            node.AddControlPoint(vtk.vtkVector3d(*tips[vertex]), label)
+        node.CreateDefaultDisplayNodes()
+        return node
+
+    def _step6MouthPortalAnteriorPointsWorld(self, parameterNode):
+        """Anterior-tooth surface points (lower after mouth opening) for the lip line."""
+        from dentobot_workflow.mouth_portal import ANTERIOR_TEETH_FDI
+        from vtk.util.numpy_support import vtk_to_numpy
+
+        segmentation = parameterNode.teethSegmentation
+        if segmentation is None:
+            return None
+        by_fdi = self._step6ToothSegmentIdsByFdi(segmentation)
+        points = []
+        for fdi in ANTERIOR_TEETH_FDI:
+            if fdi not in by_fdi:
+                continue
+            world = self._segmentationSegmentsSurfaceWorld(segmentation, {by_fdi[fdi]})
+            if world is None or world.GetNumberOfPoints() == 0:
+                continue
+            if fdi.startswith(("3", "4")):
+                world = self._step6CaseJawPolydataWorld(parameterNode, world)
+            points.append(vtk_to_numpy(world.GetPoints().GetData()).astype(float))
+        return np.vstack(points) if points else None
+
+    def step6MouthPortal(self, parameterNode, outside_hint_mm=None):
+        """Portal from the current (possibly operator-edited) vertex markups."""
+        from dentobot_workflow.mouth_portal import build_portal
+
+        node = self.buildStep6MouthPortalVertices(parameterNode)
+        if node.GetNumberOfControlPoints() != 4:
+            raise ValueError(_("The mouth portal needs exactly 4 vertex points."))
+        vertices = []
+        for index in range(4):
+            position = [0.0, 0.0, 0.0]
+            node.GetNthControlPointPositionWorld(index, position)
+            vertices.append(position)
+        if outside_hint_mm is None:
+            # Anterior of the portal: mirror the posterior-teeth centroid through it.
+            posterior = [float(v) for v in str(
+                node.GetAttribute("DENTOBOT.MouthPortalPosteriorCentroidMm") or ""
+            ).split(",") if v.strip()]
+            if len(posterior) != 3:
+                raise ValueError(_("Rebuild the mouth portal: its outward orientation is missing."))
+            centre = np.mean(np.asarray(vertices, dtype=float), axis=0)
+            outside_hint_mm = 2.0 * centre - np.asarray(posterior, dtype=float)
+        teeth = json.loads(node.GetAttribute("DENTOBOT.MouthPortalVertexTeeth") or "{}")
+        mode = self.step6MouthBarrierEdgeMode(parameterNode)
+        key = (node.GetMTime(), parameterNode.teethSegmentation.GetMTime(),
+               str(parameterNode.step6CaseJawPreparationJson or ""), mode,
+               tuple(round(float(v), 6) for v in np.asarray(outside_hint_mm, float)))
+        cached = getattr(self, "_step6MouthPortalCache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        portal = build_portal(vertices, outside_hint_mm, teeth)
+        anterior = self._step6MouthPortalAnteriorPointsWorld(parameterNode)
+        if anterior is None:
+            raise ValueError(_("No anterior tooth surface is available to place the lip-line portal."))
+        from dentobot_workflow.mouth_portal import apply_edge_mode, enlarge_portal, shift_portal_to_lip_line
+        portal = shift_portal_to_lip_line(portal, anterior)
+        if mode == "gum_line":
+            upper, lower, sources = self._step6MouthGumPointsWorld(parameterNode)
+            portal = apply_edge_mode(portal, mode, upper, lower)
+            portal.vertex_teeth["gum_line_sources"] = sources
+        else:
+            portal = apply_edge_mode(portal, mode)
+        portal = enlarge_portal(portal)
+        self._step6MouthPortalCache = (key, portal)
+        return portal
+
+    MOUTH_BARRIER_MODEL_NAME = "[Step 6] Mouth Barrier"
+    MOUTH_BARRIER_ROLE = "Step6MouthBarrierDisplay"
+
+    def step6MouthBarrierEdgeMode(self, parameterNode) -> str:
+        """Advanced option (6.3): "gum_line" (default), "biting_edge" or "off"."""
+        from dentobot_workflow.mouth_portal import BARRIER_DEFAULT_EDGE_MODE, BARRIER_EDGE_MODES
+
+        mode = str(getattr(parameterNode, "step6MouthBarrierEdgeMode", "") or BARRIER_DEFAULT_EDGE_MODE)
+        return mode if mode in BARRIER_EDGE_MODES else BARRIER_DEFAULT_EDGE_MODE
+
+    def _step6MouthGumPointsWorld(self, parameterNode):
+        """Gum points of the anterior teeth (13..23 upper, 33..43 lower after mouth
+        opening): most occlusal jaw-bone-covered tooth point + 2 mm toward the
+        biting edge; crown-height estimate when no jaw bone is segmented."""
+        from dentobot_workflow.mouth_portal import cusp_tip, gum_points_from_crest
+        from vtk.util.numpy_support import vtk_to_numpy
+
+        segmentation = parameterNode.teethSegmentation
+        by_fdi = self._step6ToothSegmentIdsByFdi(segmentation)
+        groups = self.step6CaseJawSegmentIds(segmentation)
+        arches = {"upper": ("13", "12", "11", "21", "22", "23"), "lower": ("33", "32", "31", "41", "42", "43")}
+        teeth, distance = {}, {}
+        for arch, fdis in arches.items():
+            for fdi in fdis:
+                if fdi not in by_fdi:
+                    continue
+                world = self._segmentationSegmentsSurfaceWorld(segmentation, {by_fdi[fdi]})
+                if world is None or world.GetNumberOfPoints() == 0:
+                    continue
+                if arch == "lower":
+                    world = self._step6CaseJawPolydataWorld(parameterNode, world)
+                points = vtk_to_numpy(world.GetPoints().GetData()).astype(float)
+                teeth[(arch, fdi)] = points[:: max(1, len(points) // 4000)]
+            jaw_ids = set(groups.get("upperJaw" if arch == "upper" else "lowerJaw", ()))
+            jaw = self._segmentationSegmentsSurfaceWorld(segmentation, jaw_ids) if jaw_ids else None
+            if jaw is not None and jaw.GetNumberOfPoints() and arch == "lower":
+                jaw = self._step6CaseJawPolydataWorld(parameterNode, jaw)
+            if jaw is not None and jaw.GetNumberOfPoints():
+                implicit = vtk.vtkImplicitPolyDataDistance()
+                implicit.SetInput(jaw)
+                distance[arch] = implicit
+        upper_all = [p for (arch, _f), p in teeth.items() if arch == "upper"]
+        lower_all = [p for (arch, _f), p in teeth.items() if arch == "lower"]
+        if not upper_all or not lower_all:
+            raise ValueError(_("Gum-line mouth barrier needs upper and lower anterior teeth."))
+        occlusal = np.vstack(lower_all).mean(axis=0) - np.vstack(upper_all).mean(axis=0)
+        occlusal /= np.linalg.norm(occlusal)
+        out = {"upper": [], "lower": []}
+        sources = {}
+        for (arch, fdi), points in teeth.items():
+            direction = occlusal if arch == "upper" else -occlusal
+            implicit = distance.get(arch)
+            bone = (np.array([implicit.EvaluateFunction(tuple(p)) for p in points])
+                    if implicit is not None else np.full(len(points), np.inf))
+            point, source = gum_points_from_crest(points, bone, direction, cusp_tip(points, direction))
+            out[arch].append(point)
+            sources[fdi] = source
+        return np.asarray(out["upper"]), np.asarray(out["lower"]), sources
+
+    def step6MouthBarrier(self, parameterNode):
+        """3D mouth barrier (lip slab + cheek walls) for the current opening, or None when off."""
+        from dentobot_workflow.mouth_portal import build_mouth_barrier
+        from vtk.util.numpy_support import vtk_to_numpy
+
+        if self.step6MouthBarrierEdgeMode(parameterNode) == "off":
+            return None
+        opening = self.step6MouthPortal(parameterNode)
+        segmentation = parameterNode.teethSegmentation
+        groups = self.step6CaseJawSegmentIds(segmentation)
+        lower = set(groups.get("lower", ()))
+        teeth_ids = set((*groups.get("upperTeeth", ()), *groups.get("lowerTeeth", ())))
+        teeth, extent = [], []
+        for segment_id in dict.fromkeys((*groups.get("upper", ()), *groups.get("lower", ()))):
+            world = self._segmentationSegmentsSurfaceWorld(segmentation, {segment_id})
+            if world is None or world.GetNumberOfPoints() == 0:
+                continue
+            if segment_id in lower:
+                world = self._step6CaseJawPolydataWorld(parameterNode, world)
+            points = vtk_to_numpy(world.GetPoints().GetData()).astype(float)
+            extent.append(points)
+            if segment_id in teeth_ids:
+                teeth.append(points)
+        if not teeth:
+            raise ValueError(_("The mouth barrier needs segmented teeth."))
+        return build_mouth_barrier(opening, np.vstack(extent), np.vstack(teeth))
+
+    def step6MouthBarrierPolydataWorld(self, parameterNode) -> list:
+        """[(part_name, closed vtkPolyData world RAS mm)] for MoveIt and preflight; [] when off."""
+        barrier = self.step6MouthBarrier(parameterNode)
+        if barrier is None:
+            for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+                if node.GetAttribute("DENTOBOT.ModelRole") == self.MOUTH_BARRIER_ROLE and node.GetDisplayNode():
+                    node.GetDisplayNode().SetVisibility(False)
+            return []
+        parts = []
+        for part in barrier.parts:
+            points = vtk.vtkPoints()
+            for point in part.points_mm:
+                points.InsertNextPoint(*(float(v) for v in point))
+            cells = vtk.vtkCellArray()
+            for tri in part.triangles:
+                cells.InsertNextCell(3)
+                for index in tri:
+                    cells.InsertCellPoint(int(index))
+            polydata = vtk.vtkPolyData()
+            polydata.SetPoints(points)
+            polydata.SetPolys(cells)
+            parts.append((part.name, polydata))
+        self._showStep6MouthBarrier(parts, barrier.summary,
+                                    bool(getattr(parameterNode, "step6ShowMouthBarrier", True)))
+        return parts
+
+    def setStep6MouthBarrierVisible(self, visible: bool) -> None:
+        """Show/hide the barrier display model only; MoveIt keeps the barrier."""
+        for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+            if node.GetAttribute("DENTOBOT.ModelRole") == self.MOUTH_BARRIER_ROLE and node.GetDisplayNode():
+                node.GetDisplayNode().SetVisibility(bool(visible))
+
+    def _showStep6MouthBarrier(self, parts, summary, visible: bool = True) -> None:
+        """Display-only model so the barrier is visible in the viewport and recordings."""
+        node = next((n for n in slicer.util.getNodesByClass("vtkMRMLModelNode")
+                     if n.GetAttribute("DENTOBOT.ModelRole") == self.MOUTH_BARRIER_ROLE), None)
+        if node is None:
+            node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", self.MOUTH_BARRIER_MODEL_NAME)
+            node.SetAttribute("DENTOBOT.ModelRole", self.MOUTH_BARRIER_ROLE)
+            node.SetAttribute("DENTOBOT.IntendedUse", "SimulationPlanningGate")
+            node.SaveWithSceneOff()
+        merged = vtk.vtkAppendPolyData()
+        for _name, polydata in parts:
+            merged.AddInputData(polydata)
+        merged.Update()
+        surface = vtk.vtkPolyData()
+        surface.DeepCopy(merged.GetOutput())
+        node.SetAndObservePolyData(surface)
+        node.SetAttribute("DENTOBOT.MouthBarrierSummary", json.dumps(summary, sort_keys=True))
+        node.SetAttribute("DENTOBOT.DisplayOpacity", "0.35")
+        node.CreateDefaultDisplayNodes()
+        display = node.GetDisplayNode()
+        if display:
+            display.SetColor(0.95, 0.45, 0.60)
+            display.SetOpacity(0.35)
+            display.SetVisibility(bool(visible))
+            display.SetVisibility2D(False)
+
+    def checkStep6MouthPortalGate(self, parameterNode, tcp_path_world_ras_mm) -> dict:
+        """Gate: the TCP path must enter the mouth through the barrier opening."""
+        from dentobot_workflow.mouth_portal import check_tcp_path
+
+        mode = self.step6MouthBarrierEdgeMode(parameterNode)
+        if mode == "off":
+            return {"status": "skipped", "reason": "mouth_barrier_off", "edge_mode": mode}
+        portal = self.step6MouthPortal(parameterNode)
+        result = check_tcp_path(portal, tcp_path_world_ras_mm)
+        result["edge_mode"] = mode
+        result["vertex_teeth"] = portal.vertex_teeth
+        result["portal_vertices_ras_mm"] = portal.vertices_mm.tolist()
+        return result
+
     def syncStep6MoveItPlanningScene(
         self,
         parameterNode,
@@ -961,6 +1265,27 @@ class RobotSceneSyncLogicMixin:
             )
             if progress:
                 progress("Preparing collision anatomy", segmentIndex, len(anatomyIds))
+
+        # 3D mouth barrier (operator 2026-10-02): virtual lips/cheeks as hard
+        # obstacles for the whole robot. Edge mode "off" publishes nothing.
+        if segmentation is not None and self.step6MouthBarrierEdgeMode(parameterNode) != "off":
+            try:
+                barrier_parts = self.step6MouthBarrierPolydataWorld(parameterNode)
+            except (ValueError, np.linalg.LinAlgError) as exc:
+                raise ValueError(
+                    _("The 3D mouth barrier could not be built: %1. Set the mouth barrier "
+                      "edges to Off in the 6.3 advanced options to plan without it.").replace("%1", str(exc))
+                ) from exc
+            for part_name, part_world in barrier_parts:
+                append_source(
+                    source_id=f"{segmentation.GetID()}:mouth-barrier:{part_name}",
+                    source_name=f"dentobot_mouth_barrier_{part_name}",
+                    source_role="mouth-barrier",
+                    classification="virtual-barrier",
+                    source_world=part_world,
+                    prepared_world=part_world,
+                    jaw_transform_applied=False,
+                )
 
         active_ids = {str(source["sourceId"]) for source in sources}
         remove_stale_moveit_obstacle_proxies(active_ids)

@@ -96,6 +96,7 @@ SOURCE_FILES = (
     "Testing/step6_base_home_uncertainty_probe.py",
     "Testing/step6_complete_cycle_probe.py",
     "Testing/step6_expected_error_dialog.py",
+    "Testing/step6_session_driver.py",
 )
 CHECK_NAMES = (
     "checkout_and_case_provenance",
@@ -125,6 +126,7 @@ CHECK_NAMES = (
     "base_home_uncertainty",
     "case_bound_tcp_workbench",
     "planning_prerequisites",
+    "base_diagnosis",
     "complete_cycles",
     "full_chain_interruption",
     "simulation_ros_disconnect",
@@ -377,6 +379,144 @@ def _scene_evidence(logic, parameter_node) -> dict[str, object]:
         "acknowledged_object_ids": acknowledged_ids,
         "source_object_ids": source_ids,
     }
+
+
+def _p1_straight_path_checks(logic, facade, parameter_node, evidence, limit=5) -> list:
+    """Diagnostic only: straight Home->PreEntry joint path validity per endpoint."""
+    home = logic.taskHomeRecord(parameter_node)
+    if home is None:
+        return [{"status": "no_task_home"}]
+    start = dict(zip(home.joint_names, home.joint_positions_si))
+    records = ((evidence.get("diagnostic_sessions") or {}).get("P1") or {}).get("candidate_records") \
+        or (evidence.get("preentry_diagnostic_session") or {}).get("candidate_records") or []
+    checks = []
+    for record in records:
+        if (record.get("termination_reason") != "converged"
+                or record.get("collision_check_status") != "clear"
+                or record.get("static_state_validity_status") != "Valid"):
+            continue
+        goal = record.get("best_joint_positions_si") or {}
+        result = facade.checkStraightJointPath(start, goal)
+        checks.append({"candidate_index": record.get("candidate_index"),
+                       "code": result.code, "success": bool(result.success),
+                       "message": str(result.message)[:300],
+                       "details": _json_safe(dict(result.details or {}))})
+        if len(checks) >= limit:
+            break
+    return checks
+
+
+def _install_base_lock_tracer(logic, facade, traces) -> None:
+    """Diagnostic only: record lock/pose calls and lock/authority flips during Accept."""
+    import traceback
+
+    authority_name = getattr(logic, "ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE",
+                             "DENTOBOT.RobotBasePlacementAuthority")
+
+    def state():
+        node = facade._parameter_node()
+        base = getattr(node, "robotBaseTransform", None)
+        return {
+            "parameter_node_id": str(node.parameterNode.GetID()) if hasattr(node, "parameterNode") else str(id(node)),
+            "locked": bool(getattr(node, "robotBaseMountLocked", False)),
+            "base_id": str(base.GetID()) if base is not None else None,
+            "authority": str(base.GetAttribute(authority_name) or "") if base is not None else None,
+        }
+
+    original_lock = logic.setRobotBaseMountLocked
+    original_pose = facade.setBasePose
+    original_lock_base = facade.lockBase
+
+    def traced_lock(node, locked, *args, **kwargs):
+        import sys
+
+        entry = {"call": f"setRobotBaseMountLocked({bool(locked)})", "before": state(),
+                 "stack": traceback.format_stack(limit=30), "profile": []}
+        traces.append(entry)
+        profile = entry["profile"]
+        previous = sys.getprofile()
+
+        def hook(frame, event, arg):
+            del arg
+            if event not in ("call", "return") or len(profile) > 30000:
+                return
+            filename = frame.f_code.co_filename
+            if "DENTOWorkflow" not in filename and "dentobot" not in filename.lower():
+                return
+            try:
+                value = bool(node.robotBaseMountLocked)
+                authority = ""
+                base = node.robotBaseTransform
+                if base is not None:
+                    authority = str(base.GetAttribute(authority_name) or "")
+            except Exception:
+                value, authority = None, None
+            code = frame.f_code
+            profile.append([event, code.co_name,
+                            code.co_filename.rsplit("/", 1)[-1] + ":" + str(frame.f_lineno),
+                            value, authority])
+
+        sys.setprofile(hook)
+        try:
+            return original_lock(node, locked, *args, **kwargs)
+        finally:
+            sys.setprofile(previous)
+            entry["after"] = state()
+
+    def traced_pose(matrix, *args, **kwargs):
+        entry = {"call": "setBasePose", "before": state(), "stack": traceback.format_stack(limit=30)}
+        traces.append(entry)
+        try:
+            return original_pose(matrix, *args, **kwargs)
+        finally:
+            entry["after"] = state()
+
+    def traced_lock_base(*args, **kwargs):
+        entry = {"call": "lockBase", "before": state(), "stack": traceback.format_stack(limit=12)}
+        traces.append(entry)
+        result = original_lock_base(*args, **kwargs)
+        entry["after"] = state()
+        entry["result"] = {"success": bool(result.success), "code": str(result.code),
+                           "message": str(result.message)[:400]}
+        return result
+
+    last = {"locked": None, "authority": None}
+
+    def watch(caller=None, event=None):
+        del caller, event
+        try:
+            current = state()
+        except Exception:
+            return
+        for key in ("locked", "authority"):
+            if last[key] is not None and current[key] != last[key]:
+                traces.append({"call": f"flip:{key}", "from": last[key], "to": current[key],
+                               "stack": traceback.format_stack(limit=30)})
+            last[key] = current[key]
+
+    node = facade._parameter_node()
+    observed = []
+    wrapped = getattr(node, "parameterNode", None)
+    if wrapped is not None:
+        observed.append((wrapped, wrapped.AddObserver(vtk.vtkCommand.ModifiedEvent, watch)))
+    base = getattr(node, "robotBaseTransform", None)
+    if base is not None:
+        observed.append((base, base.AddObserver(vtk.vtkCommand.ModifiedEvent, watch)))
+    watch()
+    logic._dentobotTraceObservers = observed
+    logic.setRobotBaseMountLocked = traced_lock
+    facade.setBasePose = traced_pose
+    facade.lockBase = traced_lock_base
+
+
+def _remove_base_lock_tracer(logic, facade) -> None:
+    for node, tag in getattr(logic, "_dentobotTraceObservers", ()):
+        node.RemoveObserver(tag)
+    if "_dentobotTraceObservers" in vars(logic):
+        delattr(logic, "_dentobotTraceObservers")
+    for owner, name in ((logic, "setRobotBaseMountLocked"), (facade, "setBasePose"), (facade, "lockBase")):
+        if name in vars(owner):
+            delattr(owner, name)
 
 
 def _modal_guarded_click(report, evidence_dir: Path, run_id: str, button, stage: str) -> None:
@@ -1053,7 +1193,7 @@ def _valid_matrix(value) -> bool:
 
 
 BASE_OFFSET_ENV = "DENTOBOT_HEADED_BASE_OFFSET_RAS_MM"
-BASE_OFFSET_MAX_MM = 20.0
+BASE_OFFSET_MAX_MM = 42.5  # +-30 mm on both forehead-plane axes
 
 
 def _parse_base_offset(text: str | None) -> tuple[float, float, float] | None:
@@ -1254,11 +1394,135 @@ def _finalize_workspace_diagnostic(report: dict[str, object]) -> None:
     _write_report(report)
 
 
+def _serve_command_session(namespace, widget, panel, facade, report, evidence_dir: Path) -> None:
+    from step6_session_driver import rebind_callbacks, run_session
+
+    session_dir = evidence_dir.parent / "session"
+    namespace = {
+        **namespace,
+        "live_objects": lambda: [widget, getattr(widget, "logic", None), facade, panel],
+        "after_reload": lambda: {
+            "panel_callbacks_rebound": rebind_callbacks(panel._callbacks, widget),
+        },
+    }
+    report["session_mode"] = {"status": "serving", "session_dir": str(session_dir)}
+    _write_report(report)
+    outcome = run_session(namespace, session_dir, _process_events)
+    reason = (
+        f"Command session ended ({outcome['reason']}); later checks ran only as "
+        "session commands (see session/outbox)."
+    )
+    for item in report["items"].values():
+        if item["status"] == "NOT_RUN":
+            item["reason"] = reason
+    report.update({
+        "status": "SESSION_END",
+        "completed_at_utc": _utc_now(),
+        "failure_or_stop_reason": reason,
+        "full_workflow_claimed": False,
+        "session_mode": {"status": "ended", "session_dir": str(session_dir), **outcome},
+    })
+    _write_report(report)
+    print("DENTOBOT_HEADED_SESSION_END", flush=True)
+    slicer.util.exit(0)
+    raise SystemExit(0)
+
+
+def _run_base_diagnosis(widget, panel, facade, report, evidence_dir: Path, run_id: str) -> None:
+    """S6-BASE-DIAGNOSE: click Diagnose This Base in 6.3 and keep its table as evidence."""
+    check = "base_diagnosis"
+    button = getattr(panel, "diagnoseBaseButton", None)
+    if button is None or not bool(button.enabled):
+        _record(report, check, "FAIL", reason="Diagnose This Base control is missing or disabled.")
+        return
+    try:
+        _modal_guarded_click(report, evidence_dir, run_id, button, "base-diagnosis-click")
+    except UnexpectedModalError as exc:
+        _record(report, check, "FAIL", reason=f"Diagnose This Base raised a modal: {exc.dialog_text}")
+        return
+    _wait_until(lambda: not bool(getattr(widget, "_workflowActionBusy", False)), 900.0)
+    _process_events(0.2)
+    summary = getattr(facade, "_last_base_diagnosis", None)
+    report["base_diagnosis"] = summary
+    dialog = getattr(panel, "_baseDiagnosisDialog", None)
+    if dialog is not None and bool(dialog.visible):
+        path = evidence_dir / f"{run_id}-base-diagnosis-dialog.png"
+        dialog.grab().save(str(path))
+        report["screenshots"]["base-diagnosis-dialog"] = {"dialog": str(path)}
+    _capture(report, evidence_dir, run_id, "base-diagnosis")
+    if not isinstance(summary, dict) or summary.get("status") not in ("PASS", "WARNING", "FAIL"):
+        _record(report, check, "FAIL", reason="Diagnose This Base returned no completed summary.",
+                base_diagnosis=summary)
+        return
+    # The check passes when the diagnosis completes; its verdict is evidence.
+    _record(report, check, "PASS", verdict=summary.get("verdict"), diagnosis_status=summary.get("status"),
+            base_diagnosis=summary)
+    if dialog is not None:
+        dialog.hide()
+
+
 def _capture(report, evidence_dir: Path, run_id: str, key: str) -> dict[str, str]:
     paths = _capture_screenshots(f"{run_id}-{key}", evidence_dir)
     report["screenshots"][key] = paths
     _write_report(report)
     return paths
+
+
+STEP6_DISPLAY_MODEL_ROLES = (
+    "Step6MouthBarrierDisplay", "Step6ReachEnvelope", "Step6WorkspaceHomeConnected", "RobotWorkspaceCloud",
+)
+
+
+def _step6_display_models_state() -> list[dict[str, object]]:
+    """Visibility evidence for the barrier, reach envelope and workspace models."""
+    records = []
+    for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+        role = node.GetAttribute("DENTOBOT.ModelRole")
+        if role not in STEP6_DISPLAY_MODEL_ROLES:
+            continue
+        display = node.GetDisplayNode()
+        bounds = [0.0] * 6
+        node.GetRASBounds(bounds)
+        polydata = node.GetPolyData()
+        records.append({
+            "name": node.GetName(),
+            "role": role,
+            "visible": bool(display.GetVisibility()) if display else None,
+            "visible_3d": bool(display.GetVisibility3D()) if display else None,
+            "opacity": float(display.GetOpacity()) if display else None,
+            "view_node_ids": [display.GetNthViewNodeID(i) for i in range(display.GetNumberOfViewNodeIDs())] if display else [],
+            "world_bounds_ras_mm": [round(float(v), 2) for v in bounds],
+            "points": int(polydata.GetNumberOfPoints()) if polydata else 0,
+            "cells": int(polydata.GetNumberOfCells()) if polydata else 0,
+            "summary": node.GetAttribute("DENTOBOT.MouthBarrierSummary") or node.GetAttribute("DENTOBOT.ReachEnvelopeSummary"),
+        })
+    return records
+
+
+def _capture_anterior_view(report, evidence_dir: Path, run_id: str, key: str) -> dict[str, str]:
+    """Front-view screenshot for barrier/envelope evidence; camera restored after."""
+    view = slicer.app.layoutManager().threeDWidget(0).threeDView()
+    camera_node = slicer.modules.cameras.logic().GetViewActiveCameraNode(view.mrmlViewNode())
+    saved = (camera_node.GetPosition(), camera_node.GetFocalPoint(), camera_node.GetViewUp(),
+             camera_node.GetParallelScale(), camera_node.GetViewAngle())
+    try:
+        import ctk
+        view.lookFromViewAxis(ctk.ctkAxesWidget.Anterior)
+        view.resetFocalPoint()
+        _process_events(0.2)
+        return _capture(report, evidence_dir, run_id, key)
+    finally:
+        # Restore through the MRML camera node (r10: renderer-only restore was
+        # overwritten by the camera node, changing later screenshots).
+        position, focal, view_up, parallel_scale, view_angle = saved
+        camera_node.SetPosition(position)
+        camera_node.SetFocalPoint(focal)
+        camera_node.SetViewUp(view_up)
+        camera_node.SetParallelScale(parallel_scale)
+        camera_node.SetViewAngle(view_angle)
+        camera_node.ResetClippingRange()
+        view.forceRender()
+        _process_events(0.1)
 
 
 def _deliver_key(control, key, modifiers) -> dict[str, object]:
@@ -2274,73 +2538,11 @@ def _validate_offline_home_after_connection(
     return evidence
 
 
-def _ensure_current_home_workspace_task(
-    widget, panel, logic, parameter_node, facade, case_path, case_hash,
-    report, evidence_dir, run_id, *, phase, check_name, skip_reason=None,
-    workspace_diagnostic=False,
+def _accept_current_state_as_task_home(
+    widget, panel, logic, parameter_node, facade, report, evidence_dir, run_id,
+    *, phase, evidence, stop,
 ):
-    evidence = {"phase": phase, "status": "RUNNING", "case_sha256_before": case_hash}
-    report[check_name] = evidence
-    _write_report(report)
-
-    def stop(reason):
-        evidence.update({"status": "FAIL", "reason": reason})
-        _write_report(report)
-        raise RuntimeError(reason)
-
-    if skip_reason:
-        evidence.update({"status": "NOT_RUN", "reason": skip_reason})
-        _record(report, check_name, "NOT_RUN", phase=phase, reason=skip_reason)
-        return
-
-    if _sha256_file(case_path) != case_hash:
-        stop("The source case changed before current Home/workspace/task review.")
-    confirmed = logic.confirmedTaskRecord(parameter_node)
-    task_issues = (
-        tuple(logic.confirmedTaskFreshnessIssues(parameter_node))
-        if confirmed is not None else ("Confirmed task is absent.",)
-    )
-    limits_reviewed = bool(logic.assistedTaskLimitsReviewed(parameter_node))
-    home_current = bool(facade.taskHomeRuntimeValidated(parameter_node))
-    workspace_current = bool(facade.workspaceRuntimeValidated(parameter_node))
-    current = {
-        "assisted_limits_reviewed": limits_reviewed,
-        "confirmed_task_present": confirmed is not None,
-        "confirmed_task_freshness_issues": task_issues,
-        "task_home_runtime_validated": home_current,
-        "workspace_runtime_validated": workspace_current,
-    }
-    needs_recovery = not limits_reviewed or confirmed is None or bool(task_issues)
-    if phase in {"before_save", "before_planning"}:
-        needs_recovery = needs_recovery or not home_current or not workspace_current
-    if workspace_diagnostic and phase == "after_scene_ack":
-        needs_recovery = True
-    evidence["prerequisites_before"] = current
-    if not needs_recovery:
-        evidence.update({"status": "NOT_RUN", "already_current": True})
-        _record(
-            report, check_name, "NOT_RUN", phase=phase, already_current=True,
-            prerequisites=current,
-        )
-        return
-
-    authority_before = {
-        "route_authority": report["route_authority"],
-        "planner_calls": report["planner_calls"],
-        "preview_started": report["preview_started"],
-        "preview_active": bool(facade.previewActive),
-        "return_home_required": bool(facade.returnHomeRequired),
-    }
-    if (
-        authority_before["route_authority"] != "none"
-        or authority_before["planner_calls"] != 0
-        or authority_before["preview_started"] is not False
-        or authority_before["preview_active"]
-        or authority_before["return_home_required"]
-    ):
-        stop("Route or preview authority is already present; prerequisite repair stopped.")
-    evidence["route_preview_before"] = authority_before
-
+    """Stage and accept the exact live J1-J5 state as Task Home (production controls)."""
     widget._configureRobotSimulationShellSubstep(3)
     widget._updateStep6PlanningUi()
     _show_step63_view(panel, 0, 0)
@@ -2450,6 +2652,79 @@ def _ensure_current_home_workspace_task(
         "home_state_after_accept": accepted_state,
     })
     _write_report(report)
+
+
+def _ensure_current_home_workspace_task(
+    widget, panel, logic, parameter_node, facade, case_path, case_hash,
+    report, evidence_dir, run_id, *, phase, check_name, skip_reason=None,
+    workspace_diagnostic=False,
+):
+    evidence = {"phase": phase, "status": "RUNNING", "case_sha256_before": case_hash}
+    report[check_name] = evidence
+    _write_report(report)
+
+    def stop(reason):
+        evidence.update({"status": "FAIL", "reason": reason})
+        _write_report(report)
+        raise RuntimeError(reason)
+
+    if skip_reason:
+        evidence.update({"status": "NOT_RUN", "reason": skip_reason})
+        _record(report, check_name, "NOT_RUN", phase=phase, reason=skip_reason)
+        return
+
+    if _sha256_file(case_path) != case_hash:
+        stop("The source case changed before current Home/workspace/task review.")
+    confirmed = logic.confirmedTaskRecord(parameter_node)
+    task_issues = (
+        tuple(logic.confirmedTaskFreshnessIssues(parameter_node))
+        if confirmed is not None else ("Confirmed task is absent.",)
+    )
+    limits_reviewed = bool(logic.assistedTaskLimitsReviewed(parameter_node))
+    home_current = bool(facade.taskHomeRuntimeValidated(parameter_node))
+    workspace_current = bool(facade.workspaceRuntimeValidated(parameter_node))
+    current = {
+        "assisted_limits_reviewed": limits_reviewed,
+        "confirmed_task_present": confirmed is not None,
+        "confirmed_task_freshness_issues": task_issues,
+        "task_home_runtime_validated": home_current,
+        "workspace_runtime_validated": workspace_current,
+    }
+    needs_recovery = not limits_reviewed or confirmed is None or bool(task_issues)
+    if phase in {"before_save", "before_planning"}:
+        needs_recovery = needs_recovery or not home_current or not workspace_current
+    if workspace_diagnostic and phase == "after_scene_ack":
+        needs_recovery = True
+    evidence["prerequisites_before"] = current
+    if not needs_recovery:
+        evidence.update({"status": "NOT_RUN", "already_current": True})
+        _record(
+            report, check_name, "NOT_RUN", phase=phase, already_current=True,
+            prerequisites=current,
+        )
+        return
+
+    authority_before = {
+        "route_authority": report["route_authority"],
+        "planner_calls": report["planner_calls"],
+        "preview_started": report["preview_started"],
+        "preview_active": bool(facade.previewActive),
+        "return_home_required": bool(facade.returnHomeRequired),
+    }
+    if (
+        authority_before["route_authority"] != "none"
+        or authority_before["planner_calls"] != 0
+        or authority_before["preview_started"] is not False
+        or authority_before["preview_active"]
+        or authority_before["return_home_required"]
+    ):
+        stop("Route or preview authority is already present; prerequisite repair stopped.")
+    evidence["route_preview_before"] = authority_before
+
+    _accept_current_state_as_task_home(
+        widget, panel, logic, parameter_node, facade, report, evidence_dir, run_id,
+        phase=phase, evidence=evidence, stop=stop,
+    )
 
     widget._configureRobotSimulationShellSubstep(3)
     widget._updateStep6PlanningUi()
@@ -2600,6 +2875,14 @@ def _ensure_current_home_workspace_task(
     evidence["screenshots"]["workspace_generated"] = _capture(
         report, evidence_dir, run_id, f"{phase}-workspace-generated"
     )
+    evidence["display_models_after_workspace"] = _step6_display_models_state()
+    try:
+        evidence["screenshots"]["workspace_generated_anterior"] = _capture_anterior_view(
+            report, evidence_dir, run_id, f"{phase}-workspace-generated-anterior"
+        )
+    except Exception as exc:  # evidence aid only
+        evidence["anterior_view_error"] = str(exc)
+    _write_report(report)
     if _exact_env_opt_in("DENTOBOT_HEADED_STOP_AFTER_WORKSPACE"):
         evidence.update({
             "status": "PASS",
@@ -3706,6 +3989,12 @@ def run() -> int:
                     widget, panel, logic, parameter_node, facade,
                     report, evidence_dir, run_id,
                 )
+            if _exact_env_opt_in("DENTOBOT_HEADED_SESSION"):
+                # Operator 2026-10-02: checkpoint after connect + scene ack, then
+                # serve command scripts with hot reload instead of restarting.
+                _serve_command_session(
+                    {**globals(), **locals()}, widget, panel, facade, report, evidence_dir,
+                )
             active_check = "profile_migration_recovery_after_scene_ack"
             _ensure_current_home_workspace_task(
                 widget, panel, logic, parameter_node, facade, case_path, case_hash,
@@ -4185,6 +4474,19 @@ def run() -> int:
                 _process_events(0.1)
                 if bool(parameter_node.robotBaseMountLocked):
                     fail(active_check, "Disposable-scene Base unlock did not complete.")
+            # Unlocking in 6.1 lets the viewport interaction node re-stage the
+            # accepted Base as an identity candidate. Cancel only that exact
+            # identity candidate through the production control; preserve any other.
+            pre_review = facade.manualBaseReview()
+            pre_details = dict(pre_review.details or {})
+            if (pre_review.success and pre_details.get("staged") is True
+                    and pre_details.get("identityStatus") == "current"
+                    and _same_matrix(pre_details.get("candidateMatrixWorldRasMm"),
+                                     pre_details.get("acceptedMatrixWorldRasMm"))
+                    and panel.cancelManualBaseReviewButton.enabled):
+                panel.cancelManualBaseReviewButton.click()
+                _process_events(0.1)
+                report["identity_viewport_candidate_cancelled"] = True
             base_before = _base_review(facade)
             base_fingerprint = logic.robotBaseFingerprint(parameter_node)
             base_matrix = tuple(base_before.details["acceptedMatrixWorldRasMm"])
@@ -4287,6 +4589,31 @@ def run() -> int:
                          robot_base_fingerprint=logic.robotBaseFingerprint(parameter_node),
                          screenshot=report["screenshots"].get("base-acceptance-staged"))
                 expected_accept_matrix = list(base_matrix)
+                if os.environ.get("DENTOBOT_HEADED_FIND_REACHABLE_BASE", "") == "1":
+                    # Production "Find Reachable Base" (IK + mesh path preflight)
+                    # stages the candidate; acceptance then uses the normal owner.
+                    widget._onStep6SearchBasePlacement()
+                    _process_events(0.2)
+                    search_report = dict(getattr(widget, "_lastBasePlacementSearch", None) or {})
+                    found = dict(facade.manualBaseReview().details or {})
+                    candidate_matrix = found.get("candidateMatrixWorldRasMm")
+                    report["find_reachable_base"] = {
+                        "verdict": search_report.get("verdict"),
+                        "evaluated": search_report.get("evaluated"),
+                        "feasible_count": search_report.get("feasible_count"),
+                        "best": {k: (search_report.get("best") or {}).get(k)
+                                 for k in ("u_mm", "v_mm", "depth_mm", "minimum_slider_margin_mm")},
+                        "path_preflight": search_report.get("path_preflight"),
+                        "depth_fallback": search_report.get("depth_fallback"),
+                        "staged_candidate": candidate_matrix,
+                        "status_text": str(panel.manualBaseReviewStatusLabel.text),
+                    }
+                    if not _valid_matrix(candidate_matrix) or search_report.get("best") is None:
+                        fail(active_check, "Find Reachable Base did not stage a candidate.",
+                             find_reachable_base=report["find_reachable_base"])
+                    expected_accept_matrix = [float(v) for v in candidate_matrix]
+                    _capture(report, evidence_dir, run_id, "base-find-reachable-staged")
+                    report["base_offset_applied"] = True
                 if base_offset is not None:
                     expected_accept_matrix = _translated_matrix(base_matrix, base_offset)
                     offset_stage = facade.stageManualBaseReview(expected_accept_matrix)
@@ -4313,7 +4640,25 @@ def run() -> int:
                          stage_result=base_acceptance_stage_details)
                 report["base_acceptance_attempted"] = True
                 _write_report(report)
-                base_acceptance_owner.click()
+                base_lock_traces = []
+                if base_offset is not None:
+                    _install_base_lock_tracer(logic, facade, base_lock_traces)
+                try:
+                    _modal_guarded_click(
+                        report, evidence_dir, run_id, base_acceptance_owner,
+                        "base-acceptance-accept",
+                    )
+                except UnexpectedModalError as exc:
+                    failure_review = dict(facade.manualBaseReview().details or {})
+                    fail(active_check, f"Accept Base raised a modal: {exc.dialog_text}",
+                         review=failure_review,
+                         base_lock_traces=base_lock_traces,
+                         verification_evidence=(failure_review.get("failureEvidence") or {}).get(
+                             "verificationEvidence"),
+                         requested_offset_ras_mm=list(base_offset) if base_offset else None)
+                finally:
+                    _remove_base_lock_tracer(logic, facade)
+                report["base_lock_traces"] = base_lock_traces
                 _process_events(0.2)
                 base_acceptance_accepted_frame = _scroll_to_visible(
                     widget, panel.manualBaseReviewGroup, "accepted Base review"
@@ -4761,6 +5106,8 @@ def run() -> int:
                     prerequisite_evidence=prerequisites,
                     planning_controls=planning_controls,
                 )
+                if os.environ.get("DENTOBOT_HEADED_DIAGNOSE_BASE", "") == "1":
+                    _run_base_diagnosis(widget, panel, facade, report, evidence_dir, run_id)
             else:
                 _record(
                     report,
@@ -4797,6 +5144,17 @@ def run() -> int:
                 widget._configureRobotSimulationShellSubstep(3)
                 widget._updateStep6PlanningUi()
                 _show_step63_view(panel, 2, 0)
+                if not panel.checkPreEntryIKButton.enabled:
+                    fail(active_check, "Current PreEntry IK diagnostic control is disabled.")
+                try:
+                    _modal_guarded_click(
+                        report, evidence_dir, run_id, panel.checkPreEntryIKButton,
+                        "complete-cycle-preentry-ik",
+                    )
+                except UnexpectedModalError as exc:
+                    fail(active_check, f"PreEntry IK raised a modal: {exc.dialog_text}")
+                _wait_until(lambda: not bool(getattr(widget, "_workflowActionBusy", False)), 600.0)
+                _process_events(0.1)
                 try:
                     cycle_evidence = run_complete_cycles(
                         widget,
@@ -4808,6 +5166,9 @@ def run() -> int:
                         ),
                         joint_names=JOINT_NAMES,
                         cycles=2,
+                        click_guard=lambda button, name: _modal_guarded_click(
+                            report, evidence_dir, run_id, button, f"complete-cycle-{name}"
+                        ),
                     )
                 except Exception as exc:
                     cycle_evidence = getattr(exc, "evidence", None)
@@ -4865,12 +5226,21 @@ def run() -> int:
                     _retain_full_chain_probe_counts(
                         report, getattr(exc, "evidence", None)
                     )
+                    probe_failure_evidence = getattr(exc, "evidence", None)
+                    report["drilling_truncation"] = getattr(facade, "drillingTruncation", None)
+                    if (os.environ.get("DENTOBOT_HEADED_P1_STRAIGHT_PATH_CHECK", "") == "1"
+                            and isinstance(probe_failure_evidence, dict)):
+                        probe_failure_evidence["p1_straight_path_checks"] = (
+                            _p1_straight_path_checks(logic, facade, parameter_node,
+                                                     probe_failure_evidence)
+                        )
                     fail(
                         active_check,
                         f"{type(exc).__name__}: {exc}",
-                        probe_evidence=getattr(exc, "evidence", None),
+                        probe_evidence=probe_failure_evidence,
                     )
                 _retain_full_chain_probe_counts(report, chain_evidence)
+                report["drilling_truncation"] = getattr(facade, "drillingTruncation", None)
                 _record(report, active_check, "PASS", probe_evidence=chain_evidence)
             else:
                 _record(report, "full_chain_interruption", "NOT_RUN",

@@ -7,13 +7,25 @@ from datetime import datetime
 import os
 import logging
 from pathlib import Path
-import threading
 from types import SimpleNamespace
 from typing import Callable
 
 from dentobot_case.catalog import Catalog
 from dentobot_case.contracts import CHECKPOINTS, CaseInventory
 from dentobot_case.lineage import available_cutoffs, select_prefix
+
+
+class _CancelFlag:
+    """One-way cancel flag; the GUI thread sets it and the worker polls it."""
+
+    def __init__(self) -> None:
+        self._set = False
+
+    def set(self) -> None:
+        self._set = True
+
+    def is_set(self) -> bool:
+        return self._set
 
 
 def _row(kind: str, text: str, **values) -> dict:
@@ -1107,7 +1119,7 @@ def show_case_library(
     def _start_job(kind: str, worker: Callable, context=None):
         if active["future"] is not None or session._case_library_closed:
             return
-        cancel_event = threading.Event()
+        cancel_event = _CancelFlag()
         progress_state = {"snapshot": {}}
 
         def report(snapshot):

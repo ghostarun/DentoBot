@@ -1632,3 +1632,13 @@ CHANGE ROBOT DESIGN
 It also turns the Step 6 simulation into the actual engineering instrument this TRL-4 project needs:
 
 > **a reproducible way to explain whether the robot works, where it works, how robustly it works, and which robot-design variable is limiting it when it does not.**
+
+
+## 2 October 2026 implementation note
+
+The forehead-plane map (in-plane translation) is implemented as an IK-reachability
+preflight in `dentobot_workflow/base_placement_search.py` (±30 mm, 5 mm coarse and
+1 mm refine, whole PreEntry->Target stroke, native-replica IK seeded from Task Home).
+Depth and the ±10° orientation sweep are implemented but locked to 0 by default.
+Connected confirmation per candidate: `Testing/run_step6_base_candidate_confirmation.py`.
+See DECISIONS.md, 2 October.

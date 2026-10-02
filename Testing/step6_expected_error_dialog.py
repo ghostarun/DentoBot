@@ -230,12 +230,25 @@ class UnexpectedModalError(RuntimeError):
         super().__init__("Unexpected modal during headed action: " + (text or "<empty>"))
 
 
+def _is_progress_dialog(qt, dialog):
+    """Production progress dialogs are modal but are not failures."""
+    progress_class = getattr(qt, "QProgressDialog", None)
+    if isinstance(progress_class, type):
+        try:
+            if isinstance(dialog, progress_class):
+                return True
+        except TypeError:
+            pass
+    return callable(getattr(dialog, "wasCanceled", None))
+
+
 def make_modal_watchdog_click(qt, active_modal_widget, capture_callback):
     """Return ``click(button, capture_stage)`` that never blocks on a modal.
 
     Any modal opened while the click runs is captured, dismissed (reject/close,
     never accepted) and reported by raising ``UnexpectedModalError`` after the
-    click returns. A click that opens no modal returns ``None``. A modal already
+    click returns. A click that opens no modal returns ``None``; modal progress dialogs are
+    ignored, never captured or dismissed. A modal already
     open before the click is captured, dismissed and also raises.
     """
 
@@ -251,7 +264,7 @@ def make_modal_watchdog_click(qt, active_modal_widget, capture_callback):
 
     def click(button, capture_stage):
         existing = active()
-        if existing is not None:
+        if existing is not None and not _is_progress_dialog(qt, existing):
             text = _dialog_text(existing)
             reference = capture(str(capture_stage) + "-pre-existing-modal")
             _dismiss(existing, active)
@@ -266,7 +279,7 @@ def make_modal_watchdog_click(qt, active_modal_widget, capture_callback):
                 return
             try:
                 dialog = active()
-                if dialog is None:
+                if dialog is None or _is_progress_dialog(qt, dialog):
                     return
                 state["text"] = _dialog_text(dialog) or "<empty>"
                 state["reference"] = capture(str(capture_stage) + "-unexpected-modal")

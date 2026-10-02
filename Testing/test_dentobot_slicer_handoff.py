@@ -1,6 +1,7 @@
 """Local-stub tests for the simulation-to-diagnostic handoff wrapper."""
 
 import os
+import signal
 import stat
 import subprocess
 from pathlib import Path
@@ -8,6 +9,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HANDOFF = ROOT / "Workspace/scripts/dentobot-simulation-slicer-handoff.bash"
+# The handoff's graceful cleanup alone waits ~5 s even on an idle host, so the
+# bound only guards against a hang; it must not be a tight timing assertion.
+HANDOFF_TIMEOUT_SECONDS = 60
 
 
 STUB_ROS2 = r'''#!/usr/bin/env bash
@@ -17,6 +21,9 @@ stub_log=${DENTOBOT_STUB_LOG:?}
 case "${1:-}:${2:-}:${3:-}" in
   launch:dentobot_moveit_config:simulation.launch.py)
     printf 'stack_started%s\n' "${4:+ ${4}}" >>"${stub_log}"
+    if [[ -n ${DENTOBOT_STUB_PID_FILE:-} ]]; then
+      printf '%s\n' "$$" >"${DENTOBOT_STUB_PID_FILE}"
+    fi
     stop_requested=false
     stop_stack() {
       printf 'stack_signal_%s\n' "${1}" >>"${stub_log}"
@@ -64,15 +71,32 @@ def _install_stub_ros2(tmp_path: Path) -> Path:
     return stub_dir
 
 
+def _kill_process_group(pgid: int) -> None:
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def _kill_stub_stack(pid_file: Path) -> None:
+    """Kill the setsid'd fake stack the handoff would normally clean up."""
+    try:
+        _kill_process_group(int(pid_file.read_text(encoding="utf-8")))
+    except (FileNotFoundError, ValueError):
+        pass
+
+
 def _run_handoff(tmp_path: Path, **extra_env: str) -> subprocess.CompletedProcess[str]:
     stub_dir = _install_stub_ros2(tmp_path)
     stub_log = tmp_path / "stub.log"
+    stub_pid_file = tmp_path / "stub.pid"
     stack_log = tmp_path / "stack.log"
     environment = os.environ.copy()
     environment.update(
         {
             "PATH": f"{stub_dir}:/usr/bin:/bin",
             "DENTOBOT_STUB_LOG": str(stub_log),
+            "DENTOBOT_STUB_PID_FILE": str(stub_pid_file),
             "DENTOBOT_RUN_ARTIFACT_ROOT": str(tmp_path / "artifacts"),
             "DENTOBOT_STUB_READY": "true",
             "DENTOBOT_STUB_READINESS_RC": "0",
@@ -80,7 +104,7 @@ def _run_handoff(tmp_path: Path, **extra_env: str) -> subprocess.CompletedProces
         }
     )
     environment.update(extra_env)
-    return subprocess.run(
+    process = subprocess.Popen(
         [
             "bash",
             str(HANDOFF),
@@ -98,11 +122,21 @@ def _run_handoff(tmp_path: Path, **extra_env: str) -> subprocess.CompletedProces
         ],
         cwd=ROOT,
         env=environment,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        check=False,
-        timeout=10,
+        start_new_session=True,
     )
+    try:
+        stdout, stderr = process.communicate(timeout=HANDOFF_TIMEOUT_SECONDS)
+    except BaseException:
+        # A SIGKILLed handoff never runs its cleanup trap, so the setsid'd
+        # fake stack would loop forever; reap both groups on any abnormal exit.
+        _kill_process_group(process.pid)
+        _kill_stub_stack(stub_pid_file)
+        process.communicate()
+        raise
+    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
 
 
 def _stdout_lines(result: subprocess.CompletedProcess[str]) -> list[str]:

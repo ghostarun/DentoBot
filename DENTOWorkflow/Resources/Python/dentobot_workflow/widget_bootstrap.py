@@ -1025,6 +1025,8 @@ class BootstrapWidgetMixin:
             "clicked(bool)",
             self.onLockRobotBaseMount,
         )
+        self._setupSpindleGuideContactAdvancedOption()
+        self._setupReachEnvelopeOption()
         self.ui.unlockRobotBaseMountButton.connect(
             "clicked(bool)",
             self.onUnlockRobotBaseMount,

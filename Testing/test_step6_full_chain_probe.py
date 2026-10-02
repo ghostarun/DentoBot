@@ -52,6 +52,37 @@ def _session(stages=(), *, complete=False, candidate_records=(), target_conditio
     }
 
 
+
+# Production ACTION_OWNER_SUBSTEP: a click from another substep is silently blocked.
+_BUTTON_OWNER_SUBSTEP = {
+    "planApproachButton": 3, "planDrillingButton": 3,
+    "checkPlanningP1Button": 3, "checkPlanningP2Button": 3, "checkPlanningP3Button": 3,
+    "previewApproachButton": 4, "previewDrillingButton": 4,
+    "stopPreviewButton": 4, "returnHomeButton": 4,
+}
+
+
+class _SubstepCombo:
+    def __init__(self, widget, panel):
+        self.widget, self.panel, self.currentIndex = widget, panel, 3
+
+    def setCurrentIndex(self, index):
+        self.currentIndex = self.widget._step6SubstepIndex = self.panel._activeSubstep = int(index)
+
+
+def _install_substep_navigator(widget, panel):
+    widget._step6SubstepComboBox = _SubstepCombo(widget, panel)
+    widget._step6SubstepIndex = panel._activeSubstep = 3
+    for name, owner in _BUTTON_OWNER_SUBSTEP.items():
+        button = getattr(panel, name, None)
+        if button is None:
+            continue
+        action = button.action
+        button.action = (
+            lambda action=action, owner=owner: action()
+            if action and panel._activeSubstep == owner else None
+        )
+
 class _Button:
     def __init__(self, action=None, enabled=True):
         self.enabled = enabled
@@ -364,6 +395,7 @@ def _harness(
     panel.approachStatusLabel = _Label()
     widget._robotSimulationPanel = panel
     widget._robotWorkflowFacade = facade
+    _install_substep_navigator(widget, panel)
     return widget, panel, facade
 
 
@@ -378,11 +410,11 @@ def _run(widget, panel, facade):
 
 def test_precondition_failure_happens_before_any_production_action():
     widget, panel, facade = _harness()
-    widget.logic.limits_reviewed = False
+    facade.taskHomeRuntimeValidated = lambda _node: False
     with pytest.raises(probe.FullChainProbeError) as raised:
         _run(widget, panel, facade)
     assert all(button.clicks == 0 for button in panel._buttons)
-    assert raised.value.evidence["failure"]["message"] == "current assisted joint limits are not reviewed"
+    assert raised.value.evidence["failure"]["message"] == "five-joint Task Home is not runtime-validated"
     json.dumps(raised.value.evidence, allow_nan=False)
 
 
@@ -510,3 +542,10 @@ def test_preentry_no_endpoint_retains_exact_evidence_and_stops_before_guard_or_r
     assert facade._bridge.identity is None
     assert evidence["fresh_complete_cycle"] == "NOT_RUN"
     json.dumps(evidence, allow_nan=False)
+
+
+def test_preconditions_do_not_require_optional_workspace_or_limit_review():
+    source = (Path(__file__).with_name("step6_full_chain_probe.py")).read_text()
+    pre = source[source.index("def _preconditions("):]
+    pre = pre[:pre.index("\ndef ", 1)]
+    assert "workspaceRuntimeValidated" not in pre and "assistedTaskLimitsReviewed" not in pre

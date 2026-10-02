@@ -43,6 +43,10 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 "create_proxy": self._onStep6CreateForeheadProxy,
                 "placement_review": self._onStep6PlacementReview,
                 "begin_manual_base_review": self._onStep6BeginManualBaseReview,
+                "search_base_placement": self._onStep6SearchBasePlacement,
+                "set_spindle_guide_contact": self._onSetSpindleGuideContact,
+                "set_mouth_barrier_edge_mode": self._onSetMouthBarrierEdgeMode,
+                "set_show_mouth_barrier": self._onSetShowMouthBarrier,
                 "cancel_manual_base_review": self._onStep6CancelManualBaseReview,
                 "reconcile_manual_base": self._onStep6ReconcileManualBaseAcceptance,
                 "appearance_changed": self._onStep6AppearanceChanged,
@@ -73,6 +77,7 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 "check_planning_p1": lambda: self._onStep6CheckPlanningStage("P1"),
                 "check_planning_p2": lambda: self._onStep6CheckPlanningStage("P2"),
                 "check_planning_p3": lambda: self._onStep6CheckPlanningStage("P3"),
+                "diagnose_base": self._onStep6DiagnoseBase,
                 "compare_planners": self._onStep6ComparePlanners,
                 "cancel_planner_comparison": self._onStep6CancelPlannerComparison,
                 "show_planner_comparison": self._onStep6ShowPlannerComparison,
@@ -912,6 +917,31 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
             self._onStep6ShowMotionDiagnostics(
                 str(result.details["motionDiagnosticSessionFingerprint"])
             )
+
+    def _onStep6DiagnoseBase(self) -> None:
+        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+            return
+        if getattr(self, "_workflowActionBusy", False):
+            return
+        self._workflowActionBusy = True
+        progress = None
+        try:
+            progress = WorkflowProgress("Step 6 Planning & Diagnostics — Diagnose This Base")
+            progress.update("Starting ordered base diagnosis", can_cancel=False)
+            result = self._robotWorkflowFacade.diagnoseBase(
+                progress=lambda phase, done=None, total=None: progress.update(
+                    phase, done, total, can_cancel=False
+                ),
+            )
+        finally:
+            if progress:
+                progress.close()
+            self._workflowActionBusy = False
+        self._setStep6PanelResult(self._robotSimulationPanel.approachStatusLabel, result)
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        summary = (result.details or {}).get("baseDiagnosis")
+        if summary:
+            self._robotSimulationPanel.showBaseDiagnosisDialog(summary)
 
     def _onStep6CheckPlanningStage(self, stage: str) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:

@@ -821,6 +821,180 @@ class RobotPlacementLogicMixin:
         matrix[:3, 3] = _vec("DENTOBOT.ForeheadOriginMm")
         return matrix
 
+    def step6PathPreflightObstaclesWorld(self, parameterNode) -> list:
+        """World-RAS obstacle surfaces for the mesh path preflight (not authority).
+
+        Same sources as the MoveIt scene sync: final template (or its precursors)
+        moved with the target jaw, and every teeth/jaw segment (lower jaw moved by
+        the case jaw transform). Reviewed anatomy proxies are not substituted here;
+        MoveIt remains the authoritative collision check.
+        """
+        obstacles = []
+        guidance = (
+            [parameterNode.finalPrintableTemplateModel]
+            if parameterNode.finalPrintableTemplateModel is not None
+            else [parameterNode.draftTemplateSupportModel, parameterNode.targetDockingAssemblyModel]
+        )
+        for model in guidance:
+            if model is None:
+                continue
+            world = self._step6TargetAttachedPolydataWorld(parameterNode, model_polydata_in_world(model))
+            if world is not None and world.GetNumberOfPoints() > 0:
+                obstacles.append((model.GetName(), world))
+        segmentation = parameterNode.teethSegmentation
+        if segmentation is not None:
+            groups = self.step6CaseJawSegmentIds(segmentation)
+            lower = set(groups.get("lower", ()))
+            for segment_id in dict.fromkeys((*groups.get("upper", ()), *groups.get("lower", ()))):
+                world = self._segmentationSegmentsSurfaceWorld(segmentation, {segment_id})
+                if world is None or world.GetNumberOfPoints() == 0:
+                    continue
+                if segment_id in lower:
+                    world = self._step6CaseJawPolydataWorld(parameterNode, world)
+                obstacles.append((str(segment_id), world))
+        # The 3D mouth barrier is deliberately NOT included: its few huge, flat
+        # triangles made the merged vtkCollisionDetectionFilter check run for
+        # hours (r5 312-min stall; r6 stack dumps, 2026-10-02). MoveIt and the
+        # phase guard enforce the barrier during planning.
+        return obstacles
+
+    def searchForeheadBasePlacement(
+        self,
+        parameterNode,
+        *,
+        reference: str = "forehead_seat",
+        reference_matrix=None,
+        progress=None,
+        path_preflight: bool = True,
+    ) -> dict[str, object]:
+        """IK-reachability preflight over the virtual forehead plane (simulation only).
+
+        Iterates Base candidates outward from the forehead-plane centre (in-plane
+        +-30 mm; depth and orientation locked, see base_placement_search) and
+        checks the whole PreEntry->Target stroke with a native-replica IK.
+        ``reference``: "forehead_seat" (standard seat on the plane centre),
+        "current" (the current Base), or "matrix" (``reference_matrix``).
+        Kinematic only: collision, Home validity and planning are checked by the
+        connected stage after Review/Accept.
+        """
+        from dentobot_workflow.base_placement_search import (
+            Chain,
+            PlacementTask,
+            search_with_depth_fallback,
+        )
+        from dentobot_workflow.virtual_forehead_mount import (
+            DEFAULT_JOINT_DISPLAY,
+            VirtualForeheadConfig,
+            VirtualForeheadPlane,
+            seat_base_on_forehead,
+        )
+        from DENTORobotPlacement import joint_positions_si_from_display
+
+        plane_node = parameterNode.robotMountPlane
+        if plane_node is None:
+            raise ValueError(_("Propose virtual forehead + base before searching Base placement."))
+        frame = self._foreheadFrameFromStoredPlane(plane_node)
+        summary = self.step6TrajectorySummary(parameterNode)
+        if not summary.get("isValid"):
+            raise ValueError(_("Select a valid Entry-to-Target trajectory before searching Base placement."))
+        pre_entry, entry = self.step6ApproachPoints(parameterNode)
+        target = summary["targetRas"]
+        urdf_path, _package_root = self.robotDescriptionPaths()
+        chain = Chain.from_urdf(urdf_path)
+        home = self.taskHomeRecord(parameterNode)
+        default_display = joint_positions_si_from_display(*DEFAULT_JOINT_DISPLAY)
+        default_q = [float(default_display[name]) for name in chain.names]
+        home_q = default_q
+        home_source = "default_joint_display"
+        if home is not None and set(home.joint_names) >= set(chain.names):
+            by_name = dict(zip(home.joint_names, home.joint_positions_si))
+            home_q = [float(by_name[name]) for name in chain.names]
+            home_source = "saved_task_home"
+        if reference == "current":
+            reference_world = self._numpyFromVtkMatrix(
+                self._worldMatrixFromTransform(parameterNode.robotBaseTransform)
+            )
+        elif reference == "matrix":
+            reference_world = np.asarray(reference_matrix, dtype=float).reshape(4, 4)
+        else:
+            plane = VirtualForeheadPlane(
+                frame[:3, 3], frame[:3, 0], frame[:3, 1], frame[:3, 2], 1.0, False
+            )
+            reference_world = seat_base_on_forehead(plane, config=VirtualForeheadConfig())
+        task = PlacementTask(
+            np.asarray(pre_entry, dtype=float),
+            np.asarray(entry, dtype=float),
+            np.asarray(target, dtype=float),
+            home_q,
+        )
+        # In-plane first; depth +-10 mm only if no in-plane Base is feasible.
+        report = search_with_depth_fallback(
+            chain, frame, reference_world, task, progress=progress
+        )
+        if path_preflight and report.get("best") is not None:
+            # Prefer the nearest reachable Base whose straight Home->PreEntry
+            # tool sweep does not hit the template/anatomy (mesh preflight).
+            from dentobot_workflow.base_placement_search import select_path_clear_candidate
+            from dentobot_workflow.path_clearance import ToolMeshSweep
+
+            try:
+                sweep = ToolMeshSweep(urdf_path, _package_root,
+                                      self.step6PathPreflightObstaclesWorld(parameterNode))
+
+                def check(record):
+                    matrix = np.asarray(record["matrix_world_ras_mm"], dtype=float).reshape(4, 4)
+                    return sweep.straight_path(matrix, chain.names, home_q, record["pre_entry_q"])
+
+                report = select_path_clear_candidate(report, check)
+            except (OSError, RuntimeError, ValueError) as exc:
+                report["path_preflight"] = {"selected": "error", "reason": str(exc)}
+        report.pop("ranked_all", None)
+        report.update({
+            "reference": reference,
+            "home_seed_source": home_source,
+            "forehead_frame_world_ras_mm": frame.reshape(-1).tolist(),
+            "reference_matrix_world_ras_mm": reference_world.reshape(-1).tolist(),
+        })
+        return report
+
+    def step6CurrentBaseStrokeReachability(self, parameterNode) -> dict[str, object]:
+        """Kinematic check that the accepted Base reaches the whole PreEntry->Target
+        stroke (native-replica IK seeded from Task Home; milliseconds).
+
+        Planning prerequisite since 2026-10-02 (operator: the 6.3 workspace is an
+        optional visual). Kinematic only; MoveIt and the phase guard stay
+        authoritative for collision and paths.
+        """
+        from dentobot_workflow.base_placement_search import (
+            Chain,
+            ForeheadPlacementSearchConfig,
+            PlacementTask,
+            evaluate_base,
+        )
+
+        summary = self.step6TrajectorySummary(parameterNode)
+        if not summary.get("isValid"):
+            raise ValueError(_("Select a valid Entry-to-Target trajectory first."))
+        pre_entry, entry = self.step6ApproachPoints(parameterNode)
+        urdf_path, _package_root = self.robotDescriptionPaths()
+        chain = Chain.from_urdf(urdf_path)
+        home = self.taskHomeRecord(parameterNode)
+        if home is None or not set(home.joint_names) >= set(chain.names):
+            raise ValueError(_("Accept Task Home in 6.2 first."))
+        by_name = dict(zip(home.joint_names, home.joint_positions_si))
+        task = PlacementTask(
+            np.asarray(pre_entry, dtype=float),
+            np.asarray(entry, dtype=float),
+            np.asarray(summary["targetRas"], dtype=float),
+            [float(by_name[name]) for name in chain.names],
+        )
+        base_world = self._numpyFromVtkMatrix(
+            self._worldMatrixFromTransform(parameterNode.robotBaseTransform)
+        )
+        result = evaluate_base(chain, base_world, task, ForeheadPlacementSearchConfig())
+        result.pop("pre_entry_q", None)
+        return result
+
     def dumpForeheadRelativeSeating(self, parameterNode) -> dict[str, object]:
         from dentobot_workflow.virtual_forehead_mount import forehead_relative_seating
 
@@ -1012,6 +1186,29 @@ class RobotPlacementLogicMixin:
                     **candidate,
                     "tcpSlideApplied": True,
                 }
+        # IK-reachability preflight (simulation only): when a trajectory already
+        # exists, slide the seated Base in the forehead plane to the nearest
+        # candidate whose whole drill stroke is kinematically reachable.
+        placement_search = {"status": "skipped", "reason": "no valid trajectory yet"}
+        try:
+            if self.step6TrajectorySummary(parameterNode).get("isValid"):
+                report = self.searchForeheadBasePlacement(
+                    parameterNode, reference="matrix", reference_matrix=matrix
+                )
+                placement_search = {
+                    "status": report["verdict"],
+                    "evaluated": report["evaluated"],
+                    "feasibleCount": report["feasible_count"],
+                }
+                if report["best"] is not None:
+                    matrix = np.asarray(report["best"]["matrix_world_ras_mm"], dtype=float).reshape(4, 4)
+                    placement_search.update({
+                        "slideUMm": report["best"]["u_mm"],
+                        "slideVMm": report["best"]["v_mm"],
+                        "minimumSliderMarginMm": report["best"]["minimum_slider_margin_mm"],
+                    })
+        except (OSError, RuntimeError, ValueError) as exc:
+            placement_search = {"status": "error", "reason": str(exc)}
         base = self.ensureRobotBaseTransform(parameterNode.robotBaseTransform)
         parameterNode.robotBaseTransform = base
         if not self.robotModelNodes():
@@ -1062,6 +1259,7 @@ class RobotPlacementLogicMixin:
             "tcpAimMm": np.asarray(target, dtype=float).tolist(),
             "archScale": plane.arch_scale,
             "caseFoundationFingerprint": fingerprint,
+            "ikPlacementSearch": placement_search,
         }
         return summary
 

@@ -38,6 +38,37 @@ class _Status:
     requested_positions: tuple[float, ...] = ()
 
 
+
+# Production ACTION_OWNER_SUBSTEP: a click from another substep is silently blocked.
+_BUTTON_OWNER_SUBSTEP = {
+    "planApproachButton": 3, "planDrillingButton": 3,
+    "checkPlanningP1Button": 3, "checkPlanningP2Button": 3, "checkPlanningP3Button": 3,
+    "previewApproachButton": 4, "previewDrillingButton": 4,
+    "stopPreviewButton": 4, "returnHomeButton": 4,
+}
+
+
+class _SubstepCombo:
+    def __init__(self, widget, panel):
+        self.widget, self.panel, self.currentIndex = widget, panel, 3
+
+    def setCurrentIndex(self, index):
+        self.currentIndex = self.widget._step6SubstepIndex = self.panel._activeSubstep = int(index)
+
+
+def _install_substep_navigator(widget, panel):
+    widget._step6SubstepComboBox = _SubstepCombo(widget, panel)
+    widget._step6SubstepIndex = panel._activeSubstep = 3
+    for name, owner in _BUTTON_OWNER_SUBSTEP.items():
+        button = getattr(panel, name, None)
+        if button is None:
+            continue
+        action = button.action
+        button.action = (
+            lambda action=action, owner=owner: action()
+            if action and panel._activeSubstep == owner else None
+        )
+
 class _Button:
     def __init__(self, action=None, enabled=True):
         self.action, self.enabled, self.clicks = action, enabled, 0
@@ -398,6 +429,7 @@ def _harness(
         initial = full_chain._snapshot(_facade, bridge, JOINTS)
         return node, JOINTS, dict(IDENTITY), None, initial
 
+    _install_substep_navigator(widget, panel)
     monkeypatch.setattr(probe, "ACTION_TIMEOUT_SEC", 0.01)
     monkeypatch.setattr(probe, "RETURN_HOME_TIMEOUT_SEC", 0.0)
     monkeypatch.setattr(full_chain, "_preconditions", preconditions)
@@ -510,3 +542,22 @@ def test_failed_native_return_acknowledgement_cannot_advance_to_second_cycle(mon
     assert raised.value.evidence["cycles"][0]["boundaries"]["return_home_native_observation"]["native_calls"][0]["call_ok"] is False
     assert facade._bridge.apply_task_phase_joint_positions == original_native
     assert facade.returnToTaskHome == original_return
+
+
+def test_truncated_drilling_endpoint_is_checked_against_the_effective_target():
+    import math
+
+    pose = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 4.25], [0.0, 0.0, 0.0, 1.0]]
+    bridge = SimpleNamespace(compute_tcp_pose_world_ras_mm=lambda joints, base_transform=None: (True, "ok", pose))
+    session = {"full_task_outcome": {
+        "tool_axis_ras": [0.0, 0.0, 1.0],
+        "target_conditioning": {"entry_world_ras_mm": [0, 0, 0], "target_world_ras_mm": [0.0, 0.0, 9.741]},
+    }}
+    node = SimpleNamespace(robotBaseTransform=None)
+    with pytest.raises(ValueError, match="residual is 5.491"):
+        probe._endpoint_fk_observation(bridge, node, session, {}, phase="drilling")
+    truncation = {"effective_target_ras_mm": [0.0, 0.0, 4.25], "completed_depth_mm": 4.25, "requested_depth_mm": 9.741}
+    observed = probe._endpoint_fk_observation(bridge, node, session, {}, phase="drilling", drilling_truncation=truncation)
+    assert observed["expected_endpoint_kind"] == "effective_truncated_target"
+    assert math.isclose(observed["position_residual_mm"], 0.0, abs_tol=1e-9)
+    assert observed["drafted_endpoint_world_ras_mm"] == [0.0, 0.0, 9.741]

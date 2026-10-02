@@ -1075,7 +1075,7 @@
       "timeout_sec": 900,
       "evidence_level": "simulation_runtime_headed",
       "entrypoint": "Testing/run_dentobot_step6_headed_review.py",
-      "command_template": "From the reviewed integration checkout set DENTOBOT_HEADED_PROVENANCE_MODE=integration, DENTOBOT_HEADED_FULL_CHAIN=1, DENTOBOT_HEADED_ALLOW_JOG=1, DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1 and DENTOBOT_HEADED_BASE_OFFSET_RAS_MM='dx,dy,dz' (world RAS mm, norm <= 20, from Testing/step6_preentry_reachability_analysis.py). No output case. Supply exact Git/native/case provenance; serialize one Xvfb-headed Slicer/ROS simulation under Testing/record_slicer_screen.py with fresh evidence and owned-process cleanup.",
+      "command_template": "From the reviewed integration checkout set DENTOBOT_HEADED_PROVENANCE_MODE=integration, DENTOBOT_HEADED_FULL_CHAIN=1, DENTOBOT_HEADED_ALLOW_JOG=1, DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1 and DENTOBOT_HEADED_BASE_OFFSET_RAS_MM='dx,dy,dz' (world RAS mm, norm <= 42.5, i.e. +-30 mm per forehead-plane axis, from Testing/step6_preentry_reachability_analysis.py). No output case. Supply exact Git/native/case provenance; serialize one Xvfb-headed Slicer/ROS simulation under Testing/record_slicer_screen.py with fresh evidence and owned-process cleanup.",
       "pass_condition": "Requested translated Base staged through production stageManualBaseReview and accepted via the production Accept Base owner with rotation unchanged; scene re-acknowledged; Task Home re-accepted; workspace, PreEntry and full chain items each PASS/FAIL with named stage and collision evidence; modal dialogs fail fast via the watchdog; source case unchanged; no hardware."
     }
   ]

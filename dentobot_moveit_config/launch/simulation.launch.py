@@ -89,6 +89,10 @@ def _simulation_nodes(context):
                         "maximum_revolute_step_rad": 0.017453292519943295,
                         "maximum_prismatic_step_m": 0.0005,
                         "maximum_interpolation_samples": 1000,
+                        # Optional 0.5 mm spindle-housing/template contact tolerance.
+                        "allow_spindle_guide_contact": LaunchConfiguration(
+                            "allow_spindle_guide_contact"
+                        ).perform(context).lower() == "true",
                     },
                 ],
             ),
@@ -108,6 +112,14 @@ def generate_launch_description() -> LaunchDescription:
                 "diagnostic_no_spindle_collision",
                 default_value="false",
                 description="Use the Experiment A diagnostic URDF without spindle housing collision.",
+            ),
+            DeclareLaunchArgument(
+                "allow_spindle_guide_contact",
+                default_value="false",
+                description=(
+                    "Accept spindle-housing contact with the template/guide up to 0.5 mm "
+                    "as a warning. Default false: such contact truncates drilling."
+                ),
             ),
             OpaqueFunction(function=_simulation_nodes),
         ]

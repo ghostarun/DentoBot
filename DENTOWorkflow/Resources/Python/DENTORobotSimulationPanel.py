@@ -61,6 +61,7 @@ class DENTORobotSimulationPanel:
         "check_planning_p1": 3,
         "check_planning_p2": 3,
         "check_planning_p3": 3,
+        "diagnose_base": 3,
         "compare_planners": 3,
         "cancel_planner_comparison": 3,
         "show_planner_comparison": 3,
@@ -126,6 +127,7 @@ class DENTORobotSimulationPanel:
         self._taskHomeDetailsDialog = None
         self._manualRecordsDialog = None
         self._planningToolsDialog = None
+        self._baseDiagnosisDialog = None
         self._anatomyReviewDialog = None
         self._step63Navigate = None
         self._step63ReturnTab = 0
@@ -287,7 +289,17 @@ class DENTORobotSimulationPanel:
             "the detached candidate."
         )
         self.reconcileManualBaseStateButton.enabled = False
+        self.searchBasePlacementButton = qt.QPushButton(
+            "Find Reachable Base", self.manualBaseReviewGroup
+        )
+        self.searchBasePlacementButton.toolTip = (
+            "IK preflight: search the virtual forehead plane (+-30 mm in-plane; depth "
+            "and orientation locked) for the nearest Base whose whole PreEntry-to-Target "
+            "stroke is reachable, then stage it for Review/Accept. Kinematic only; "
+            "collision and planning are checked after acceptance."
+        )
         self.manualBaseReviewButtonsLayout.addWidget(self.beginManualBaseReviewButton)
+        self.manualBaseReviewButtonsLayout.addWidget(self.searchBasePlacementButton)
         self.manualBaseReviewButtonsLayout.addWidget(self.cancelManualBaseReviewButton)
         self.manualBaseReviewButtonsLayout.addWidget(self.reconcileManualBaseStateButton)
         base_review_layout.addLayout(self.manualBaseReviewButtonsLayout)
@@ -1497,6 +1509,48 @@ class DENTORobotSimulationPanel:
         self.anatomyReviewStatusLabel.setProperty("dentobotRole", "warning")
         anatomy_review_layout.addWidget(self.anatomyReviewStatusLabel)
         approach_layout.addWidget(self.anatomyReviewGroup)
+        # Advanced options (operator 2026-10-02). Default off: spindle-template
+        # contact truncates drilling at the last collision-free state.
+        self.planningAdvancedGroup = qt.QGroupBox("Advanced options", self.approachGroup)
+        planning_advanced_layout = qt.QVBoxLayout(self.planningAdvancedGroup)
+        self.allowSpindleGuideContactCheckBox = qt.QCheckBox(
+            "Allow spindle-housing contact with template (\u2264 0.5 mm)", self.planningAdvancedGroup
+        )
+        self.allowSpindleGuideContactCheckBox.objectName = "DENTOBOTAllowSpindleGuideContact63"
+        self.allowSpindleGuideContactCheckBox.toolTip = (
+            "Off (default): any spindle-housing/template contact is a collision and the "
+            "drilling route ends at the last collision-free state. On: the guard tolerates "
+            "contact up to 0.5 mm as a warning. Shared with the Step 4C advanced option; "
+            "re-plan after changing it."
+        )
+        planning_advanced_layout.addWidget(self.allowSpindleGuideContactCheckBox)
+        mouth_barrier_row = qt.QHBoxLayout()
+        mouth_barrier_row.addWidget(qt.QLabel("Mouth barrier edges:", self.planningAdvancedGroup))
+        self.mouthBarrierEdgeModeComboBox = qt.QComboBox(self.planningAdvancedGroup)
+        self.mouthBarrierEdgeModeComboBox.objectName = "DENTOBOTMouthBarrierEdgeMode63"
+        for label, mode in (
+            ("Gum line (lips retracted)", "gum_line"),
+            ("Tooth biting edges (lips relaxed)", "biting_edge"),
+            ("Off (no barrier; diagnosis only)", "off"),
+        ):
+            self.mouthBarrierEdgeModeComboBox.addItem(label, mode)
+        self.mouthBarrierEdgeModeComboBox.toolTip = (
+            "3D mouth barrier: virtual lips and cheeks that the whole robot must avoid; "
+            "the tool enters through the opening. Gum line (default): opening edges at "
+            "the anterior gum line + 5 mm. Biting edges: at the canine cusp tips + 5 mm. "
+            "Re-plan after changing it."
+        )
+        mouth_barrier_row.addWidget(self.mouthBarrierEdgeModeComboBox, 1)
+        planning_advanced_layout.addLayout(mouth_barrier_row)
+        self.showMouthBarrierCheckBox = qt.QCheckBox("Show mouth barrier", self.planningAdvancedGroup)
+        self.showMouthBarrierCheckBox.objectName = "DENTOBOTShowMouthBarrier63"
+        self.showMouthBarrierCheckBox.checked = True
+        self.showMouthBarrierCheckBox.toolTip = (
+            "Show or hide the pink virtual lips/cheeks in the 3D view. Display only: "
+            "the planner still avoids the barrier unless its edges are set to Off."
+        )
+        planning_advanced_layout.addWidget(self.showMouthBarrierCheckBox)
+        approach_layout.addWidget(self.planningAdvancedGroup)
         approach_buttons = qt.QHBoxLayout()
         self.planApproachButton = qt.QPushButton("Plan Guarded Approach", self.approachGroup)
         self.checkPreEntryIKButton = qt.QPushButton(
@@ -1514,6 +1568,13 @@ class DENTORobotSimulationPanel:
             "Check P3 Entry→Target", self.approachGroup
         )
         self.checkPlanningP3Button.objectName = "DENTOBOTCheckPlanningP3Button"
+        self.diagnoseBaseButton = qt.QPushButton("Diagnose This Base", self.approachGroup)
+        self.diagnoseBaseButton.objectName = "DENTOBOTDiagnoseBaseButton"
+        self.diagnoseBaseButton.toolTip = (
+            "Run stroke reach, PreEntry endpoint, P1, P2 and P3 in order and stop at "
+            "the first failure, naming its cause (Base placement, collision, planner "
+            "or tool geometry). Diagnostic only; no route or preview authority."
+        )
         self.motionDiagnosticsButton = qt.QPushButton(
             "Inspect Motion Diagnostics", self.approachGroup
         )
@@ -1522,6 +1583,7 @@ class DENTORobotSimulationPanel:
         approach_buttons.addWidget(self.checkPreEntryIKButton)
         approach_buttons.addWidget(self.motionDiagnosticsButton)
         approach_layout.addLayout(approach_buttons)
+        approach_layout.addWidget(self.diagnoseBaseButton)
         stage_diagnostic_buttons = qt.QHBoxLayout()
         for button in (
             self.checkPlanningP1Button,
@@ -1627,6 +1689,21 @@ class DENTORobotSimulationPanel:
         self.beginManualBaseReviewButton.clicked.connect(
             lambda checked=False: self._invoke("begin_manual_base_review")
         )
+        self.allowSpindleGuideContactCheckBox.toggled.connect(
+            lambda checked: self._invoke("set_spindle_guide_contact", bool(checked))
+        )
+        self.showMouthBarrierCheckBox.toggled.connect(
+            lambda checked: self._invoke("set_show_mouth_barrier", bool(checked))
+        )
+        self.mouthBarrierEdgeModeComboBox.currentIndexChanged.connect(
+            lambda index: self._invoke(
+                "set_mouth_barrier_edge_mode",
+                str(self.mouthBarrierEdgeModeComboBox.itemData(int(index)) or "gum_line"),
+            )
+        )
+        self.searchBasePlacementButton.clicked.connect(
+            lambda checked=False: self._invoke("search_base_placement")
+        )
         self.cancelManualBaseReviewButton.clicked.connect(
             lambda checked=False: self._invoke("cancel_manual_base_review")
         )
@@ -1677,6 +1754,9 @@ class DENTORobotSimulationPanel:
         )
         self.checkPlanningP3Button.clicked.connect(
             lambda checked=False: self._invoke("check_planning_p3")
+        )
+        self.diagnoseBaseButton.clicked.connect(
+            lambda checked=False: self._invoke("diagnose_base")
         )
         self.resetManualJogDraftButton.clicked.connect(
             lambda checked=False: self._invoke("reset_manual_draft")
@@ -3798,6 +3878,7 @@ class DENTORobotSimulationPanel:
                 getattr(self, "_manualRecordsDialog", None),
                 getattr(self, "_planningToolsDialog", None),
                 getattr(self, "_anatomyReviewDialog", None),
+                getattr(self, "_baseDiagnosisDialog", None),
             ):
                 if dialog is not None:
                     dialog.hide()
@@ -3846,6 +3927,59 @@ class DENTORobotSimulationPanel:
             layout.addWidget(close_button)
             self._setupToolsDialog = dialog
         self._setupToolsDialog.show()
+
+    BASE_DIAGNOSIS_COLORS = {
+        "PASS": "#1e7d32", "WARNING": "#b26a00", "FAIL": "#b3261e", "NOT RUN": "#5f6368",
+    }
+
+    def showBaseDiagnosisDialog(self, summary) -> None:
+        """Non-modal Diagnose This Base table (S6-BASE-DIAGNOSE)."""
+        if self._baseDiagnosisDialog is None:
+            dialog = qt.QDialog(self.approachGroup)
+            dialog.objectName = "DENTOBOTBaseDiagnosisDialog"
+            dialog.windowTitle = "DENTOBOT Diagnose This Base"
+            dialog.setModal(False)
+            layout = qt.QVBoxLayout(dialog)
+            self._baseDiagnosisVerdictLabel = qt.QLabel("", dialog)
+            self._baseDiagnosisVerdictLabel.wordWrap = True
+            layout.addWidget(self._baseDiagnosisVerdictLabel)
+            table = qt.QTableWidget(0, 4, dialog)
+            table.objectName = "DENTOBOTBaseDiagnosisTable"
+            table.setHorizontalHeaderLabels(["Check", "Result", "Cause", "Detail"])
+            table.setMinimumWidth(720)
+            table.setMinimumHeight(220)
+            table.horizontalHeader().setStretchLastSection(True)
+            layout.addWidget(table)
+            self._baseDiagnosisTable = table
+            note = qt.QLabel(
+                "Checks stop at the first failure. Diagnostic only: no route, preview "
+                "or gate change.", dialog
+            )
+            note.wordWrap = True
+            layout.addWidget(note)
+            close_button = qt.QPushButton("Close", dialog)
+            close_button.clicked.connect(dialog.hide)
+            layout.addWidget(close_button)
+            self._baseDiagnosisDialog = dialog
+        status = str(summary.get("status") or "NOT RUN")
+        color = self.BASE_DIAGNOSIS_COLORS.get(status, "#5f6368")
+        self._baseDiagnosisVerdictLabel.text = f"{status} — {summary.get('verdict', '')}"
+        self._baseDiagnosisVerdictLabel.styleSheet = f"font-weight: bold; color: {color};"
+        rows = list(summary.get("rows") or ())
+        table = self._baseDiagnosisTable
+        table.setRowCount(len(rows))
+        for index, row in enumerate(rows):
+            cells = (row.get("title", ""), row.get("status", ""), row.get("cause_title", ""), row.get("detail", ""))
+            for column, value in enumerate(cells):
+                item = qt.QTableWidgetItem(str(value))
+                if column == 1:
+                    item.setForeground(qt.QBrush(qt.QColor(
+                        self.BASE_DIAGNOSIS_COLORS.get(str(value), "#5f6368")
+                    )))
+                table.setItem(index, column, item)
+        table.resizeColumnsToContents()
+        self._baseDiagnosisDialog.show()
+        self._baseDiagnosisDialog.raise_()
 
     def showTaskHomeDetailsDialog(self) -> None:
         if self._activeSubstep != 2:

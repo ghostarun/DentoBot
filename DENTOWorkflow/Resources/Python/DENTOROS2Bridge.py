@@ -7,9 +7,11 @@ joint positions, and requests plans. It never starts, kills, or shells into ROS.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import time
+import types
 from dataclasses import dataclass, replace
 from enum import Enum
 from math import acos, ceil, cos, degrees, floor, isfinite, pi, radians, sin, sqrt
@@ -287,6 +289,15 @@ _task_status_subscriber = None
 _task_status_observer = None
 _last_task_status = None
 _last_task_status_at = 0.0
+# r14/r15 (2026-10-03): the ordinary joint status is republished every few ms
+# with an unchanged accepted vector, so "newest message" always beat the phase
+# guard's acceptances. Track when each source's accepted vector last changed.
+_acceptance_changed_at = {"ordinary": 0.0, "task": 0.0, "manual": 0.0}
+TASK_WAIT_EVENTS_INTERVAL_SEC = 0.1
+_task_wait_stats = {
+    "calls": 0, "wait_sec": 0.0, "spin_sec": 0.0, "events_sec": 0.0,
+    "event_passes": 0, "timeouts": 0,
+}
 _last_task_config_json = ""
 _last_task_phase_validation_warnings: tuple[Mapping[str, object], ...] = ()
 
@@ -911,12 +922,21 @@ def _restore_motion_control_positions(values: Sequence[float]) -> None:
         return
 
 
+def _note_acceptance(source: str, previous, current, now: float, *, always: bool = False) -> None:
+    """Record a new acceptance only when the accepted vector actually changes."""
+    before = tuple(getattr(previous, "accepted_positions", ()) or ()) if previous is not None else None
+    after = tuple(getattr(current, "accepted_positions", ()) or ())
+    if always or before != after:
+        _acceptance_changed_at[source] = now
+
+
 def _on_joint_status_modified(caller=None, event=None) -> None:
     del event
     global _last_joint_status, _last_joint_status_at
     try:
         payload = caller.GetLastMessage() if caller is not None else ""
         parsed = parse_joint_command_status(str(payload or ""))
+        _note_acceptance("ordinary", _last_joint_status, parsed, time.monotonic())
         _last_joint_status = parsed
         _last_joint_status_at = time.monotonic()
         if not parsed.accepted:
@@ -1014,14 +1034,14 @@ def last_accepted_joint_positions_si() -> dict[str, float]:
         and len(_last_task_status.accepted_positions) == len(ROS2_JOINT_SI_ORDER)
     ):
         candidates.append(
-            (_last_task_status_at, tuple(_last_task_status.accepted_positions))
+            (_acceptance_changed_at["task"], tuple(_last_task_status.accepted_positions))
         )
     if (
         _last_joint_status is not None
         and len(_last_joint_status.accepted_positions) == len(ROS2_JOINT_SI_ORDER)
     ):
         candidates.append(
-            (_last_joint_status_at, tuple(_last_joint_status.accepted_positions))
+            (_acceptance_changed_at["ordinary"], tuple(_last_joint_status.accepted_positions))
         )
     if (
         _last_manual_joint_status is not None
@@ -1029,7 +1049,7 @@ def last_accepted_joint_positions_si() -> dict[str, float]:
     ):
         candidates.append(
             (
-                _last_manual_joint_status_at,
+                _acceptance_changed_at["manual"],
                 tuple(_last_manual_joint_status.accepted_positions),
             )
         )
@@ -1200,7 +1220,9 @@ def _on_task_status_modified(caller=None, event=None) -> None:
     global _last_task_status, _last_task_status_at
     try:
         payload = caller.GetLastMessage() if caller is not None else ""
-        _last_task_status = parse_task_joint_status(str(payload or ""))
+        parsed_task = parse_task_joint_status(str(payload or ""))
+        _note_acceptance("task", _last_task_status, parsed_task, time.monotonic())
+        _last_task_status = parsed_task
         _last_task_status_at = time.monotonic()
         if not _last_task_status.accepted and not _last_task_status.validate_only:
             _restore_motion_control_positions(_last_task_status.accepted_positions)
@@ -1259,7 +1281,25 @@ def _ensure_task_publishers() -> tuple[object | None, object | None]:
     return _task_config_publisher, _task_command_publisher
 
 
-def _wait_for_task_command_result(
+def _ui_wait_scope(kind: str, label: str):
+    """Time this UI-thread wait in the UI watchdog log; inert outside Slicer."""
+    try:
+        from dentobot_workflow.ui_stall_watchdog import ui_wait
+    except Exception:
+        return contextlib.nullcontext(types.SimpleNamespace(outcome="ok"))
+    return ui_wait(kind, label)
+
+
+def _wait_for_task_command_result(**kwargs) -> Optional[TaskJointStatus]:
+    """Timed wrapper: records duration/timeouts of every synchronous ROS round trip."""
+    with _ui_wait_scope("task_command_result", str(kwargs.get("phase", ""))) as wait:
+        status = _wait_for_task_command_result_untimed(**kwargs)
+        if status is None:
+            wait.outcome = "timeout"
+        return status
+
+
+def _wait_for_task_command_result_untimed(
     *,
     task_fingerprint: str,
     guard_session_id: str,
@@ -1270,20 +1310,33 @@ def _wait_for_task_command_result(
     validation_kind: str = "",
     timeout_sec: float = 6.0,
 ) -> Optional[TaskJointStatus]:
-    deadline = time.monotonic() + float(timeout_sec)
+    started = time.monotonic()
+    deadline = started + float(timeout_sec)
+    last_events = 0.0
+    _task_wait_stats["calls"] += 1
     while time.monotonic() < deadline:
         ros_logic = get_ros2_logic()
         if ros_logic is not None:
+            spin_started = time.monotonic()
             try:
                 ros_logic.Spin()
             except Exception:
                 pass
-        try:
-            import slicer
+            _task_wait_stats["spin_sec"] += time.monotonic() - spin_started
+        # Operator 2026-10-03 option B: a Qt event pass can repaint the 3D view
+        # (software rendering here); the status arrives through ROS Spin, so
+        # process UI events at most every TASK_WAIT_EVENTS_INTERVAL_SEC.
+        now = time.monotonic()
+        if now - last_events >= TASK_WAIT_EVENTS_INTERVAL_SEC:
+            last_events = now
+            try:
+                import slicer
 
-            slicer.app.processEvents()
-        except Exception:
-            pass
+                slicer.app.processEvents()
+            except Exception:
+                pass
+            _task_wait_stats["events_sec"] += time.monotonic() - now
+            _task_wait_stats["event_passes"] += 1
         status = _last_task_status
         if (
             status is not None
@@ -1295,9 +1348,20 @@ def _wait_for_task_command_result(
             and (not request_id or status.request_id == str(request_id))
             and (not validation_kind or status.validation_kind == str(validation_kind))
         ):
+            _task_wait_stats["wait_sec"] += time.monotonic() - started
             return status
-        time.sleep(0.01)
+        time.sleep(0.002)
+    _task_wait_stats["wait_sec"] += time.monotonic() - started
+    _task_wait_stats["timeouts"] += 1
     return None
+
+
+def task_command_wait_stats(reset: bool = False) -> dict[str, float]:
+    """Cumulative guard round-trip timing (diagnostics; r17 planner profiling)."""
+    stats = dict(_task_wait_stats)
+    if reset:
+        _task_wait_stats.update(dict.fromkeys(_task_wait_stats, 0))
+    return stats
 
 
 def world_ras_mm_to_base_m(point_ras_mm: Sequence[float], base_transform) -> list[float]:
@@ -1331,6 +1395,7 @@ def configure_task_phase_guard(
     collision_scene_policy_fingerprint: str = "",
     static_only: bool = False,
     preflight_start_positions_si: Optional[Mapping[str, float]] = None,
+    allow_spindle_guide_contact: bool = False,
 ) -> Tuple[bool, str]:
     global _last_task_config_json, _native_joint_positions
     if not target_object_id or any(
@@ -1379,6 +1444,8 @@ def configure_task_phase_guard(
         "corridor_radius_m": float(corridor_radius_mm) / 1000.0,
         "approach_standoff_m": float(approach_standoff_mm) / 1000.0,
         "collision_scene_policy_fingerprint": str(collision_scene_policy_fingerprint or ""),
+        # Advanced option, default off: tolerate spindle/guide contact <= 0.5 mm.
+        "allow_spindle_guide_contact": bool(allow_spindle_guide_contact),
     }
     if preflight_positions is not None:
         payload["preflight_start_positions"] = preflight_positions
@@ -2740,6 +2807,7 @@ def apply_manual_joint_positions_si(
         return None, f"Could not mirror the manual-jog state: {exc}", status
     _last_manual_joint_status = status
     _last_manual_joint_status_at = time.monotonic()
+    _note_acceptance("manual", None, status, _last_manual_joint_status_at, always=True)
     _native_joint_positions = list(status.accepted_positions)
     if stream_was_active:
         resume_slicer_joint_command_stream()
@@ -2801,6 +2869,7 @@ def accept_manual_joint_state_reconciliation(
         return False, f"Could not mirror the reconciled native state: {exc}"
     _last_manual_joint_status = status
     _last_manual_joint_status_at = time.monotonic()
+    _note_acceptance("manual", None, status, _last_manual_joint_status_at, always=True)
     _native_joint_positions = list(accepted)
     resume_slicer_joint_command_stream()
     return True, "Native manual-joint state reconciled."
@@ -2855,9 +2924,89 @@ def clear_phase_plan_tcp_path() -> None:
         import slicer
     except ImportError:
         return
-    for node in list(slicer.util.getNodesByClass("vtkMRMLModelNode")):
-        if node.GetAttribute(ROS2_PHASE_PATH_ATTRIBUTE) == "true":
-            slicer.mrmlScene.RemoveNode(node)
+    for class_name in ("vtkMRMLModelNode", "vtkMRMLMarkupsFiducialNode"):
+        for node in list(slicer.util.getNodesByClass(class_name)):
+            if node.GetAttribute(ROS2_PHASE_PATH_ATTRIBUTE) == "true":
+                slicer.mrmlScene.RemoveNode(node)
+
+
+def show_unreachable_drilling_remainder(
+    start_ras_mm: Sequence[float],
+    end_ras_mm: Sequence[float],
+) -> Tuple[bool, str]:
+    """Highlight the drafted drilling segment the shortened plan cannot reach.
+
+    Display-only magenta line from the effective (shortened) target to the
+    original Target, cleared together with the phase paths. No authority.
+    """
+
+    try:
+        import slicer
+        import vtk
+    except ImportError:
+        return False, ROS2_UNAVAILABLE_MESSAGE
+    # Operator 2026-10-02 (S6-TRUNCATION-WARNING): r12 showed a thin magenta line
+    # lost behind the pink mouth barrier. Draw an orange-red tube with an end
+    # sphere and a text label so the not-completed segment is visible.
+    start = tuple(float(v) for v in start_ras_mm)
+    end = tuple(float(v) for v in end_ras_mm)
+    remaining_mm = sum((end[i] - start[i]) ** 2 for i in range(3)) ** 0.5
+    line_source = vtk.vtkLineSource()
+    line_source.SetPoint1(*start)
+    line_source.SetPoint2(*end)
+    tube = vtk.vtkTubeFilter()
+    tube.SetInputConnection(line_source.GetOutputPort())
+    tube.SetRadius(0.35)
+    tube.SetNumberOfSides(16)
+    tube.CappingOn()
+    sphere = vtk.vtkSphereSource()
+    sphere.SetCenter(*end)
+    sphere.SetRadius(0.6)
+    sphere.SetThetaResolution(16)
+    sphere.SetPhiResolution(16)
+    append = vtk.vtkAppendPolyData()
+    append.AddInputConnection(tube.GetOutputPort())
+    append.AddInputConnection(sphere.GetOutputPort())
+    append.Update()
+    polydata = vtk.vtkPolyData()
+    polydata.DeepCopy(append.GetOutput())
+    for existing in list(slicer.util.getNodesByClass("vtkMRMLMarkupsFiducialNode")):
+        if existing.GetAttribute("DENTOBOT.Phase") == "unreachable_remainder_label":
+            slicer.mrmlScene.RemoveNode(existing)
+    label = slicer.mrmlScene.AddNewNodeByClass(
+        "vtkMRMLMarkupsFiducialNode", "[Step 6] Drilling Not Completed"
+    )
+    label.SetAttribute(ROS2_PHASE_PATH_ATTRIBUTE, "true")
+    label.SetAttribute("DENTOBOT.Phase", "unreachable_remainder_label")
+    label.SaveWithSceneOff()
+    label.AddControlPoint(
+        vtk.vtkVector3d(*(0.5 * (start[i] + end[i]) for i in range(3))),
+        f"Not completed: {remaining_mm:.2f} mm (collision)",
+    )
+    label.SetLocked(True)
+    label_display = label.GetDisplayNode()
+    if label_display is not None:
+        label_display.SetSelectedColor(1.0, 0.35, 0.05)
+        label_display.SetColor(1.0, 0.35, 0.05)
+        label_display.SetGlyphScale(1.5)
+        label_display.SetTextScale(3.0)
+    node = slicer.mrmlScene.AddNewNodeByClass(
+        "vtkMRMLModelNode", "[Step 6] Unreachable Drilling Remainder"
+    )
+    node.SetAttribute(ROS2_PHASE_PATH_ATTRIBUTE, "true")
+    node.SetAttribute("DENTOBOT.Phase", "unreachable_remainder")
+    node.SaveWithSceneOff()
+    node.SetAndObservePolyData(polydata)
+    node.CreateDefaultDisplayNodes()
+    display = node.GetDisplayNode()
+    if display is not None:
+        display.SetVisibility(True)
+        display.SetColor(1.0, 0.35, 0.05)
+        display.SetOpacity(1.0)
+    return True, (
+        f"Highlighted the {remaining_mm:.2f} mm drilling remainder not completed "
+        "because of collision/invalid states."
+    )
 
 
 def show_phase_plan_tcp_path(
@@ -6886,6 +7035,7 @@ def shutdown_slicer_adapter() -> None:
     _task_status_observer = None
     _last_task_status = None
     _last_task_status_at = 0.0
+    _acceptance_changed_at.update(ordinary=0.0, task=0.0, manual=0.0)
     _last_task_config_json = ""
     _native_goal_transform = None
     _native_tcp_drag_enabled = False

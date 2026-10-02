@@ -317,6 +317,8 @@ struct TaskGuardConfig
   std::string allowed_robot_link;
   std::vector<std::string> clearance_exempt_object_ids;
   std::vector<std::string> simulation_guide_clearance_object_ids;
+  // Per-task opt-in (GUI advanced option) for the 0.5 mm spindle/guide tolerance.
+  bool allow_spindle_guide_contact{ false };
   std::string tool_tip_frame;
   Eigen::Vector3d entry_base_m{ Eigen::Vector3d::Zero() };
   Eigen::Vector3d target_base_m{ Eigen::Vector3d::Zero() };
@@ -422,6 +424,12 @@ public:
       "maximum_prismatic_step_m", 0.0005);
     maximum_interpolation_samples_ = declare_parameter<int>(
       "maximum_interpolation_samples", 1000);
+    // Optional legacy tolerance: accept spindle-housing contact with a configured
+    // guide up to SIMULATION_GUIDE_CONTACT_MAX_PENETRATION_M (0.5 mm) as a
+    // warning. Disabled by default (operator policy 2026-10-02): the spindle may
+    // not touch the template, and drilling is truncated before such contact.
+    allow_spindle_guide_contact_ = declare_parameter<bool>(
+      "allow_spindle_guide_contact", false);
 
     if (group_name_.empty() || raw_command_topic_.empty() ||
         accepted_command_topic_.empty() || status_topic_.empty() ||
@@ -660,6 +668,12 @@ private:
           document, "simulation_guide_clearance_object_ids",
           config.simulation_guide_clearance_object_ids))
       return malformed("simulation_guide_clearance_object_ids");
+    if (document.isMember("allow_spindle_guide_contact"))
+    {
+      if (!document["allow_spindle_guide_contact"].isBool())
+        return malformed("allow_spindle_guide_contact");
+      config.allow_spindle_guide_contact = document["allow_spindle_guide_contact"].asBool();
+    }
     if (!json_string_field(document, "tool_tip_frame", config.tool_tip_frame))
       return malformed("tool_tip_frame");
     if (!json_number_array_field(document, "entry_base_m", entry) || entry.size() != 3)
@@ -1252,7 +1266,13 @@ private:
           const bool burr_target = is_burr_target_pair(first, second);
           const auto housing_pair = housing_guide_pair(first, second);
           const bool housing_guide = !housing_pair.first.empty();
-          if (!burr_target && !housing_guide)
+          // Operator policy 2026-10-02: by default the spindle housing may not
+          // touch the template/guide (non-approved collision; the planner then
+          // truncates drilling at the last collision-free state). The 0.5 mm
+          // tolerance applies only when allow_spindle_guide_contact is true.
+          const bool spindle_guide_tolerated =
+            allow_spindle_guide_contact_ || task_config->allow_spindle_guide_contact;
+          if (!burr_target && !(housing_guide && spindle_guide_tolerated))
           {
             result.reason =
               "MoveIt detected a non-approved collision at interpolated sample " +
@@ -2036,6 +2056,7 @@ private:
   double minimum_clearance_m_{ 0.001 };
   double maximum_revolute_step_rad_{ 0.017453292519943295 };
   double maximum_prismatic_step_m_{ 0.0005 };
+  bool allow_spindle_guide_contact_{ false };
   int maximum_interpolation_samples_{ 1000 };
 
   planning_scene_monitor::PlanningSceneMonitorPtr planning_scene_monitor_;

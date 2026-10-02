@@ -84,6 +84,11 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/logic_step6_condyle_extraction.py
   Resources/Python/dentobot_workflow/offline_placement_status.py
   Resources/Python/dentobot_workflow/ui_scroll_support.py
+  Resources/Python/dentobot_workflow/base_placement_search.py
+  Resources/Python/dentobot_workflow/mouth_portal.py
+  Resources/Python/dentobot_workflow/path_clearance.py
+  Resources/Python/dentobot_workflow/reach_envelope.py
+  Resources/Python/dentobot_workflow/base_diagnosis.py
   Resources/Python/dentobot_workflow/virtual_forehead_mount.py
   Resources/Python/dentobot_workflow/virtual_open_mouth_articulator.py
   Resources/Python/dentobot_workflow/logic_step6_scene.py

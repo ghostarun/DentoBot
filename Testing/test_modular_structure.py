@@ -173,4 +173,9 @@ def test_domain_modules_add_no_process_or_network_boundary():
         # The approved disposable offline projector is the sole new process
         # boundary; other workflow modules still cannot add one.
         allowed_roots = {"subprocess"} if source.name == "case_projection.py" else set()
+        # Operator 2026-10-03 (watchdog fixes): the UI stall watchdog's daemon
+        # thread only reads /proc and writes one locked log line while a stall
+        # is ongoing; it never touches Python frames, Qt or MRML.
+        if source.name == "ui_stall_watchdog.py":
+            allowed_roots = {"threading"}
         assert imported_roots.isdisjoint(forbidden_roots - allowed_roots), source

@@ -1749,14 +1749,18 @@ def test_workspace_runtime_validity_requires_current_roi_source_and_trajectory()
     assert not facade.workspaceRuntimeValidated(parameter_node)
 
 
-def test_approach_planning_requires_reviewed_workspace_limits_before_guard_or_planner():
+def test_approach_planning_needs_stroke_reach_not_workspace_before_guard_or_planner():
+    # Operator 2026-10-02: the 6.3 workspace and limit review are optional; the
+    # prerequisite is that the accepted Base reaches the whole drilling stroke.
     facade, parameter_node, logic, bridge = make_facade()
     parameter_node.robotBaseTransform.active = True
     parameter_node.step6MotionDiagnosticJson = ""
     logic.confirmedTaskFreshnessIssues = lambda _node: ()
     logic.assistedTaskLimitsReviewed = lambda _node: False
+    logic.step6CurrentBaseStrokeReachability = lambda _node: {
+        "reachable": False, "first_failed_station": "pre_entry"}
     facade.taskHomeRuntimeValidated = lambda _node=None: True
-    facade.workspaceRuntimeValidated = lambda _node=None: True
+    facade.workspaceRuntimeValidated = lambda _node=None: False
     calls = []
     facade._prepare_phase_guard = lambda *_args, **_kwargs: calls.append("guard")
     facade._goal1_pre_entry_ik_candidates = lambda *_args, **_kwargs: calls.append(
@@ -1766,9 +1770,23 @@ def test_approach_planning_requires_reviewed_workspace_limits_before_guard_or_pl
     result = facade.planApproachPhase()
 
     assert not result.success and result.code == "approach_plan_failed"
-    assert "Review the assisted workspace limits" in result.message
+    assert "cannot reach the whole PreEntry-to-Target" in result.message
+    assert "pre_entry" in result.message and "Find Reachable Base" in result.message
+    assert "workspace" not in result.message.lower()
     assert calls == []
     assert bridge.phase_calls == []
+
+
+def test_reach_envelope_sentence_names_stations_inside_and_outside():
+    from DENTORobotWorkflowFacade import DENTORobotWorkflowFacade as Facade
+
+    sentence = Facade._reach_envelope_sentence({"stations_inside": {
+        "PreEntry": {"inside": True, "nearest_sample_mm": 3.0},
+        "Target": {"inside": False, "nearest_sample_mm": 14.2},
+    }})
+    assert "PreEntry inside" in sentence
+    assert "Target outside (14.2 mm from the nearest sample)" in sentence
+    assert Facade._reach_envelope_sentence({}) == ""
 
 
 def _provisional_workspace_confirmation_fixture():
@@ -2776,6 +2794,10 @@ def test_step6_p1_p2_p3_use_exact_predecessor_endpoint_without_motion_authority(
 
     bridge.plan_moveit_joint_goal = plan_joint_goal
     bridge.plan_moveit_cartesian_path = plan_cartesian
+    # Corridor composition has its own test; keep this one on the direct P1 call.
+    facade._plan_home_to_preentry_with_corridor = (
+        lambda _node, home_state, goal_state, **_kwargs: plan_joint_goal(
+            start_joint_positions_si=home_state, goal_joint_positions_si=goal_state))
 
     results = [facade.checkPlanningStage(phase) for phase in ("P1", "P2", "P3")]
 
@@ -6441,3 +6463,497 @@ def test_workspace_motion_identity_fails_closed_when_unavailable():
         assert "identity is unavailable" in str(error)
     else:
         raise AssertionError("missing motion-control identity must fail closed")
+
+
+def test_manual_base_verification_failure_names_failed_checks():
+    facade, parameter_node, logic, _bridge = make_facade()
+    candidate = _manual_base_test_matrix(12.9)
+    assert facade.stageManualBaseReview(candidate).success
+
+    def lock_without_reviewed_authority(node, locked):
+        node.robotBaseMountLocked = bool(locked)  # authority intentionally left unreviewed
+
+    logic.setRobotBaseMountLocked = lock_without_reviewed_authority
+    result = facade.acceptManualBaseReview()
+
+    assert not result.success and result.code == "manual_base_acceptance_unknown"
+    assert "failed checks: authority_mismatch" in result.message
+    evidence = facade.manualBaseReview().details["failureEvidence"]["verificationEvidence"]
+    assert evidence["failedChecks"] == ["authority_mismatch"]
+    assert evidence["baseLocked"] is True
+    assert evidence["maxMatrixDelta"] <= 1.0e-9
+    assert evidence["baseNodeReplaced"] is False
+
+
+def test_straight_joint_path_check_samples_until_first_invalid_state():
+    facade, _parameter, _logic, bridge = make_facade()
+    start = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    goal = dict(start)
+    goal["link-5_Revolute-5"] = 0.2
+    seen = []
+
+    def validity(sample):
+        seen.append(sample["link-5_Revolute-5"])
+        return (sample["link-5_Revolute-5"] < 0.1, "collision: spindle", True)
+
+    bridge.check_moveit_static_joint_state = validity
+    result = facade.checkStraightJointPath(start, goal)
+    assert not result.success and result.code == "straight_path_blocked"
+    assert 0.49 < result.details["first_invalid_fraction"] < 0.56
+    assert result.details["route_authority"] == "none"
+    bridge.check_moveit_static_joint_state = lambda sample: (True, "valid", True)
+    clear = facade.checkStraightJointPath(start, goal)
+    assert clear.success and clear.details["samples_checked"] == 11
+    bridge.check_moveit_static_joint_state = lambda sample: (True, "", False)
+    assert facade.checkStraightJointPath(start, goal).code == "straight_path_unknown"
+
+
+def test_straight_joint_path_uses_shortest_angle_for_continuous_j5():
+    facade, _parameter, _logic, bridge = make_facade()
+    start = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    start["link-5_Revolute-5"] = 3.1
+    goal = dict(start)
+    goal["link-5_Revolute-5"] = -3.1
+    bridge.check_moveit_static_joint_state = lambda sample: (True, "valid", True)
+    result = facade.checkStraightJointPath(start, goal)
+    assert result.success
+    assert abs(result.details["joint_deltas"]["link-5_Revolute-5"]) < 0.1
+
+
+def test_static_contact_filter_allows_only_burr_target_and_rejects_truncated_lists():
+    allowed = (("burr", "dentobot_target_tooth_11"),)
+    check = DENTORobotWorkflowFacade._allowed_only_static_contacts
+    ok = "MoveIt rejected the explicit static joint state; contacts=dentobot_target_tooth_11<->burr"
+    assert check(ok, allowed) == [["dentobot_target_tooth_11", "burr"]]
+    spindle = ok + ", pneumatic_spindle-Copy<->dentobot_target_tooth_11"
+    assert check(spindle, allowed) is None
+    template = "MoveIt rejected ...; contacts=[Step 5C] DENTO Final Printable Template<->burr"
+    assert check(template, allowed) is None
+    truncated = ok + ", burr<->dentobot_target_tooth_11 (and 3 more)"
+    assert check(truncated, allowed) is None
+    assert check(ok, ()) is None
+    assert check("MoveIt rejected the explicit static joint state", allowed) is None
+
+
+def test_endpoint_evaluation_continues_to_fk_on_allowed_contact_only():
+    facade, parameter_node, _logic, bridge = make_facade()
+    message = "MoveIt rejected the explicit static joint state; contacts=burr<->dentobot_target_tooth_11"
+    bridge.check_moveit_static_joint_state = lambda _positions: (False, message, True)
+    reached = []
+    bridge.compute_tcp_pose_world_ras_mm = lambda positions, base_transform=None: (
+        reached.append(True) or (False, "fk unavailable in fake", None))
+    positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+    allowed = facade._evaluate_step6_tcp_endpoint(
+        parameter_node, positions, expected_tcp_world_ras_mm=(0.0, 0.0, 0.0),
+        expected_drill_axis_world_ras_unit=(0.0, 0.0, 1.0),
+        allowed_contact_pairs=(("burr", "dentobot_target_tooth_11"),),
+    )
+    assert reached == [True]
+    assert allowed["static_state_validity"]["status"] == "allowed_contact"
+    assert allowed["collision"] == {"status": "allowed_contact",
+                                    "pairs": [["burr", "dentobot_target_tooth_11"]]}
+    strict = facade._evaluate_step6_tcp_endpoint(
+        parameter_node, positions, expected_tcp_world_ras_mm=(0.0, 0.0, 0.0),
+        expected_drill_axis_world_ras_unit=(0.0, 0.0, 1.0),
+    )
+    assert strict["status"] == "failed" and strict["static_state_validity"]["status"] == "failed"
+    assert reached == [True]  # strict path never reached FK
+
+
+def _truncation_fixture():
+    facade, parameter_node, logic, bridge = make_facade()
+    entry = (0.0, 0.0, 0.0)
+    target = (0.0, 0.0, 10.0)
+    drilling = tuple({name: float(index) for name in ROS2_JOINT_SI_ORDER} for index in range(6))
+    from DENTOROS2Bridge import MoveItCartesianResult
+
+    plan = MoveItCartesianResult(
+        True, "full line", fraction=1.0, waypoint_joint_vectors_si=drilling,
+        waypoint_times_sec=tuple(float(i) for i in range(6)),
+    )
+    # TCP depth equals the waypoint index * 2 mm along +z.
+    bridge.compute_tcp_position_world_ras_mm = lambda state, base_transform=None: (
+        True, "ok", (0.0, 0.0, 2.0 * state["link-1_Revolute-1"]))
+    snapshot = SimpleNamespace(snapshot_fingerprint="task-1", entry_ras_mm=entry, target_ras_mm=target)
+    facade.guard_rearms = []
+    facade._configure_phase_guard = lambda node, snap: (facade.guard_rearms.append(snap) or (True, "configured"))
+    return facade, parameter_node, logic, bridge, plan, snapshot, entry, target
+
+
+def test_spindle_collision_truncates_drilling_to_last_collision_free_waypoint():
+    facade, parameter_node, _logic, _bridge, plan, snapshot, entry, target = _truncation_fixture()
+    validated = []
+
+    def validate(waypoints, phases, task_fingerprint=None):
+        validated.append((len(waypoints), phases[-1]))
+        return True, "accepted", -1
+
+    prefix = ({name: 0.0 for name in ROS2_JOINT_SI_ORDER},) * 3
+    shortened, truncation = facade._truncate_drilling_for_spindle_collision(
+        parameter_node, snapshot, prefix, ("approach",) * 3, plan, 3, 3 + 4,
+        ("pneumatic_spindle-Copy", "[Step 5C] DENTO Final Printable Template"),
+        validate_chain=validate, entry=entry, target=target,
+    )
+    assert shortened.success is True
+    assert len(shortened.waypoint_joint_vectors_si) == 4
+    assert validated == [(7, "drilling")]
+    assert facade.guard_rearms == [snapshot]  # fresh guard session (r8 stale-sequence rejection)
+    assert truncation["completed_depth_mm"] == 6.0
+    assert truncation["remaining_depth_mm"] == 4.0
+    assert truncation["effective_target_ras_mm"] == [0.0, 0.0, 6.0]
+    assert truncation["unreachable_segment_ras_mm"] == [[0.0, 0.0, 6.0], [0.0, 0.0, 10.0]]
+    assert abs(shortened.fraction - 0.6) < 1e-12
+
+
+def test_truncation_only_for_spindle_housing_and_requires_guard_acceptance():
+    facade, parameter_node, _logic, _bridge, plan, snapshot, entry, target = _truncation_fixture()
+    accept = lambda w, p, task_fingerprint=None: (True, "ok", -1)
+    none, reason = facade._truncate_drilling_for_spindle_collision(
+        parameter_node, snapshot, (), (), plan, 0, 4, ("burr", "template"),
+        validate_chain=accept, entry=entry, target=target)
+    assert none is None and "spindle-housing/template" in reason
+    none, reason = facade._truncate_drilling_for_spindle_collision(
+        parameter_node, snapshot, (), (), plan, 0, 4, ("pneumatic_spindle-Copy", "dentobot_target_tooth_11"),
+        validate_chain=accept, entry=entry, target=target)
+    assert none is None  # spindle-to-tooth is a failure, never truncated
+    none, reason = facade._truncate_drilling_for_spindle_collision(
+        parameter_node, snapshot, (), (), plan, 0, 1, ("pneumatic_spindle-Copy", "[Step 5C] DENTO Final Printable Template"),
+        validate_chain=accept, entry=entry, target=target)
+    assert none is None and "No spindle-collision-free" in reason
+    reject = lambda w, p, task_fingerprint=None: (False, "still colliding", 2)
+    none, reason = facade._truncate_drilling_for_spindle_collision(
+        parameter_node, snapshot, (), (), plan, 0, 4, ("pneumatic_spindle-Copy", "[Step 5C] DENTO Final Printable Template"),
+        validate_chain=reject, entry=entry, target=target)
+    assert none is None and "still rejected" in reason
+
+
+def test_preview_endpoint_uses_effective_target_for_shortened_drilling_plan():
+    facade, parameter_node, logic, bridge = make_facade()
+    last = {name: 0.5 for name in ROS2_JOINT_SI_ORDER}
+    snapshot = SimpleNamespace(snapshot_fingerprint="task-1", entry_ras_mm=(0.0, 0.0, 0.0),
+                               target_ras_mm=(0.0, 0.0, 10.0))
+    logic.confirmedTaskRecord = lambda _parameter: snapshot
+    bridge.wait_for_monitored_joint_positions_si = lambda expected: (True, "ok", expected, 0.0)
+    bridge.compute_tcp_position_world_ras_mm = lambda state, base_transform=None: (True, "ok", (0.0, 0.0, 6.0))
+    plan = SimpleNamespace(requested_phase="drilling", waypoint_joint_vectors_si=(last,))
+    assert facade._verify_preview_endpoint(plan).code == "preview_endpoint_tcp_mismatch"
+    facade._drilling_truncation = {"task_fingerprint": "task-1", "last_joint_positions_si": dict(last),
+                                   "effective_target_ras_mm": [0.0, 0.0, 6.0]}
+    assert facade._verify_preview_endpoint(plan).code == "preview_endpoint_verified"
+    facade._drilling_truncation["task_fingerprint"] = "other-task"
+    assert facade._verify_preview_endpoint(plan).code == "preview_endpoint_tcp_mismatch"
+
+
+def test_p3_stage_truncation_reguards_and_reevaluates_effective_endpoint():
+    facade, parameter_node, logic, bridge = make_facade()
+    path = tuple({name: float(index) for name in ROS2_JOINT_SI_ORDER} for index in range(5))
+    p1 = ({name: 0.0 for name in ROS2_JOINT_SI_ORDER},) * 2
+    p2 = ({name: 0.0 for name in ROS2_JOINT_SI_ORDER},) * 2
+    bridge.compute_tcp_position_world_ras_mm = lambda state, base_transform=None: (
+        True, "ok", (0.0, 0.0, 2.0 * state["link-1_Revolute-1"]))
+    logic.confirmedTaskRecord = lambda _parameter: SimpleNamespace(snapshot_fingerprint="task-1")
+    guards = []
+    facade._step6_stage_guard_evidence = lambda context, paths: (
+        guards.append(len(paths["P3"])) or {"status": "passed"})
+    facade._evaluate_step6_tcp_endpoint = lambda *a, **k: {"status": "passed"}
+    context = {"parameter_node": parameter_node, "entry": (0.0, 0.0, 0.0),
+               "target": (0.0, 0.0, 8.0), "drill_axis": (0.0, 0.0, 1.0)}
+    failed = {"status": "failed", "named_pair": ["pneumatic_spindle-Copy", "[Step 5C] DENTO Final Printable Template"],
+              "first_invalid_index": 4 + 3}
+    result = facade._truncate_p3_stage_for_spindle_collision(
+        context, {"P1": p1, "P2": p2, "P3": path}, path, failed)
+    shortened, _paths, guard, endpoint, truncation = result
+    assert len(shortened) == 3 and guards == [3]
+    assert truncation["completed_depth_mm"] == 4.0 and truncation["remaining_depth_mm"] == 4.0
+    assert facade._truncate_p3_stage_for_spindle_collision(
+        context, {"P1": p1, "P2": p2, "P3": path}, path,
+        {"status": "failed", "named_pair": ["burr", "template"], "first_invalid_index": 7}) is None
+
+
+def test_mouth_portal_gate_maps_joint_path_to_tcp_path_and_fails_closed():
+    facade, parameter_node, logic, bridge = make_facade()
+    path = ({name: 0.0 for name in ROS2_JOINT_SI_ORDER}, {name: 1.0 for name in ROS2_JOINT_SI_ORDER})
+    bridge.compute_tcp_position_world_ras_mm = lambda state, base_transform=None: (
+        True, "ok", (0.0, 50.0 - 60.0 * state["link-1_Revolute-1"], 0.0))
+    assert facade._step6_mouth_portal_gate(parameter_node, path) is None  # no portal support in fake
+    seen = []
+    logic.checkStep6MouthPortalGate = lambda _node, tcp: seen.append(tcp) or {"status": "passed"}
+    assert facade._step6_mouth_portal_gate(parameter_node, path)["status"] == "passed"
+    assert seen == [[(0.0, 50.0, 0.0), (0.0, -10.0, 0.0)]]
+
+    def unavailable(_node, _tcp):
+        raise ValueError("Mouth portal vertex 13 has no canine")
+
+    logic.checkStep6MouthPortalGate = unavailable
+    result = facade._step6_mouth_portal_gate(parameter_node, path)
+    assert result["status"] == "failed" and result["reason"] == "portal_unavailable"
+
+
+def test_mouth_portal_gate_reports_without_blocking_until_enforced():
+    facade, _parameter, _logic, _bridge = make_facade()
+    failed = {"status": "failed", "reason": "preentry_not_inside"}
+    assert facade.MOUTH_PORTAL_GATE_MODE == "enforce"
+    assert facade._mouth_portal_blocks(None) is False
+    facade.MOUTH_PORTAL_GATE_MODE = "report"
+    assert facade._mouth_portal_blocks(failed) is False
+    facade.MOUTH_PORTAL_GATE_MODE = "enforce"
+    assert facade._mouth_portal_blocks(failed) is True
+    assert facade._mouth_portal_blocks({"status": "passed"}) is False
+    assert facade._mouth_portal_blocks({"status": "skipped", "reason": "mouth_barrier_off"}) is False
+
+
+def test_approach_corridor_composes_free_space_then_straight_descent_and_falls_back():
+    from DENTOROS2Bridge import MoveItCartesianResult
+
+    facade, parameter_node, _logic, bridge = make_facade()
+    parameter_node.robotMotionPlanSampleCount = 5
+    q = lambda v: {name: float(v) for name in ROS2_JOINT_SI_ORDER}
+    calls = []
+
+    def cartesian(**kwargs):
+        calls.append(("cartesian", kwargs["entry_ras_mm"], kwargs["target_ras_mm"]))
+        return MoveItCartesianResult(True, "line", 1.0, (q(5), q(6), q(7)), (0.0, 0.1, 0.2))
+
+    def joint(**kwargs):
+        calls.append(("joint", kwargs["goal_joint_positions_si"]["link-1_Revolute-1"]))
+        return MoveItCartesianResult(True, "free", 1.0, (q(0), q(3), q(7)), (0.0, 1.0, 2.0))
+
+    bridge.plan_moveit_cartesian_path = cartesian
+    bridge.plan_moveit_joint_goal = joint
+    plan = facade._plan_home_to_preentry_with_corridor(
+        parameter_node, q(0), q(5), pre_entry=(0.0, 0.0, -2.0), entry=(0.0, 0.0, 0.0),
+        target=(0.0, 0.0, 10.0), fixed_rotation_ras=None, roll_deg=0.0, planner_context="t")
+    assert calls[0] == ("cartesian", (0.0, 0.0, -2.0), (0.0, 0.0, -14.0))
+    assert calls[1] == ("joint", 7.0)  # free-space goal is the approach point
+    assert [p["link-1_Revolute-1"] for p in plan.waypoint_joint_vectors_si] == [0, 3, 7, 6, 5]
+    assert plan.waypoint_joint_vectors_si[-1] == q(5) and "Approach corridor" in plan.message
+    bridge.plan_moveit_cartesian_path = lambda **k: MoveItCartesianResult(False, "blocked")
+    fallback = facade._plan_home_to_preentry_with_corridor(
+        parameter_node, q(0), q(5), pre_entry=(0.0, 0.0, -2.0), entry=(0.0, 0.0, 0.0),
+        target=(0.0, 0.0, 10.0), fixed_rotation_ras=None, roll_deg=0.0, planner_context="t")
+    assert "corridor unavailable" in fallback.message
+
+
+def test_spindle_guide_contact_option_reaches_guard_and_policy_fingerprint_only_when_on():
+    import DENTOROS2Bridge as real_bridge
+
+    facade, parameter_node, _logic, bridge = make_facade()
+    for name in ("ROS2_RESEARCH_MINIMUM_CLEARANCE_M", "ROS2_JOINT_SI_ORDER",
+                 "ROS2_PLANNING_GROUP", "ROS2_TOOL_TCP_LINK"):
+        setattr(bridge, name, getattr(real_bridge, name))
+    default_fingerprint = facade._strict_guard_policy_fingerprint()
+    assert facade._spindle_guide_contact_allowed() is False
+    parameter_node.step6AllowSpindleGuideContact = True
+    assert facade._spindle_guide_contact_allowed() is True
+    assert facade._strict_guard_policy_fingerprint() != default_fingerprint
+    parameter_node.step6AllowSpindleGuideContact = False
+    assert facade._strict_guard_policy_fingerprint() == default_fingerprint
+
+
+def test_final_composed_chain_applies_spindle_template_truncation_in_drilling():
+    # r7 2026-10-02: the final Stage 1 + axis + Stage 2 + drilling guard check
+    # blocked on spindle-housing <-> template at the last drilling waypoint while
+    # the chain preflight (without the axis segment) passed. Policy 2b applies there too.
+    source = (HELPERS / "DENTORobotWorkflowFacade.py").read_text()
+    start = source.index("drilling_offset = len(preflight_waypoints) - len(")
+    block = source[start:source.index("First invalid composed waypoint", start)]
+    assert "self._truncate_drilling_for_spindle_collision(" in block
+    assert "int(invalid_index) >= drilling_offset" in block
+    assert '"drillingTruncation": truncation_or_reason' in block
+    assert "Truncation not applied" in block
+
+
+def test_mouth_gate_rejected_candidate_returns_empty_plans_not_none():
+    # r10 2026-10-02: Plan Approach crashed reading chain["axisPlan"].fraction
+    # for a candidate rejected by the mouth portal gate.
+    from types import SimpleNamespace as NS
+
+    facade, parameter_node, _logic, _bridge = make_facade()
+    facade._step6_mouth_portal_gate = lambda *_a, **_k: {"status": "failed", "reason": "crossing_outside_portal"}
+    chain = facade._goal1_candidate_chain_preflight(
+        parameter_node, NS(snapshot_fingerprint="t"), {"score": (0,), "rollDeg": 0.0},
+        NS(waypoint_joint_vectors_si=()), pre_entry=(0, 0, 0), entry=(0, 0, 1), target=(0, 0, 2),
+    )
+    assert chain["status"] == "BlockedMouthPortalGate"
+    assert chain["axisPlan"].fraction == 0.0 and chain["terminalPlan"].waypoint_joint_vectors_si == ()
+    assert chain["drillingPlan"] is None
+
+
+# --- S6-BASE-DIAGNOSE / S6-TRUNCATION-WARNING (operator 2026-10-02) ---------------
+
+
+def _diagnose_fixture(*, reachable=True, preentry="EndpointChecksPassed", stages=None):
+    facade, parameter_node, logic, _bridge = make_facade()
+    calls = []
+    facade._require_context = lambda: parameter_node
+    logic.step6CurrentBaseStrokeReachability = lambda node: (
+        calls.append("stroke") or {"reachable": reachable, "first_failed_station": "PreEntry"}
+    )
+
+    def preentry_ik(progress=None):
+        calls.append("preentry")
+        return SimpleNamespace(success=True, message="m", details={"diagnosticStatus": preentry}, payload=None)
+
+    def stage(phase_id, progress=None):
+        calls.append(phase_id)
+        outcome = (stages or {}).get(phase_id, {"diagnostic_status": "passed", "reason": "ok", "endpoint_evidence": {}})
+        return SimpleNamespace(success=True, message="m", details={"stageOutcome": outcome}, payload=outcome)
+
+    facade.checkPreEntryIK = preentry_ik
+    facade.checkPlanningStage = stage
+    return facade, calls
+
+
+def test_diagnose_base_stops_at_base_placement():
+    facade, calls = _diagnose_fixture(reachable=False)
+    result = facade.diagnoseBase()
+    summary = result.details["baseDiagnosis"]
+    assert calls == ["stroke"]
+    assert not result.success and summary["cause"] == "base_placement"
+    assert "Find Reachable Base" in result.message
+
+
+def test_diagnose_base_runs_all_checks_in_order_and_reports_truncation_warning():
+    truncation = {
+        "completed_depth_mm": 4.0, "requested_depth_mm": 9.741, "remaining_depth_mm": 5.741,
+        "blocking_pair": ["[Step 5C] DENTO Final Printable Template", "pneumatic_spindle-Copy"],
+    }
+    p3 = {"diagnostic_status": "passed", "reason": "ok",
+          "endpoint_evidence": {"plan": {"drilling_truncation": truncation}}}
+    facade, calls = _diagnose_fixture(stages={"P3": p3})
+    result = facade.diagnoseBase()
+    assert calls == ["stroke", "preentry", "P1", "P2", "P3"]
+    assert result.success and result.details["baseDiagnosis"]["status"] == "WARNING"
+    assert "4.00 of 9.74 mm" in result.message
+
+
+def test_diagnose_base_names_p2_collision_and_skips_p3():
+    p2 = {"diagnostic_status": "failed", "reason": "guard rejected",
+          "endpoint_evidence": {"phase_guard": {"named_pair": ["pneumatic_spindle-Copy", "upper lip"]}}}
+    facade, calls = _diagnose_fixture(stages={"P2": p2})
+    result = facade.diagnoseBase()
+    assert calls == ["stroke", "preentry", "P1", "P2"]
+    assert result.details["baseDiagnosis"]["cause"] == "entry_collision"
+    assert "pneumatic_spindle-Copy ↔ upper lip" in result.message
+
+
+def test_diagnose_base_exception_marks_the_pending_check_failed():
+    facade, calls = _diagnose_fixture()
+
+    def broken(phase_id, progress=None):
+        raise RuntimeError("scene unavailable")
+
+    facade.checkPlanningStage = broken
+    result = facade.diagnoseBase()
+    rows = result.details["baseDiagnosis"]["rows"]
+    assert [row["status"] for row in rows] == ["PASS", "PASS", "FAIL", "NOT RUN", "NOT RUN"]
+    assert "scene unavailable" in rows[2]["detail"]
+
+
+def test_truncation_warning_text_names_depths_pair_and_remainder():
+    import DENTORobotWorkflowFacade as module
+
+    text = module._drilling_truncation_warning({
+        "completed_depth_mm": 4.0, "requested_depth_mm": 9.741, "remaining_depth_mm": 5.741,
+        "blocking_pair": ["template", "pneumatic_spindle-Copy"],
+    })
+    assert text.startswith("WARNING: drilling shortened")
+    assert "4.00 of 9.74 mm" in text and "5.74 mm" in text and "not completed" in text
+    assert "template ↔ pneumatic_spindle-Copy" in text
+
+
+def test_plan_and_drill_results_carry_truncation_for_warning_state():
+    source = (HELPERS / "DENTORobotWorkflowFacade.py").read_text()
+    assert source.count('"drillingTruncation": self._drilling_truncation') >= 2
+    manual = (HELPERS / "dentobot_workflow" / "widget_robot_manual.py").read_text()
+    assert '"warning" if warning else "ok" if result.success else "error"' in manual
+
+
+def test_dev_fast_mode_is_off_by_default_and_stamps_unevaluated_candidates(monkeypatch):
+    import DENTORobotWorkflowFacade as module
+
+    monkeypatch.delenv("DENTOBOT_STEP6_DEV_FIRST_COMPLETE_ROUTE", raising=False)
+    facade, *_ = make_facade()
+    assert facade._dev_first_complete_route is False
+    assert module._dev_fast_mode_stamp({"mode": "all", "total": 11, "evaluated": 11}) == ""
+    stamp = module._dev_fast_mode_stamp({"mode": "dev_first_complete", "total": 11, "evaluated": 2, "notEvaluated": 9})
+    assert stamp.startswith("DEVELOPMENT FAST MODE: 9 of 11 candidates not evaluated")
+    assert "not for acceptance or case comparison" in stamp
+    monkeypatch.setenv("DENTOBOT_STEP6_DEV_FIRST_COMPLETE_ROUTE", "1")
+    assert make_facade()[0]._dev_first_complete_route is True
+
+
+def test_dev_fast_mode_breaks_only_on_complete_chain_and_records_evaluation():
+    source = (HELPERS / "DENTORobotWorkflowFacade.py").read_text()
+    block = source[source.index("planned_candidate_routes.append(route)"):]
+    block = block[:block.index('if chain["status"] != "Complete":')]
+    assert 'if self._dev_first_complete_route and chain["status"] == "Complete":' in block
+    assert "notEvaluated=candidate_total - candidate_index - 1" in block and "break" in block
+    assert '"candidateEvaluation": dict(self._candidate_evaluation)' in source
+    assert "_dev_fast_mode_stamp(self._candidate_evaluation)" in source
+
+
+def test_planned_route_outcome_carries_input_identity_fields():
+    facade, *_ = make_facade()
+    facade.plannerComparisonIdentity = lambda: {
+        "task": "t", "base": "b", "home": "h", "trajectory": "tr",
+        "robot_profile": "rp", "collision_audit": "ca", "branch_id": "br",
+    }
+    fields = facade._goal1_identity_fields()
+    assert fields == {
+        "task_identity_fingerprint": "t", "base_identity_fingerprint": "b",
+        "home_identity_fingerprint": "h", "trajectory_identity_fingerprint": "tr",
+        "robot_profile_identity_fingerprint": "rp", "collision_scene_identity_fingerprint": "ca",
+        "branch_id": "br",
+    }
+    source = (HELPERS / "DENTORobotWorkflowFacade.py").read_text()
+    block = source[source.index("def _persist_goal1_diagnostic("):]
+    assert "**self._goal1_identity_fields()," in block[:block.index("\n    def ", 10)]
+
+
+def test_complete_chains_rank_by_drilled_depth_before_arm_motion():
+    """Operator 2026-10-03, r16 data: 4.25 mm (motion 0.1913) must beat 4.00 mm (0.1878)."""
+    from DENTORobotWorkflowFacade import DENTORobotWorkflowFacade as F
+
+    entry, target = (0.0, 0.0, 0.0), (0.0, 0.0, 9.741)
+    full = SimpleNamespace(fraction=1.0)
+    depth = F._complete_chain_drilled_depth_mm
+    deep = depth("Complete", {"completed_depth_mm": 4.2512}, full, entry, target)
+    shallow = depth("Complete", {"completed_depth_mm": 4.0004}, full, entry, target)
+    assert (deep, shallow) == (4.25, 4.0)
+    assert depth("Complete", None, full, entry, target) == 9.74
+    assert depth("BlockedStage3PhaseGuard", {"completed_depth_mm": 4.0}, full, entry, target) == 0.0
+    deep_score = (0, -deep, 0.1913, (0.1,))
+    shallow_score = (0, -shallow, 0.1878, (0.1,))
+    full_score = (0, -9.74, 0.25, (0.1,))
+    assert sorted([shallow_score, deep_score, full_score])[0] == full_score
+    assert min(shallow_score, deep_score) == deep_score
+    # Equal rounded depth: arm motion decides.
+    tied = (0, -depth("Complete", {"completed_depth_mm": 4.2498}, full, entry, target), 0.1890, (0.1,))
+    assert min(deep_score, tied) == tied
+    source = (HELPERS / "DENTORobotWorkflowFacade.py").read_text()
+    assert "-self._complete_chain_drilled_depth_mm(" in source
+
+
+def test_candidate_ranking_truncation_does_not_replay_the_accepted_prefix():
+    """Operator 2026-10-03 option A: the candidate-level shortened chain equals the
+    prefix the same guard session already accepted; only the final chain re-validates."""
+    facade, parameter_node, _logic, _bridge, plan, snapshot, entry, target = _truncation_fixture()
+    validated = []
+    prefix = ({name: 0.0 for name in ROS2_JOINT_SI_ORDER},) * 3
+    shortened, truncation = facade._truncate_drilling_for_spindle_collision(
+        parameter_node, snapshot, prefix, ("approach",) * 3, plan, 3, 3 + 4,
+        ("pneumatic_spindle-Copy", "[Step 5C] DENTO Final Printable Template"),
+        validate_chain=lambda *a, **k: validated.append(a) or (True, "ok", -1),
+        entry=entry, target=target, revalidate=False,
+    )
+    assert shortened.success is True and len(shortened.waypoint_joint_vectors_si) == 4
+    assert validated == [] and facade.guard_rearms == []
+    assert truncation["completed_depth_mm"] == 6.0
+    source = (HELPERS / "DENTORobotWorkflowFacade.py").read_text()
+    candidate = source[source.index("def _goal1_candidate_chain_preflight("):]
+    candidate = candidate[:candidate.index("\n    def ", 10)]
+    assert "revalidate=False," in candidate
+    final = source[source.index("# Operator policy 2b (2026-10-02) also applies to the final"):]
+    final = final[:final.index("if shortened is not None:")]
+    assert "revalidate" not in final  # final composed chain keeps the full re-validation

@@ -1248,6 +1248,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             model.SetAttribute("DENTOBOT.WorkspaceRuntimeValidated", "false")
         model.SetAttribute("DENTOBOT.WorkspaceRequested", str(result.requested_count))
         model.SetAttribute("DENTOBOT.WorkspaceAccepted", str(result.accepted_count))
+        model.SetAttribute("DENTOBOT.DisplayOpacity", "0.55")
         model.SetAndObservePolyData(polydata)
         model.SetAndObserveTransformNodeID(base_transform.GetID())
         model.SetSaveWithScene(False)
@@ -1266,11 +1267,112 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         return model, result
 
     def deleteRobotWorkspaceModel(self) -> bool:
+        for node in list(slicer.util.getNodesByClass("vtkMRMLModelNode")):
+            if node.GetAttribute("DENTOBOT.ModelRole") in (
+                self.REACH_ENVELOPE_MODEL_ROLE, self.HOME_CONNECTED_MODEL_ROLE
+            ):
+                slicer.mrmlScene.RemoveNode(node)
         model = self.robotWorkspaceModelNode()
         if not model:
             return False
         slicer.mrmlScene.RemoveNode(model)
         return True
+
+    REACH_ENVELOPE_MODEL_ROLE = "Step6ReachEnvelope"
+    REACH_ENVELOPE_MODEL_NAME = "[Step 6] DENTO Reach Envelope"
+    HOME_CONNECTED_MODEL_ROLE = "Step6WorkspaceHomeConnected"
+
+    def _step6RoleModel(self, role: str, name: str, base_transform):
+        node = next((n for n in slicer.util.getNodesByClass("vtkMRMLModelNode")
+                     if n.GetAttribute("DENTOBOT.ModelRole") == role), None)
+        if node is None:
+            node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name)
+            node.SetAttribute("DENTOBOT.ModelRole", role)
+        node.SetName(name)
+        node.SetAttribute("DENTOBOT.Status", "SimulationOnly")
+        node.SetSaveWithScene(False)
+        node.SetSelectable(False)
+        if base_transform is not None:
+            node.SetAndObserveTransformNodeID(base_transform.GetID())
+        node.CreateDefaultDisplayNodes()
+        return node
+
+    def updateStep6ReachEnvelope(self, parameterNode, tcp_base_mm, home_connected_base_mm=()) -> dict:
+        """Visual reach envelope (operator 2026-10-02) around the static-valid TCP
+        samples inside the incisor-centred task-space box, with the task
+        stations marked inside/outside. Display and orientation aid only: the
+        samples share the case drill axis, and an envelope is not task proof."""
+        from dentobot_workflow.reach_envelope import envelope, nearest_sample_mm, points_inside
+
+        base_transform = parameterNode.robotBaseTransform
+        points = np.asarray(tcp_base_mm, dtype=float).reshape(-1, 3)
+        surface, volume, method = envelope(points)
+        model = self._step6RoleModel(self.REACH_ENVELOPE_MODEL_ROLE, self.REACH_ENVELOPE_MODEL_NAME, base_transform)
+        model.SetAndObservePolyData(surface)
+        base_world = self._numpyFromVtkMatrix(self._worldMatrixFromTransform(base_transform))
+        to_base = np.linalg.inv(base_world)
+        stations = {}
+        try:
+            pre_entry, entry = self.step6ApproachPoints(parameterNode)
+            target = self.step6TrajectorySummary(parameterNode)["targetRas"]
+            named = {"PreEntry": pre_entry, "Entry": entry, "Target": target}
+            local = {key: (to_base @ np.append(np.asarray(value, float), 1.0))[:3] for key, value in named.items()}
+            inside = points_inside(volume, list(local.values()))
+            stations = {
+                key: {"inside": bool(flag),
+                      "nearest_sample_mm": round(nearest_sample_mm(points, local[key]), 1)}
+                for key, flag in zip(local, inside)
+            }
+        except (KeyError, TypeError, ValueError):
+            stations = {}
+        summary = {
+            "sample_count": int(len(points)),
+            "home_connected_count": int(len(home_connected_base_mm)),
+            "envelope_method": method,
+            "stations_inside": stations,
+        }
+        model.SetAttribute("DENTOBOT.ReachEnvelopeSummary", json.dumps(summary, sort_keys=True))
+        model.SetAttribute("DENTOBOT.DisplayOpacity", "0.18")
+        visible = bool(getattr(parameterNode, "step6ShowReachEnvelope", True))
+        display = model.GetDisplayNode()
+        if display:
+            display.SetColor(0.10, 0.82, 0.95)
+            display.SetOpacity(0.18)
+            display.SetVisibility(visible)
+            display.SetVisibility2D(False)
+            display.SetBackfaceCulling(False)
+        connected = self._step6RoleModel(self.HOME_CONNECTED_MODEL_ROLE,
+                                         "[Step 6] DENTO Home-Connected Samples", base_transform)
+        connected.SetAndObservePolyData(self._step6PointCloud(home_connected_base_mm))
+        cdisplay = connected.GetDisplayNode()
+        if cdisplay:
+            cdisplay.SetColor(0.20, 0.85, 0.30)
+            cdisplay.SetRepresentation(0)
+            cdisplay.SetPointSize(7.0)
+            cdisplay.SetLighting(False)
+            cdisplay.SetVisibility(visible)
+            cdisplay.SetVisibility2D(False)
+        return summary
+
+    @staticmethod
+    def _step6PointCloud(points_mm) -> vtk.vtkPolyData:
+        points = vtk.vtkPoints()
+        vertices = vtk.vtkCellArray()
+        for point in points_mm:
+            point_id = points.InsertNextPoint(*(float(v) for v in point))
+            vertices.InsertNextCell(1)
+            vertices.InsertCellPoint(point_id)
+        polydata = vtk.vtkPolyData()
+        polydata.SetPoints(points)
+        polydata.SetVerts(vertices)
+        return polydata
+
+    def setStep6ReachEnvelopeVisible(self, visible: bool) -> None:
+        for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+            if node.GetAttribute("DENTOBOT.ModelRole") in (
+                self.REACH_ENVELOPE_MODEL_ROLE, self.HOME_CONNECTED_MODEL_ROLE
+            ) and node.GetDisplayNode():
+                node.GetDisplayNode().SetVisibility(bool(visible))
 
     def applyTaskJointLimitsToJointControls(self, parameterNode) -> TaskJointLimits:
         limits = self.getTaskJointLimits(parameterNode)

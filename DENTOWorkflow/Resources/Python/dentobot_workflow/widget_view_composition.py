@@ -338,6 +338,11 @@ class ViewCompositionWidgetMixin:
                     visibleKeys.discard(entry["key"])
                 if not rosActive and category in {"robot_ros", "robot_goal"}:
                     visibleKeys.discard(entry["key"])
+            # 6.3 display toggles for the planning aids.
+            if not bool(getattr(self._parameterNode, "step6ShowMouthBarrier", True)):
+                visibleKeys.discard("nodes:step6MouthBarrier")
+            if not bool(getattr(self._parameterNode, "step6ShowReachEnvelope", True)):
+                visibleKeys.discard("nodes:step6ReachEnvelope")
         if (
             self._parameterNode
             and self.logic
@@ -466,7 +471,13 @@ class ViewCompositionWidgetMixin:
             for node in nodes:
                 display = node.GetDisplayNode() if node else None
                 if display and hasattr(display, "SetOpacity"):
-                    display.SetOpacity(opacity)
+                    # Planning aids (barrier, reach envelope) keep their own
+                    # see-through opacity.
+                    own = node.GetAttribute("DENTOBOT.DisplayOpacity") if node else None
+                    try:
+                        display.SetOpacity(float(own) if own else opacity)
+                    except ValueError:
+                        display.SetOpacity(opacity)
 
     def _applyWorkflowViewComposition(
         self,

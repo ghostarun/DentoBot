@@ -2295,3 +2295,100 @@ def test_vtk_result_fakes_without_unregister_remain_supported(monkeypatch):
     )
     assert result[0]
     assert not any(event[0] == "unregister" for event in events)
+
+
+def test_accepted_state_follows_last_acceptance_change_not_last_republish(monkeypatch):
+    """r14/r15: a republished ordinary status (same accepted vector) must not
+    override a newer phase-guard acceptance."""
+    home = (0.0087, 0.03044, 3.14159, 0.032, 0.0)
+    entry = (-0.0299, 0.01096, 3.1457, 0.01465, 0.3194)
+    monkeypatch.setattr(bridge_module, "joint_command_status", lambda *a, **k: None)
+    monkeypatch.setattr(bridge_module, "_native_joint_positions", [])
+    monkeypatch.setattr(bridge_module, "_last_manual_joint_status", None)
+    monkeypatch.setattr(bridge_module, "_acceptance_changed_at", {"ordinary": 0.0, "task": 0.0, "manual": 0.0})
+    ordinary = SimpleNamespace(accepted_positions=home)
+    bridge_module._note_acceptance("ordinary", None, ordinary, 1.0)
+    monkeypatch.setattr(bridge_module, "_last_joint_status", ordinary)
+    task = SimpleNamespace(accepted_positions=entry)
+    bridge_module._note_acceptance("task", None, task, 2.0)
+    monkeypatch.setattr(bridge_module, "_last_task_status", task)
+    # The ordinary stream republishes Home many times later.
+    for now in (3.0, 4.0, 5.0):
+        bridge_module._note_acceptance("ordinary", ordinary, SimpleNamespace(accepted_positions=home), now)
+    accepted = bridge_module.last_accepted_joint_positions_si()
+    assert tuple(accepted[name] for name in ROS2_JOINT_SI_ORDER) == pytest.approx(entry)
+    # A validate-only task status with an unchanged accepted vector is not a new acceptance,
+    # while a real ordinary change after it wins.
+    bridge_module._note_acceptance("task", task, SimpleNamespace(accepted_positions=entry), 6.0)
+    assert bridge_module._acceptance_changed_at["task"] == 2.0
+    moved = (0.0, 0.02, 3.1, 0.03, 0.1)
+    bridge_module._note_acceptance("ordinary", ordinary, SimpleNamespace(accepted_positions=moved), 7.0)
+    monkeypatch.setattr(bridge_module, "_last_joint_status", SimpleNamespace(accepted_positions=moved))
+    accepted = bridge_module.last_accepted_joint_positions_si()
+    assert tuple(accepted[name] for name in ROS2_JOINT_SI_ORDER) == pytest.approx(moved)
+
+
+def test_task_command_wait_spins_ros_every_poll_but_throttles_ui_events(monkeypatch):
+    """Operator 2026-10-03 option B: Qt events at most every 100 ms during guard waits."""
+    clock = {"t": 100.0}
+    monkeypatch.setattr(bridge_module.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(bridge_module.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + 0.01))
+    spins = []
+    events = []
+    target = SimpleNamespace(task_fingerprint="t", guard_session_id="g", phase="drilling",
+                             sequence=7, request_id="", validation_kind="")
+
+    class Ros:
+        def Spin(self):
+            spins.append(clock["t"])
+            if len(spins) == 40:  # status arrives after ~0.4 s
+                monkeypatch.setattr(bridge_module, "_last_task_status", target)
+                monkeypatch.setattr(bridge_module, "_last_task_status_at", clock["t"])
+
+    monkeypatch.setattr(bridge_module, "get_ros2_logic", lambda: Ros())
+    fake_slicer = SimpleNamespace(app=SimpleNamespace(processEvents=lambda: events.append(clock["t"])))
+    monkeypatch.setitem(sys.modules, "slicer", fake_slicer)
+    monkeypatch.setattr(bridge_module, "_last_task_status", None)
+    bridge_module.task_command_wait_stats(reset=True)
+    status = bridge_module._wait_for_task_command_result(
+        task_fingerprint="t", guard_session_id="g", phase="drilling", sequence=7,
+        after_monotonic=99.0, timeout_sec=6.0,
+    )
+    assert status is target
+    assert len(spins) == 40 and 4 <= len(events) <= 5
+    stats = bridge_module.task_command_wait_stats()
+    assert stats["calls"] == 1 and stats["event_passes"] == len(events) and stats["timeouts"] == 0
+
+
+def test_task_command_wait_is_timed_by_the_ui_watchdog_and_survives_its_absence(monkeypatch):
+    import contextlib
+    import sys
+    import types
+
+    import DENTOROS2Bridge as bridge
+
+    calls = []
+
+    @contextlib.contextmanager
+    def fake_ui_wait(kind, label):
+        scope = types.SimpleNamespace(outcome="ok")
+        yield scope
+        calls.append((kind, label, scope.outcome))
+
+    package = types.ModuleType("dentobot_workflow")
+    package.__path__ = []
+    module = types.ModuleType("dentobot_workflow.ui_stall_watchdog")
+    module.ui_wait = fake_ui_wait
+    monkeypatch.setitem(sys.modules, "dentobot_workflow", package)
+    monkeypatch.setitem(sys.modules, "dentobot_workflow.ui_stall_watchdog", module)
+    monkeypatch.setattr(bridge, "_wait_for_task_command_result_untimed", lambda **kw: None)
+    assert bridge._wait_for_task_command_result(phase="approach") is None
+    monkeypatch.setattr(bridge, "_wait_for_task_command_result_untimed", lambda **kw: "status")
+    assert bridge._wait_for_task_command_result(phase="retract") == "status"
+    assert calls == [
+        ("task_command_result", "approach", "timeout"),
+        ("task_command_result", "retract", "ok"),
+    ]
+
+    monkeypatch.setitem(sys.modules, "dentobot_workflow.ui_stall_watchdog", None)  # import fails
+    assert bridge._wait_for_task_command_result(phase="approach") == "status"

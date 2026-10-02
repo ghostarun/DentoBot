@@ -961,8 +961,8 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 )
             else:
                 panel.workspaceReviewStatusLabel.text = _(
-                    "Generate the MoveIt static-valid workspace and bounded "
-                    "Home-connectivity evidence, then review its proposed limits."
+                    "Optional: generate the workspace to see the reach envelope "
+                    "around the incisor task box. Planning does not require it."
                 )
             runtime_ready = bool(
                 planning_anatomy_ready
@@ -996,17 +996,11 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             if not facade_capabilities or not facade_capabilities.planning_scene_synchronized:
                 confirmation_prerequisites.append(_("Complete the authoritative planning-scene audit in 6.1."))
             planning_prerequisites = list(confirmation_prerequisites)
-            if not workspace_runtime_validated:
-                planning_prerequisites.append(
-                    _("Revalidate or generate workspace evidence in 6.3.")
-                )
-            if not assisted_reviewed:
-                planning_prerequisites.append(
-                    _("Review and apply assisted joint limits in 6.3.")
-                )
+            # Operator 2026-10-02: the 6.3 workspace and limit review are an
+            # optional visual, not a planning prerequisite.
             panel.confirmationStatusLabel.text = (
                 _("Immutable task snapshot is current; phased plans are enabled.")
-                if task_ready and workspace_runtime_validated and assisted_reviewed
+                if task_ready
                 else " ".join(planning_prerequisites or task_issues)
             )
             preview_active = bool(
@@ -1052,8 +1046,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and task_ready
                 and ros2_active
                 and home_runtime_validated
-                and workspace_runtime_validated
-                and assisted_reviewed
                 and not away_from_home
                 and not getattr(self, "_plannerComparisonState", None)
             )
@@ -1086,6 +1078,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 panel.checkPlanningP3Button,
             ):
                 button.enabled = stage_diagnostic_enabled
+            diagnose_button = getattr(panel, "diagnoseBaseButton", None)
+            if diagnose_button is not None:
+                diagnose_button.enabled = bool(panel.checkPreEntryIKButton.enabled)
             panel.comparePlannersButton.enabled = phase_planning_ready
             override_active = bool(
                 self._robotWorkflowFacade
@@ -1179,7 +1174,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and task_ready
                 and ros2_active
                 and not preview_active
-                and not away_from_home
+                # r16 (2026-10-03): a completed Approach always leaves the robot
+                # away from Task Home, so "not away" made Drill unreachable. The
+                # facade checks the accepted Approach motion history itself.
             )
             if not drilling_preflight_ready:
                 panel.drillingStatusLabel.text = _(

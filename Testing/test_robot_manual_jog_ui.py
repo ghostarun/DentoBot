@@ -3614,9 +3614,11 @@ def test_step6_two_area_navigation_ownership_and_preview_authority():
         "task_ready",
         "ros2_active",
         "not preview_active",
-        "not away_from_home",
     ):
         assert condition in drilling
+    # r16 (2026-10-03): Drill follows a completed Approach, so the robot is
+    # necessarily away from Task Home; only Approach preview requires Home.
+    assert "away_from_home" not in drilling
 
     imported_record = ast.dump(
         _method_node(
@@ -4702,7 +4704,8 @@ def test_phase_plan_buttons_require_runtime_workspace_and_reviewed_limits():
         and any(isinstance(target, ast.Name) and target.id == "phase_planning_ready" for target in node.targets)
     )
     names = {node.id for node in ast.walk(readiness) if isinstance(node, ast.Name)}
-    assert {"workspace_runtime_validated", "assisted_reviewed"} <= names
+    # Operator 2026-10-02: the 6.3 workspace is an optional visual.
+    assert not {"workspace_runtime_validated", "assisted_reviewed"} & names
     assert assignments["panel.planApproachButton.enabled"].id == "phase_planning_ready"
     assert assignments["panel.comparePlannersButton.enabled"].id == "phase_planning_ready"
     diagnostic = next(
@@ -4726,13 +4729,14 @@ def test_phase_plan_buttons_require_runtime_workspace_and_reviewed_limits():
     }
     expression = compile(ast.Expression(readiness), str(path), "eval")
     assert eval(expression, ready) is True
-    for missing in ("workspace_runtime_validated", "assisted_reviewed"):
-        not_ready = dict(ready, **{missing: False})
-        assert eval(expression, not_ready) is False
+    for optional in ("workspace_runtime_validated", "assisted_reviewed"):
+        assert eval(expression, dict(ready, **{optional: False})) is True
+    for missing in ("task_ready", "home_runtime_validated"):
+        assert eval(expression, dict(ready, **{missing: False})) is False
 
     source = path.read_text(encoding="utf-8")
-    assert "Revalidate or generate workspace evidence in 6.3." in source
-    assert "Review and apply assisted joint limits in 6.3." in source
+    assert "Revalidate or generate workspace evidence in 6.3." not in source
+    assert "Review and apply assisted joint limits in 6.3." not in source
 
 
 def test_unknown_base_main_action_routes_to_existing_reconciliation_owner():
@@ -5775,3 +5779,201 @@ def test_direct_reopen_resolves_only_fresh_current_diagnostic_fingerprint():
         and ast.unparse(node.args[1]) == "expected_fingerprint"
         for node in ast.walk(show)
     )
+
+
+def _placement_modified_host(acceptance_in_progress, locked=True):
+    method = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_placement.py",
+        "RobotPlacementWidgetMixin",
+        {"_onRobotPlacementNodeModified"},
+        {"_": lambda text: text},
+    )["_onRobotPlacementNodeModified"]
+    invalidations = []
+    attributes = {}
+    base = SimpleNamespace(SetAttribute=lambda name, value: attributes.__setitem__(name, value))
+    workspace_attrs = {}
+    logic = SimpleNamespace(
+        robotBasePoseFingerprint=lambda _node: "moved",
+        ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE="authority",
+        ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY="unreviewed",
+        invalidateStep6TaskConfirmation=lambda node, reason, makeBaseStale=False: invalidations.append(makeBaseStale),
+        robotWorkspaceModelNode=lambda: SimpleNamespace(SetAttribute=lambda k, v: workspace_attrs.__setitem__(k, v)),
+    )
+    cleared = []
+    host = SimpleNamespace(
+        _updatingRobotPlacementUI=False,
+        logic=logic,
+        _parameterNode=SimpleNamespace(robotBaseTransform=base, robotBaseMountLocked=locked,
+                                       step6BasePlacementRevision=0),
+        _lastRobotBasePoseFingerprint="before",
+        _robotWorkflowFacade=SimpleNamespace(
+            manualBaseAcceptanceInProgress=acceptance_in_progress,
+            clearTransientState=lambda: cleared.append(True),
+        ),
+        _step6MotionPlan="plan",
+        ui=SimpleNamespace(robotWorkspaceStatusLabel=SimpleNamespace(text="", styleSheet="")),
+        _updateRobotPlacementStatus=lambda: None,
+    )
+    method(host, base)
+    return host, attributes, invalidations, cleared, workspace_attrs
+
+
+def test_accept_base_owned_move_does_not_unreview_or_unlock_base():
+    host, attributes, invalidations, cleared, workspace = _placement_modified_host(True)
+    assert attributes == {} and invalidations == [] and cleared == []
+    assert host._lastRobotBasePoseFingerprint == "moved"
+    assert workspace == {"DENTOBOT.WorkspaceState": "Stale"}  # Base really moved
+
+
+def test_operator_move_of_locked_base_still_unreviews_and_makes_stale():
+    host, attributes, invalidations, cleared, _workspace = _placement_modified_host(False)
+    assert attributes["authority"] == "unreviewed"
+    assert invalidations == [True] and cleared == [True]
+
+
+def test_spindle_guide_contact_option_syncs_both_checkboxes_and_invalidates_task():
+    method = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_placement.py",
+        "RobotPlacementWidgetMixin",
+        {"_onSetSpindleGuideContact"},
+        {"_": lambda text: text},
+    )["_onSetSpindleGuideContact"]
+
+    class Box:
+        def __init__(self):
+            self.checked = False
+        def blockSignals(self, value):
+            return False
+
+    invalidated = []
+    step4, step63 = Box(), Box()
+    host = SimpleNamespace(
+        _parameterNode=SimpleNamespace(step6AllowSpindleGuideContact=False),
+        logic=SimpleNamespace(invalidateStep6TaskConfirmation=lambda node, reason: invalidated.append(reason)),
+        _step4SpindleGuideContactCheckBox=step4,
+        _robotSimulationPanel=SimpleNamespace(allowSpindleGuideContactCheckBox=step63),
+    )
+    method(host, True)
+    assert host._parameterNode.step6AllowSpindleGuideContact is True
+    assert step4.checked and step63.checked and len(invalidated) == 1
+    method(host, True)
+    assert len(invalidated) == 1  # no change, no invalidation
+
+
+def test_mouth_barrier_edge_mode_syncs_combo_and_invalidates_task():
+    method = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_placement.py",
+        "RobotPlacementWidgetMixin",
+        {"_onSetMouthBarrierEdgeMode"},
+        {"_": lambda text: text},
+    )["_onSetMouthBarrierEdgeMode"]
+
+    class Combo:
+        modes = ("gum_line", "biting_edge", "off")
+        def __init__(self):
+            self.currentIndex = 0
+        def findData(self, mode):
+            return self.modes.index(mode)
+        def blockSignals(self, value):
+            return False
+
+    invalidated = []
+    combo = Combo()
+    host = SimpleNamespace(
+        _parameterNode=SimpleNamespace(step6MouthBarrierEdgeMode="gum_line"),
+        logic=SimpleNamespace(invalidateStep6TaskConfirmation=lambda node, reason: invalidated.append(reason)),
+        _robotSimulationPanel=SimpleNamespace(mouthBarrierEdgeModeComboBox=combo),
+    )
+    method(host, "biting_edge")
+    assert host._parameterNode.step6MouthBarrierEdgeMode == "biting_edge"
+    assert combo.currentIndex == 1 and len(invalidated) == 1
+    method(host, "biting_edge")
+    assert len(invalidated) == 1  # no change, no invalidation
+    method(host, "nonsense")  # unknown values fall back to the default
+    assert host._parameterNode.step6MouthBarrierEdgeMode == "gum_line" and combo.currentIndex == 0
+
+
+def test_mouth_barrier_combo_is_in_63_advanced_options_and_routed():
+    panel = (PYTHON / "DENTORobotSimulationPanel.py").read_text()
+    shell = (PYTHON / "dentobot_workflow/widget_robot_shell.py").read_text()
+    assert 'objectName = "DENTOBOTMouthBarrierEdgeMode63"' in panel
+    for mode in ('"gum_line"', '"biting_edge"', '"off"'):
+        assert mode in panel
+    assert '"set_mouth_barrier_edge_mode"' in panel
+    assert '"set_mouth_barrier_edge_mode": self._onSetMouthBarrierEdgeMode' in shell
+    state = (PYTHON / "dentobot_workflow/parameter_state.py").read_text()
+    assert 'step6MouthBarrierEdgeMode: str = "gum_line"' in state
+
+
+def test_display_toggles_for_mouth_barrier_and_reach_envelope_are_wired():
+    panel = (PYTHON / "DENTORobotSimulationPanel.py").read_text()
+    shell = (PYTHON / "dentobot_workflow/widget_robot_shell.py").read_text()
+    placement = (PYTHON / "dentobot_workflow/widget_robot_placement.py").read_text()
+    bootstrap = (PYTHON / "dentobot_workflow/widget_bootstrap.py").read_text()
+    assert 'objectName = "DENTOBOTShowMouthBarrier63"' in panel
+    assert '"set_show_mouth_barrier"' in panel
+    assert '"set_show_mouth_barrier": self._onSetShowMouthBarrier' in shell
+    assert 'objectName = "DENTOBOTShowReachEnvelope63"' in placement
+    assert "self._setupReachEnvelopeOption()" in bootstrap
+    methods = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_placement.py",
+        "RobotPlacementWidgetMixin",
+        {"_onSetShowMouthBarrier", "_onSetShowReachEnvelope", "_syncCheckBox"},
+        {"_": lambda text: text},
+    )
+
+    class Box:
+        def __init__(self):
+            self.checked = True
+        def blockSignals(self, value):
+            return False
+
+    shown = []
+    barrier_box, envelope_box = Box(), Box()
+    host = SimpleNamespace(
+        _parameterNode=SimpleNamespace(step6ShowMouthBarrier=True, step6ShowReachEnvelope=True),
+        logic=SimpleNamespace(
+            setStep6MouthBarrierVisible=lambda value: shown.append(("barrier", value)),
+            setStep6ReachEnvelopeVisible=lambda value: shown.append(("envelope", value)),
+        ),
+        _robotSimulationPanel=SimpleNamespace(showMouthBarrierCheckBox=barrier_box),
+        _showReachEnvelopeCheckBox=envelope_box,
+        _syncCheckBox=methods["_syncCheckBox"],
+    )
+    methods["_onSetShowMouthBarrier"](host, False)
+    methods["_onSetShowReachEnvelope"](host, False)
+    assert shown == [("barrier", False), ("envelope", False)]
+    assert host._parameterNode.step6ShowMouthBarrier is False and barrier_box.checked is False
+    assert host._parameterNode.step6ShowReachEnvelope is False and envelope_box.checked is False
+
+
+def test_diagnose_base_button_is_owned_by_planning_substep_and_wired():
+    panel = (PYTHON / "DENTORobotSimulationPanel.py").read_text()
+    shell = (PYTHON / "dentobot_workflow/widget_robot_shell.py").read_text()
+    robot = (PYTHON / "dentobot_workflow/widget_robot.py").read_text()
+    assert '"diagnose_base": 3,' in panel
+    assert 'self.diagnoseBaseButton.objectName = "DENTOBOTDiagnoseBaseButton"' in panel
+    assert 'self._invoke("diagnose_base")' in panel
+    assert "def showBaseDiagnosisDialog(self, summary)" in panel
+    assert 'getattr(self, "_baseDiagnosisDialog", None),' in panel  # hidden outside 6.3
+    assert '"diagnose_base": self._onStep6DiagnoseBase,' in shell
+    assert "self._robotWorkflowFacade.diagnoseBase(" in shell
+    assert "diagnose_button.enabled = bool(panel.checkPreEntryIKButton.enabled)" in robot
+
+
+def test_unreachable_remainder_is_a_labelled_tube_cleared_with_phase_paths():
+    bridge = (PYTHON / "DENTOROS2Bridge.py").read_text()
+    assert "vtk.vtkTubeFilter()" in bridge and '"[Step 6] Drilling Not Completed"' in bridge
+    assert 'f"Not completed: {remaining_mm:.2f} mm (collision)"' in bridge
+    assert 'for class_name in ("vtkMRMLModelNode", "vtkMRMLMarkupsFiducialNode"):' in bridge
+
+
+def test_drill_preview_gate_follows_completed_approach_not_task_home():
+    robot = (PYTHON / "dentobot_workflow/widget_robot.py").read_text()
+    gate = robot[robot.index("panel.previewDrillingButton.enabled = bool("):]
+    gate = gate[:gate.index("\n            )")]
+    assert "and approach_complete" in gate
+    assert "and not away_from_home" not in gate  # r16: Approach always leaves Home
+    approach_gate = robot[robot.index("panel.previewApproachButton.enabled = bool("):]
+    approach_gate = approach_gate[:approach_gate.index("\n            )")]
+    assert "away_from_home" in approach_gate or "returnHomeRequired" in robot

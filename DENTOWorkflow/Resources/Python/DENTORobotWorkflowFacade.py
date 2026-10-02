@@ -14,7 +14,7 @@ import os
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from math import acos, atan2, degrees, isfinite, pi, sqrt
+from math import acos, atan2, ceil, cos, degrees, isfinite, pi, sin, sqrt
 from numbers import Real
 from time import monotonic, monotonic_ns
 from typing import Any, Callable, Mapping, Optional, Sequence
@@ -82,7 +82,8 @@ LEGACY_DIAGNOSTIC_TOOL_ROLL_DEG = 0.0
 GOAL1_MAX_IK_SEEDS = WORKSPACE_HOME_CONNECTIVITY_MAX_SAMPLES + 1
 GOAL1_MAX_PLANNED_IK_CANDIDATES = GOAL1_MAX_IK_SEEDS
 GOAL1_MAX_CLEARANCE_WAYPOINTS = 3
-GOAL1_DIRECT_PLANNING_TIME_SEC = 5.0
+STEP6_APPROACH_CORRIDOR_MM = 12.0  # operator 2026-10-02: axis-aligned final approach
+GOAL1_DIRECT_PLANNING_TIME_SEC = 10.0  # operator 2026-10-02: robustness for marginal P1
 GOAL1_CLEARANCE_PLANNING_TIME_SEC = 4.0
 STEP6_JOINT_PLANNER_ID = "RRTConnectkConfigDefault"
 STEP6_JOINT_PLANNER_ALGORITHM = "geometric::RRTConnect"
@@ -91,7 +92,7 @@ STEP6_JOINT_PLANNER_ALGORITHMS = {
     "RRTkConfigDefault": "geometric::RRT",
     "RRTstarkConfigDefault": "geometric::RRTstar",
 }
-STEP6_JOINT_PLANNING_ATTEMPTS = 1
+STEP6_JOINT_PLANNING_ATTEMPTS = 5  # operator 2026-10-02: sampling planner retries
 STEP6_APPROXIMATE_IK_ENABLED = False
 STEP6_CARTESIAN_PLANNING_ENABLED = True
 # The operator-selected simulation burr mesh is approximately 1 mm across. This is a physical
@@ -350,6 +351,30 @@ def _compact_guarded_waypoints(
     return compacted, compacted_times
 
 
+def _dev_fast_mode_stamp(evaluation) -> str:
+    """Stamp for the development-only first-complete route mode (operator 2026-10-03)."""
+    if not evaluation or evaluation.get("mode") != "dev_first_complete":
+        return ""
+    return (
+        "DEVELOPMENT FAST MODE: "
+        f"{int(evaluation.get('notEvaluated', 0))} of {int(evaluation.get('total', 0))} "
+        "candidates not evaluated; not for acceptance or case comparison. "
+    )
+
+
+def _drilling_truncation_warning(truncation) -> str:
+    """Operator 2026-10-02 (S6-TRUNCATION-WARNING): truncated drilling is a warning."""
+    pair = truncation.get("blocking_pair") or ()
+    pair_text = f" ({pair[0]} ↔ {pair[1]})" if len(pair) >= 2 else ""
+    return (
+        "WARNING: drilling shortened by a spindle-housing collision"
+        f"{pair_text}: {float(truncation['completed_depth_mm']):.2f} of "
+        f"{float(truncation['requested_depth_mm']):.2f} mm planned. The remaining "
+        f"{float(truncation['remaining_depth_mm']):.2f} mm (orange-red in the 3D view) "
+        "was not completed because of collision/invalid states."
+    )
+
+
 class DENTORobotWorkflowFacade:
     """Coordinate Step 6 services without depending on DENTOWorkflow widgets."""
 
@@ -364,6 +389,12 @@ class DENTORobotWorkflowFacade:
         self._parameter_node_provider = parameter_node_provider
         self._bridge = bridge or _default_bridge
         self._motion_plan = None
+        # Operator 2026-10-03: development-only fast route mode. Default off;
+        # every result made with it is stamped and never used for acceptance.
+        self._dev_first_complete_route = (
+            os.environ.get("DENTOBOT_STEP6_DEV_FIRST_COMPLETE_ROUTE", "") == "1"
+        )
+        self._candidate_evaluation: dict[str, object] = {}
         self._preview_timer = None
         self._diagnostic_preview_timer = None
         self._preview_index = 0
@@ -389,6 +420,7 @@ class DENTORobotWorkflowFacade:
         self._preview_suppressed_tool_contact_samples = 0
         self._preview_guide_clearance_warnings: list[dict[str, object]] = []
         self._preflight_drilling_plan = None
+        self._drilling_truncation = None
         self._preflight_task_fingerprint = ""
         self._preflight_orientation_commitment: dict[str, object] = {}
         self._preflight_complete_approach_evidence: Optional[dict[str, object]] = None
@@ -1227,8 +1259,73 @@ class DENTORobotWorkflowFacade:
             details={"incompletePreview": deepcopy(self._incomplete_preview_evidence)},
         )
 
+    @property
+    def manualBaseAcceptanceInProgress(self) -> bool:
+        """True while Accept/Reconcile Base owns a sanctioned Base pose change."""
+        return bool(self._manual_base_acceptance_in_progress)
+
     def _parameter_node(self):
         return self._parameter_node_provider()
+
+    def checkStraightJointPath(
+        self,
+        start_si: Mapping[str, float],
+        goal_si: Mapping[str, float],
+        *,
+        max_revolute_step_rad: float = 0.02,
+        max_prismatic_step_m: float = 0.0005,
+    ) -> RobotActionResult:
+        """Read-only diagnostic: is the straight joint-space path collision-free?
+
+        Samples the linear J1-J5 interpolation (shortest angle for the
+        continuous J5) and queries MoveIt static state validity, which includes
+        collision against the synchronized PlanningScene, at every sample. It
+        never moves the robot and grants no route or preview authority. A clear
+        straight path that the planner still fails to return points at the
+        planner/configuration, not at the robot or the scene.
+        """
+        names = [name for name in start_si if name in goal_si]
+        if not names:
+            return RobotActionResult(False, "straight_path_invalid_input", "No common joints.")
+        deltas = {}
+        for name in names:
+            delta = float(goal_si[name]) - float(start_si[name])
+            if name.endswith("Revolute-5"):
+                delta = atan2(sin(delta), cos(delta))
+            deltas[name] = delta
+        steps = 1
+        for name, delta in deltas.items():
+            limit = max_prismatic_step_m if "Slider" in name else max_revolute_step_rad
+            steps = max(steps, int(ceil(abs(delta) / limit)))
+        checker = getattr(self._bridge, "check_moveit_static_joint_state", None)
+        if not callable(checker):
+            return RobotActionResult(False, "straight_path_unavailable", "MoveIt state validity is unavailable.")
+        for index in range(steps + 1):
+            fraction = index / steps
+            sample = {name: float(start_si[name]) + deltas[name] * fraction for name in names}
+            valid, message, authoritative = checker(sample)
+            if not authoritative:
+                return RobotActionResult(
+                    False, "straight_path_unknown",
+                    "State validity was not authoritative: " + str(message),
+                    details={"samples_checked": index, "steps": steps, "fraction": fraction,
+                             "route_authority": "none"},
+                )
+            if not valid:
+                return RobotActionResult(
+                    False, "straight_path_blocked",
+                    f"Straight joint path is invalid at {fraction:.3f}: {message}",
+                    details={"samples_checked": index + 1, "steps": steps,
+                             "first_invalid_fraction": fraction,
+                             "first_invalid_state_si": sample, "message": str(message),
+                             "joint_deltas": deltas, "route_authority": "none"},
+                )
+        return RobotActionResult(
+            True, "straight_path_clear",
+            f"Straight joint path is collision-free and valid at all {steps + 1} samples.",
+            details={"samples_checked": steps + 1, "steps": steps, "joint_deltas": deltas,
+                     "route_authority": "none"},
+        )
 
     def _motionControlNodeIdentity(self) -> tuple[str, str]:
         """Return (robot node ID, motion-control node ID) from the motion module.
@@ -1408,6 +1505,9 @@ class DENTORobotWorkflowFacade:
                 "jointOrder": tuple(self._bridge.ROS2_JOINT_SI_ORDER),
                 "planningGroup": self._bridge.ROS2_PLANNING_GROUP,
                 "tcpLink": self._bridge.ROS2_TOOL_TCP_LINK,
+                # Only present when enabled, so default identities are unchanged.
+                **({"spindleGuideContactToleranceM": 0.0005}
+                   if self._spindle_guide_contact_allowed() else {}),
             }
         )
 
@@ -4075,16 +4175,38 @@ class DENTORobotWorkflowFacade:
             )
             reviewed_authority = getattr(self._logic, "ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY", "ManualSimulationBaseReviewed")
             authority_name = getattr(self._logic, "ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE", "DENTOBOT.RobotBasePlacementAuthority")
-            if (
-                not bool(parameter_node.robotBaseMountLocked)
-                or str(base.GetAttribute(authority_name) or "") != str(reviewed_authority)
-                or any(abs(a - b) > 1.0e-9 for a, b in zip(accepted_matrix, candidate))
-            ):
+            current_base = parameter_node.robotBaseTransform
+            observed_authority = str(base.GetAttribute(authority_name) or "")
+            max_matrix_delta = max(
+                (abs(a - b) for a, b in zip(accepted_matrix, candidate)), default=0.0
+            )
+            verification = {
+                "baseLocked": bool(parameter_node.robotBaseMountLocked),
+                "observedAuthority": observed_authority,
+                "expectedAuthority": str(reviewed_authority),
+                "currentBaseAuthority": str(
+                    current_base.GetAttribute(authority_name) or ""
+                ) if current_base is not None else "",
+                "baseNodeReplaced": current_base is not base,
+                "maxMatrixDelta": float(max_matrix_delta),
+                "acceptedMatrixWorldRasMm": list(accepted_matrix),
+                "candidateMatrixWorldRasMm": list(candidate),
+            }
+            failed_checks = [
+                name for name, failed in (
+                    ("not_locked", not verification["baseLocked"]),
+                    ("authority_mismatch", observed_authority != str(reviewed_authority)),
+                    ("matrix_mismatch", max_matrix_delta > 1.0e-9),
+                ) if failed
+            ]
+            verification["failedChecks"] = failed_checks
+            if failed_checks:
                 restored, rollback_message = self._manual_base_restore_after_failed_acceptance(
                     parameter_node, base, snapshot, lock_attempted=True
                 )
                 self._manual_base_acceptance_uncertain = (
-                    "lockBase reported success without verifiable accepted Base state. "
+                    "lockBase reported success without verifiable accepted Base state "
+                    f"(failed checks: {', '.join(failed_checks)}). "
                     + rollback_message
                 )
                 self._manual_base_review_failure = {
@@ -4094,6 +4216,7 @@ class DENTORobotWorkflowFacade:
                     "rollbackStatus": "unknown",
                     "rollbackEvidence": rollback_message,
                     "rollbackDataRestored": bool(restored),
+                    "verificationEvidence": verification,
                 }
                 self._manual_base_record_acceptance_failure(
                     "manual_base_acceptance_unknown",
@@ -7655,6 +7778,18 @@ class DENTORobotWorkflowFacade:
             if str(plan.requested_phase) == "approach"
             else tuple(snapshot.target_ras_mm)
         )
+        truncation = getattr(self, "_drilling_truncation", None)
+        if (
+            str(plan.requested_phase) != "approach"
+            and isinstance(truncation, Mapping)
+            and truncation.get("task_fingerprint") == str(snapshot.snapshot_fingerprint)
+            and all(
+                abs(float(expected.get(name, float("nan"))) - float(value)) <= 1.0e-12
+                for name, value in dict(truncation.get("last_joint_positions_si") or {}).items()
+            )
+        ):
+            # Shortened drilling plan: its effective target is the planned endpoint.
+            expected_ras = tuple(float(v) for v in truncation["effective_target_ras_mm"])
         fk = getattr(self._bridge, "compute_tcp_position_world_ras_mm", None)
         if not callable(fk):
             return RobotActionResult(
@@ -8613,7 +8748,15 @@ class DENTORobotWorkflowFacade:
             collision_scene_policy_fingerprint=self._strict_guard_policy_fingerprint(),
             static_only=bool(static_only),
             preflight_start_positions_si=preflight_start_positions_si,
+            allow_spindle_guide_contact=self._spindle_guide_contact_allowed(),
         )
+
+    def _spindle_guide_contact_allowed(self) -> bool:
+        """Advanced option (Step 4C / 6.3): 0.5 mm spindle-template tolerance; default off."""
+        try:
+            return bool(getattr(self._parameter_node(), "step6AllowSpindleGuideContact", False))
+        except Exception:
+            return False
 
     def _prepare_phase_guard(self, parameter_node, snapshot) -> tuple[bool, str]:
         pause_stream = getattr(
@@ -8959,6 +9102,307 @@ class DENTORobotWorkflowFacade:
             for previous, current in zip(waypoints, waypoints[1:])
         )
 
+    SPINDLE_HOUSING_LINK = "pneumatic_spindle-Copy"
+
+    @classmethod
+    def _spindle_template_pair(cls, bodies) -> bool:
+        """Truncation trigger: spindle housing against the template/guide only.
+
+        Spindle-to-tooth (or any other) collisions are not truncated; they fail.
+        """
+        names = [str(body) for body in bodies if body]
+        if cls.SPINDLE_HOUSING_LINK not in names or len(names) != 2:
+            return False
+        other = names[1] if names[0] == cls.SPINDLE_HOUSING_LINK else names[0]
+        return any(key in other for key in ("Template", "Docking", "Support", "Guide"))
+
+    @property
+    def drillingTruncation(self):
+        """Current shortened-drilling diagnostics (None when the full line is planned)."""
+        return dict(self._drilling_truncation) if self._drilling_truncation else None
+
+    def _truncate_drilling_for_spindle_collision(
+        self,
+        parameter_node,
+        snapshot,
+        prefix_waypoints,
+        prefix_phases,
+        drilling_plan,
+        drilling_offset: int,
+        invalid_index: int,
+        guard_bodies,
+        *,
+        validate_chain,
+        entry: Sequence[float],
+        target: Sequence[float],
+        revalidate: bool = True,
+    ):
+        """Shorten the drilling route to its last spindle-collision-free waypoint.
+
+        Operator policy 2026-10-02: when the spindle housing blocks the drafted
+        drilling line, the last collision-free drilling waypoint becomes the
+        effective target and the shortened route is a normal planned outcome.
+        The rest of the drafted line is reported as diagnostics. Returns
+        ``(plan, truncation)`` or ``(None, reason)``.
+        """
+        if not self._spindle_template_pair(guard_bodies):
+            return None, "The Stage 3 guard blocker is not a spindle-housing/template collision."
+        drilling = tuple(drilling_plan.waypoint_joint_vectors_si)
+        keep = int(invalid_index) - int(drilling_offset)
+        if keep < 2 or keep > len(drilling):
+            return None, "No spindle-collision-free drilling advance precedes the blocked waypoint."
+        shortened = drilling[:keep]
+        if revalidate:
+            # The guard sequence is per session: re-validating in the same session is
+            # rejected as "Phased command sequence is stale or duplicated" (r8), so
+            # the shortened chain is checked in a fresh guard session.
+            guard_ready, guard_ready_message = self._configure_phase_guard(parameter_node, snapshot)
+            if not guard_ready:
+                return None, "Phase guard could not be re-armed for the shortened route: " + str(guard_ready_message)
+            guard_valid, guard_message, second_invalid = validate_chain(
+                tuple(prefix_waypoints) + shortened,
+                tuple(prefix_phases) + ("drilling",) * len(shortened),
+                task_fingerprint=snapshot.snapshot_fingerprint,
+            )
+            if not guard_valid:
+                return None, "The shortened drilling route is still rejected: " + str(guard_message)
+        # revalidate=False (candidate ranking, operator 2026-10-03 option A): the
+        # shortened chain is exactly the prefix the same guard session has just
+        # accepted (waypoints before the first invalid index), so replaying it
+        # adds no information. The selected chain is still fully re-validated.
+        fk_ok, fk_message, effective = self._bridge.compute_tcp_position_world_ras_mm(
+            shortened[-1], base_transform=parameter_node.robotBaseTransform
+        )
+        if not fk_ok or effective is None:
+            return None, "Effective target FK unavailable: " + str(fk_message)
+        effective = tuple(float(value) for value in effective)
+        axis = tuple(float(target[i]) - float(entry[i]) for i in range(3))
+        requested = sqrt(sum(value * value for value in axis))
+        unit = tuple(value / requested for value in axis) if requested > 0 else (0.0, 0.0, 0.0)
+        completed = sum((effective[i] - float(entry[i])) * unit[i] for i in range(3))
+        times = tuple(drilling_plan.waypoint_times_sec or ())[:keep]
+        plan = replace(
+            drilling_plan,
+            success=True,
+            message=(
+                f"Drilling shortened by spindle-housing collision: {completed:.3f} of "
+                f"{requested:.3f} mm reachable."
+            ),
+            fraction=max(0.0, min(1.0, completed / requested if requested > 0 else 0.0)),
+            waypoint_joint_vectors_si=shortened,
+            waypoint_times_sec=times,
+            completed_distance_mm=float(completed),
+            last_valid_waypoint_index=keep - 1,
+            last_valid_joint_positions_si=dict(shortened[-1]),
+        )
+        truncation = {
+            "policy": "spindle_housing_truncation_v1",
+            "blocking_pair": [str(body) for body in guard_bodies],
+            "first_blocked_drilling_index": keep,
+            "kept_waypoint_count": keep,
+            "drafted_waypoint_count": len(drilling),
+            "requested_depth_mm": float(requested),
+            "completed_depth_mm": float(completed),
+            "remaining_depth_mm": float(max(0.0, requested - completed)),
+            "effective_target_ras_mm": list(effective),
+            "original_target_ras_mm": [float(value) for value in target],
+            "unreachable_segment_ras_mm": [list(effective), [float(v) for v in target]],
+            "last_joint_positions_si": dict(shortened[-1]),
+            "task_fingerprint": str(snapshot.snapshot_fingerprint),
+        }
+        return plan, truncation
+
+    # "report": evaluate and record the mouth-portal gate without blocking;
+    # "enforce": reject plans that fail it. Report-only until the operator
+    # decides the anterior-tooth geometry (incisor Entry lies anterior to the
+    # canine portal plane in the FDI11 case, 2026-10-02 evidence).
+    MOUTH_PORTAL_GATE_MODE = "enforce"  # operator 2026-10-02: option A lip line + (b) 5 mm enlargement
+
+    def _mouth_portal_blocks(self, evidence) -> bool:
+        return bool(
+            evidence is not None
+            and evidence.get("status") not in ("passed", "skipped")  # skipped: barrier edges Off
+            and self.MOUTH_PORTAL_GATE_MODE == "enforce"
+        )
+
+    def _plan_home_to_preentry_with_corridor(
+        self,
+        parameter_node,
+        home_positions,
+        preentry_positions,
+        *,
+        pre_entry,
+        entry,
+        target,
+        fixed_rotation_ras,
+        roll_deg: float,
+        planner_context: str,
+        refresh_planning_scene: bool = True,
+    ):
+        """P1 approach corridor (operator 2026-10-02).
+
+        Free-space joint plan Home -> approach point A (STEP6_APPROACH_CORRIDOR_MM
+        back from PreEntry along the drill axis), then the straight fixed-frame
+        line A -> PreEntry. A's joint state comes from planning the straight
+        line backwards from the PreEntry state, so no separate IK is needed. If
+        the corridor cannot be built, the direct Home->PreEntry plan is used and
+        both outcomes are reported in ``plan.message``.
+        """
+        axis = tuple(float(target[i]) - float(entry[i]) for i in range(3))
+        length = sqrt(sum(value * value for value in axis))
+        unit = tuple(value / length for value in axis) if length > 0 else (0.0, 0.0, 0.0)
+        approach = tuple(float(pre_entry[i]) - STEP6_APPROACH_CORRIDOR_MM * unit[i] for i in range(3))
+
+        def direct(reason):
+            plan = self._bridge.plan_moveit_joint_goal(
+                start_joint_positions_si=home_positions,
+                goal_joint_positions_si=preentry_positions,
+                refresh_planning_scene=refresh_planning_scene,
+                planning_attempts=self._joint_planning_attempts,
+                allowed_planning_time_sec=self._joint_planning_time_sec,
+                planner_id=self._joint_planner_id,
+                planner_context=planner_context,
+            )
+            return replace(plan, message=f"Approach corridor unavailable ({reason}); direct plan: {plan.message}")
+
+        back_out = self._bridge.plan_moveit_cartesian_path(
+            entry_ras_mm=tuple(float(v) for v in pre_entry),
+            target_ras_mm=approach,
+            sample_count=max(3, int(parameter_node.robotMotionPlanSampleCount)),
+            base_transform=parameter_node.robotBaseTransform,
+            avoid_collisions=False,
+            minimum_fraction=0.99,
+            start_joint_positions_si=dict(preentry_positions),
+            axial_roll_start_deg=float(roll_deg),
+            axial_roll_end_deg=float(roll_deg),
+            fixed_rotation_ras=fixed_rotation_ras,
+            position_axis_only=True,
+        )
+        back = tuple(dict(point) for point in (back_out.waypoint_joint_vectors_si or ()))
+        if not back_out.success or len(back) < 2:
+            return direct("straight back-out failed: " + str(back_out.message))
+        approach_positions = back[-1]
+        to_approach = self._bridge.plan_moveit_joint_goal(
+            start_joint_positions_si=home_positions,
+            goal_joint_positions_si=approach_positions,
+            refresh_planning_scene=refresh_planning_scene,
+            planning_attempts=self._joint_planning_attempts,
+            allowed_planning_time_sec=self._joint_planning_time_sec,
+            planner_id=self._joint_planner_id,
+            planner_context=planner_context + "_corridor",
+        )
+        free = tuple(dict(point) for point in (to_approach.waypoint_joint_vectors_si or ()))
+        if not to_approach.success or not free:
+            return direct("Home to approach point failed: " + str(to_approach.message))
+        descend = tuple(reversed(back))[1:]
+        times = list(to_approach.waypoint_times_sec or ())
+        last = times[-1] if times else 0.0
+        back_times = list(back_out.waypoint_times_sec or ())
+        if len(back_times) == len(back):
+            total = back_times[-1]
+            times += [last + (total - back_times[len(back) - 2 - i]) for i in range(len(descend))]
+        else:
+            times += [last + 0.1 * (i + 1) for i in range(len(descend))]
+        return replace(
+            to_approach,
+            waypoint_joint_vectors_si=free + descend,
+            waypoint_times_sec=tuple(times),
+            message=(
+                f"Approach corridor: free-space Home -> approach point "
+                f"{STEP6_APPROACH_CORRIDOR_MM:g} mm out along the drill axis, then straight "
+                f"into PreEntry ({len(free)} + {len(descend)} waypoints)."
+            ),
+        )
+
+    @staticmethod
+    def _reach_envelope_sentence(envelope) -> str:
+        """One plain sentence on the visual reach envelope and the task stations."""
+        stations = (envelope or {}).get("stations_inside") or {}
+        if not stations:
+            return ""
+        parts = [
+            f"{name} {'inside' if value.get('inside') else 'outside'}"
+            + ("" if value.get("inside") else f" ({value.get('nearest_sample_mm')} mm from the nearest sample)")
+            for name, value in stations.items()
+        ]
+        return (" Reach envelope (display only): " + ", ".join(parts) + ".")
+
+    def _step6_mouth_portal_gate(self, parameter_node, joint_path) -> Optional[dict]:
+        """Prefix gate (operator 2026-10-02): the Home->PreEntry TCP path must enter
+        the mouth through the canine portal. Returns None when the logic has no
+        portal support (host fakes); otherwise passed/failed evidence. An
+        unbuildable portal fails closed."""
+        gate = getattr(self._logic, "checkStep6MouthPortalGate", None)
+        if not callable(gate):
+            return None
+        tcp_path = []
+        for state in joint_path:
+            fk_ok, fk_message, position = self._bridge.compute_tcp_position_world_ras_mm(
+                state, base_transform=parameter_node.robotBaseTransform
+            )
+            if not fk_ok or position is None:
+                return {"status": "failed", "reason": "tcp_fk_unavailable", "message": str(fk_message)}
+            tcp_path.append(tuple(float(value) for value in position))
+        try:
+            return gate(parameter_node, tcp_path)
+        except (OSError, RuntimeError, ValueError) as exc:
+            return {"status": "failed", "reason": "portal_unavailable", "message": str(exc)}
+
+    def _truncate_p3_stage_for_spindle_collision(self, context, path_by_phase, path, guard):
+        """P3 diagnostic counterpart of the spindle-housing truncation policy."""
+        if guard.get("status") != "failed" or not self._spindle_template_pair(guard.get("named_pair") or []):
+            return None
+        offset = len(path_by_phase.get("P1", ())) + len(path_by_phase.get("P2", ()))
+        first_invalid = guard.get("first_invalid_index")
+        keep = (int(first_invalid) - offset) if first_invalid is not None else -1
+        if keep < 2 or keep > len(path):
+            return None
+        shortened = tuple(path[:keep])
+        trial_paths = {**path_by_phase, "P3": shortened}
+        trial_guard = self._step6_stage_guard_evidence(context, trial_paths)
+        if trial_guard.get("status") != "passed":
+            return None
+        parameter_node = context["parameter_node"]
+        fk_ok, _message, effective = self._bridge.compute_tcp_position_world_ras_mm(
+            shortened[-1], base_transform=parameter_node.robotBaseTransform
+        )
+        if not fk_ok or effective is None:
+            return None
+        effective = tuple(float(value) for value in effective)
+        # The phase guard (authoritative; measures guide-contact penetration)
+        # accepted this shortened route, so only FK pose evidence is re-checked.
+        endpoint = self._evaluate_step6_tcp_endpoint(
+            parameter_node,
+            shortened[-1],
+            expected_tcp_world_ras_mm=effective,
+            expected_drill_axis_world_ras_unit=context["drill_axis"],
+            check_static=False,
+        )
+        if endpoint.get("status") != "passed":
+            return None
+        entry, target = context["entry"], context["target"]
+        axis = tuple(float(target[i]) - float(entry[i]) for i in range(3))
+        requested = sqrt(sum(value * value for value in axis))
+        unit = tuple(value / requested for value in axis) if requested > 0 else (0.0, 0.0, 0.0)
+        completed = sum((effective[i] - float(entry[i])) * unit[i] for i in range(3))
+        snapshot = self._logic.confirmedTaskRecord(parameter_node)
+        truncation = {
+            "policy": "spindle_housing_truncation_v1",
+            "blocking_pair": list(guard.get("named_pair") or []),
+            "first_blocked_drilling_index": keep,
+            "kept_waypoint_count": keep,
+            "drafted_waypoint_count": len(path),
+            "requested_depth_mm": float(requested),
+            "completed_depth_mm": float(completed),
+            "remaining_depth_mm": float(max(0.0, requested - completed)),
+            "effective_target_ras_mm": list(effective),
+            "original_target_ras_mm": [float(value) for value in target],
+            "unreachable_segment_ras_mm": [list(effective), [float(v) for v in target]],
+            "last_joint_positions_si": dict(shortened[-1]),
+            "task_fingerprint": str(getattr(snapshot, "snapshot_fingerprint", "") or ""),
+        }
+        return shortened, trial_paths, trial_guard, endpoint, truncation
+
     def _goal1_candidate_chain_preflight(
         self,
         parameter_node,
@@ -8971,6 +9415,28 @@ class DENTORobotWorkflowFacade:
         target: Sequence[float],
     ) -> dict[str, object]:
         """Evaluate one Stage-1 frame against the complete fixed-frame chain."""
+
+        mouth_portal = self._step6_mouth_portal_gate(
+            parameter_node, tuple(strict_plan.waypoint_joint_vectors_si or ())
+        )
+        if self._mouth_portal_blocks(mouth_portal):
+            # Empty (not None) Stage-2 plans: callers summarise every candidate's
+            # fraction/waypoints, and a None crashed Plan Approach (r10).
+            not_planned = _default_bridge.MoveItCartesianResult(
+                False, "Not planned: the mouth portal gate rejected Stage 1."
+            )
+            return {
+                "status": "BlockedMouthPortalGate",
+                "mouthPortalGate": mouth_portal,
+                "axisPlan": not_planned,
+                "terminalPlan": not_planned,
+                "drillingPlan": None,
+                "guardValid": False,
+                "guardMessage": "",
+                "firstInvalidIndex": -1,
+                "reason": "Mouth portal gate: " + str(mouth_portal.get("reason") or "failed"),
+                "score": (4, 0.0, 0.0, candidate["score"]),
+            }
 
         fixed_roll_deg = float(candidate["rollDeg"])
         fixed_rotation_ras = candidate["orientationCommitment"]["rotationRas"]
@@ -9018,10 +9484,13 @@ class DENTORobotWorkflowFacade:
         )
         target_axis_length = sqrt(sum(value * value for value in target_axis))
         if target_axis_length <= 1.0e-12:
+            not_planned = _default_bridge.MoveItCartesianResult(
+                False, "Not planned: Entry and Target do not define a drilling axis."
+            )
             return {
                 "status": "BlockedStage3Cartesian",
-                "axisPlan": None,
-                "terminalPlan": None,
+                "axisPlan": not_planned,
+                "terminalPlan": not_planned,
                 "drillingPlan": None,
                 "guardValid": False,
                 "guardMessage": "Entry and Target do not define a drilling axis.",
@@ -9283,8 +9752,34 @@ class DENTORobotWorkflowFacade:
         else:
             status = "BlockedStage3PhaseGuard"
             rank = 1
+        drilling_truncation = None
+        if status == "BlockedStage3PhaseGuard":
+            shortened, truncation_or_reason = self._truncate_drilling_for_spindle_collision(
+                parameter_node,
+                snapshot,
+                tuple(strict_plan.waypoint_joint_vectors_si)
+                + tuple(terminal_plan.waypoint_joint_vectors_si),
+                ("approach",) * stage1_count + ("terminal_contact",) * stage2_count,
+                drilling_plan,
+                stage1_count + stage2_count,
+                invalid_index,
+                (getattr(guard_status, "first_body", ""), getattr(guard_status, "second_body", "")),
+                validate_chain=validate_chain,
+                entry=snapshot.entry_ras_mm,
+                target=target,
+                revalidate=False,
+            )
+            if shortened is not None:
+                drilling_truncation = truncation_or_reason
+                drilling_plan = shortened
+                guard_valid = True
+                guard_message = shortened.message
+                status = "Complete"
+                rank = 0
         return {
             "status": status,
+            "drillingTruncation": drilling_truncation,
+            "mouthPortalGate": mouth_portal,
             "axisPlan": axis_plan,
             "terminalPlan": terminal_plan,
             "drillingPlan": drilling_plan,
@@ -9307,15 +9802,32 @@ class DENTORobotWorkflowFacade:
             **self._guide_clearance_warning_summary(guide_warnings),
             "reason": "" if guard_valid else str(guard_message),
             # Complete, guard-accepted chains outrank every partial chain.
-            # Among them, prefer the least joints-1–5 motion after PreEntry;
-            # only then use the existing Stage-1 route score as a tie-break.
+            # Operator 2026-10-03: among them prefer the deepest drilling
+            # (a spindle-truncated chain is Complete under policy 2b), then the
+            # least joints-1–5 motion after PreEntry, then the Stage-1 score.
             "score": (
                 rank,
-                0.0,
+                -self._complete_chain_drilled_depth_mm(
+                    status, drilling_truncation, drilling_plan, snapshot.entry_ras_mm, target
+                ),
                 motion_cost,
                 candidate["score"],
             ),
         }
+
+    @staticmethod
+    def _complete_chain_drilled_depth_mm(status, truncation, drilling_plan, entry, target) -> float:
+        """Drilled depth of a Complete chain, rounded to 0.01 mm; 0.0 otherwise.
+
+        Rounding keeps numerically equal depths tied so arm motion decides.
+        """
+        if status != "Complete":
+            return 0.0
+        if isinstance(truncation, Mapping):
+            return round(float(truncation.get("completed_depth_mm", 0.0)), 2)
+        requested = sqrt(sum((float(target[i]) - float(entry[i])) ** 2 for i in range(3)))
+        fraction = float(getattr(drilling_plan, "fraction", 1.0) or 0.0)
+        return round(requested * max(0.0, min(1.0, fraction)), 2)
 
     def checkPreEntryIK(self, *, progress=None) -> RobotActionResult:
         """Persist endpoint-only PreEntry IK evidence; this creates no plan."""
@@ -10124,6 +10636,69 @@ class DENTORobotWorkflowFacade:
             "guide_clearance_warnings": [dict(item) for item in warnings],
         }
 
+    def diagnoseBase(self, *, progress=None) -> RobotActionResult:
+        """Diagnose This Base (operator 2026-10-02, ``S6-BASE-DIAGNOSE``).
+
+        Runs the existing checks in order and stops at the first failure:
+        stroke reach, PreEntry endpoint, P1, P2, P3. Diagnostic only; no route
+        or preview authority and no gate change.
+        """
+        from dentobot_workflow import base_diagnosis
+
+        rows = []
+
+        def step(text):
+            if progress:
+                progress(text)
+
+        try:
+            parameter_node = self._require_context()
+            step("Diagnose 1/5: whole-stroke reach at the accepted Base")
+            stroke_check = getattr(self._logic, "step6CurrentBaseStrokeReachability", None)
+            stroke = stroke_check(parameter_node) if callable(stroke_check) else None
+            rows.append(base_diagnosis.stroke_row(stroke))
+            if rows[-1]["status"] != base_diagnosis.FAIL:
+                step("Diagnose 2/5: PreEntry endpoint IK and collision")
+                preentry = self.checkPreEntryIK(progress=progress)
+                records = ()
+                to_dict = getattr(preentry.payload, "to_dict", None)
+                if callable(to_dict):
+                    records = tuple(to_dict().get("candidate_records") or ())
+                details = dict(preentry.details or {})
+                status = str(details.get("diagnosticStatus") or "")
+                if not preentry.success and not status:
+                    status = _bounded_text(preentry.message)
+                rows.append(base_diagnosis.preentry_row(status, records))
+            for number, phase_id in ((3, "P1"), (4, "P2"), (5, "P3")):
+                if rows[-1]["status"] == base_diagnosis.FAIL:
+                    break
+                step(f"Diagnose {number}/5: {phase_id} stage check")
+                result = self.checkPlanningStage(phase_id, progress=progress)
+                outcome = result.payload if isinstance(result.payload, Mapping) else (
+                    (result.details or {}).get("stageOutcome")
+                )
+                if not isinstance(outcome, Mapping):
+                    outcome = {"diagnostic_status": "unknown", "reason": _bounded_text(result.message)}
+                rows.append(base_diagnosis.stage_row(phase_id, outcome))
+        except (RuntimeError, ValueError, OSError, TypeError, KeyError, AttributeError) as exc:
+            done = {row["check"] for row in rows}
+            pending = next(
+                (check for check in base_diagnosis.CHECK_ORDER if check not in done), None
+            )
+            if pending is not None:
+                rows.append(base_diagnosis._row(
+                    pending, base_diagnosis.FAIL, f"Check could not run: {_bounded_text(str(exc))}", "unknown"
+                ))
+        summary = base_diagnosis.summarize(rows)
+        self._last_base_diagnosis = summary
+        return RobotActionResult(
+            summary["status"] != base_diagnosis.FAIL,
+            "base_diagnosis_" + summary["status"].lower().replace(" ", "_"),
+            "Diagnose This Base — " + summary["verdict"],
+            details={"baseDiagnosis": summary},
+            payload=summary,
+        )
+
     def checkPlanningStage(
         self,
         phase_id: str,
@@ -10218,13 +10793,15 @@ class DENTORobotWorkflowFacade:
                 requested_goal = dict(candidate["positions"])
                 if progress:
                     progress("P1: planning Task Home to the selected PreEntry endpoint")
-                plan = self._bridge.plan_moveit_joint_goal(
-                    start_joint_positions_si=start,
-                    goal_joint_positions_si=requested_goal,
-                    refresh_planning_scene=True,
-                    planning_attempts=self._joint_planning_attempts,
-                    allowed_planning_time_sec=self._joint_planning_time_sec,
-                    planner_id=self._joint_planner_id,
+                plan = self._plan_home_to_preentry_with_corridor(
+                    parameter_node,
+                    start,
+                    requested_goal,
+                    pre_entry=context["pre_entry"],
+                    entry=context["entry"],
+                    target=context["target"],
+                    fixed_rotation_ras=candidate["orientation"].get("rotationRas"),
+                    roll_deg=float(candidate["roll_deg"]),
                     planner_context="step6_diagnostic_p1_home_to_preentry",
                 )
                 path = tuple(
@@ -10351,6 +10928,11 @@ class DENTORobotWorkflowFacade:
                     end_state,
                     expected_tcp_world_ras_mm=expected_tcp,
                     expected_drill_axis_world_ras_unit=context["drill_axis"],
+                    # Burr may touch the target tooth at Entry and while drilling
+                    # (same pair the native contact-phase guard allows).
+                    allowed_contact_pairs=self._step6_contact_phase_allowed_pairs(
+                        context["parameter_node"], phase_id
+                    ),
                 )
                 if end_state is not None
                 else {"status": "not_reached", "position_residual_mm": None, "drilling_axis_residual_deg": None}
@@ -10358,12 +10940,36 @@ class DENTORobotWorkflowFacade:
             if phase_id == "P1":
                 path_by_phase = {"P1": path}
             guard = self._step6_stage_guard_evidence(context, path_by_phase)
+            if phase_id == "P3":
+                shortened_stage = self._truncate_p3_stage_for_spindle_collision(
+                    context, path_by_phase, path, guard
+                )
+                if shortened_stage is not None:
+                    path, path_by_phase, guard, endpoint_evaluation, truncation = shortened_stage
+                    end_state = dict(path[-1])
+                    plan_evidence.update({
+                        "waypoint_count": len(path),
+                        "completion_fraction": truncation["completed_depth_mm"]
+                        / truncation["requested_depth_mm"]
+                        if truncation["requested_depth_mm"] > 0 else 0.0,
+                        "path_joint_positions_si": [dict(point) for point in path],
+                        "drilling_truncation": truncation,
+                    })
+                    self._drilling_truncation = dict(truncation)
+                    show_remainder = getattr(self._bridge, "show_unreachable_drilling_remainder", None)
+                    if callable(show_remainder):
+                        show_remainder(*truncation["unreachable_segment_ras_mm"])
+            mouth_portal = (
+                self._step6_mouth_portal_gate(context["parameter_node"], path)
+                if phase_id == "P1" and path
+                else None
+            )
             identity_after = self.plannerComparisonIdentity()
             identity_current = identity_after == identity
             if not identity_current:
                 self._step6_preentry_candidate_cache = None
                 self._step6_stage_diagnostic_chain = {}
-            plan_passed = bool(plan.success and path)
+            plan_passed = bool(plan.success and path) and not self._mouth_portal_blocks(mouth_portal)
             if not identity_current or endpoint_evaluation.get("status") == "unknown" or guard.get("status") == "unknown":
                 diagnostic_status = "unknown"
             elif not plan_passed or endpoint_evaluation.get("status") != "passed" or guard.get("status") != "passed":
@@ -10380,6 +10986,11 @@ class DENTORobotWorkflowFacade:
                 if diagnostic_status == "passed"
                 else "Input identity changed during planning; retained measurements are stale."
                 if not identity_current
+                else (
+                    "Mouth portal gate failed: "
+                    + str(mouth_portal.get("reason") or mouth_portal.get("message") or "")
+                )
+                if self._mouth_portal_blocks(mouth_portal)
                 else str(plan.message or guard.get("reason") or "Stage checks did not pass.")
             )
             guard_invalid = guard.get("first_invalid_requested")
@@ -10430,6 +11041,7 @@ class DENTORobotWorkflowFacade:
                 "endpoint_fk": endpoint_evaluation,
                 "phase_guard": guard,
                 "plan": plan_evidence,
+                "mouth_portal_gate": mouth_portal,
                 "path_joint_positions_si": [dict(point) for point in path],
                 "path_fingerprint": path_fingerprint,
                 "endpoint_fingerprint": endpoint_fingerprint,
@@ -10499,6 +11111,28 @@ class DENTORobotWorkflowFacade:
                 details={"phase_id": phase_id, "status": "unknown"},
             )
 
+    def _step6_contact_phase_allowed_pairs(self, parameter_node, phase_id: str) -> tuple:
+        """Burr<->target-tooth only, and only for P2 (Entry) and P3 (drilling)."""
+        if phase_id not in ("P2", "P3"):
+            return ()
+        name_of = getattr(self._logic, "step6TargetCollisionObjectName", None)
+        target = str(name_of(parameter_node) or "") if callable(name_of) else ""
+        return (("burr", target),) if target else ()
+
+    @staticmethod
+    def _allowed_only_static_contacts(message: str, allowed_contact_pairs) -> Optional[list]:
+        """Return reported contacts if all are allowed pairs, else None."""
+        allowed = {frozenset((str(a), str(b))) for a, b in allowed_contact_pairs}
+        if not allowed or "contacts=" not in message or "more)" in message:
+            return None
+        pairs = []
+        for item in message.split("contacts=", 1)[1].split(", "):
+            bodies = item.strip().split("<->")
+            if len(bodies) != 2 or frozenset(bodies) not in allowed:
+                return None
+            pairs.append(bodies)
+        return pairs or None
+
     def _evaluate_step6_tcp_endpoint(
         self,
         parameter_node,
@@ -10507,8 +11141,16 @@ class DENTORobotWorkflowFacade:
         expected_tcp_world_ras_mm: Optional[Sequence[float]] = None,
         expected_drill_axis_world_ras_unit: Optional[Sequence[float]] = None,
         check_static: bool = True,
+        allowed_contact_pairs: Sequence[Sequence[str]] = (),
     ) -> dict[str, object]:
-        """Evaluate static validity and FK, plus exact world-RAS endpoint evidence when supplied."""
+        """Evaluate static validity and FK, plus exact world-RAS endpoint evidence when supplied.
+
+        ``allowed_contact_pairs`` (operator policy 2026-10-02): for terminal
+        contact/drilling endpoints the burr may touch the target tooth. If MoveIt
+        rejects the static state and every reported contact is an allowed pair
+        (and the contact list is not truncated), the endpoint continues to FK as
+        ``allowed_contact``. Any other contact still fails.
+        """
 
         evaluation: dict[str, object] = {
             "step6_tcp_endpoint_evaluation_schema_version": "1.0",
@@ -10561,11 +11203,18 @@ class DENTORobotWorkflowFacade:
                 )
                 return evaluation
             if not valid:
-                evaluation["status"] = "failed"
-                evaluation["collision"] = {"status": "unknown", "pairs": None}
-                evaluation["fk"]["message"] = "FK not reached: static state invalid."
-                return evaluation
-            evaluation["collision"] = {"status": "clear", "pairs": []}
+                contact_pairs = self._allowed_only_static_contacts(
+                    str(message or ""), allowed_contact_pairs
+                )
+                if contact_pairs is None:
+                    evaluation["status"] = "failed"
+                    evaluation["collision"] = {"status": "unknown", "pairs": None}
+                    evaluation["fk"]["message"] = "FK not reached: static state invalid."
+                    return evaluation
+                evaluation["static_state_validity"]["status"] = "allowed_contact"
+                evaluation["collision"] = {"status": "allowed_contact", "pairs": contact_pairs}
+            else:
+                evaluation["collision"] = {"status": "clear", "pairs": []}
 
         fk_ok, fk_message, raw_pose = self._bridge.compute_tcp_pose_world_ras_mm(
             positions_si,
@@ -11259,6 +11908,22 @@ class DENTORobotWorkflowFacade:
             "shadow_query_authorizing": False,
         }
 
+    def _goal1_identity_fields(self) -> dict[str, object]:
+        """Input identity of a planned route (same fields as PreEntry IK evidence)."""
+        try:
+            identity = self.plannerComparisonIdentity()
+        except (RuntimeError, ValueError, KeyError, TypeError, AttributeError):
+            return {}
+        return {
+            "task_identity_fingerprint": identity.get("task"),
+            "base_identity_fingerprint": identity.get("base"),
+            "home_identity_fingerprint": identity.get("home"),
+            "trajectory_identity_fingerprint": identity.get("trajectory"),
+            "robot_profile_identity_fingerprint": identity.get("robot_profile"),
+            "collision_scene_identity_fingerprint": identity.get("collision_audit"),
+            "branch_id": identity.get("branch_id"),
+        }
+
     def _persist_goal1_diagnostic(
         self,
         parameter_node,
@@ -11446,6 +12111,9 @@ class DENTORobotWorkflowFacade:
                 },
             ),
             full_task_outcome={
+                # r16 (2026-10-03): stamp the planned route with its input
+                # identity, like PreEntry IK evidence, for cross-case traceability.
+                **self._goal1_identity_fields(),
                 "status": warning_status,
                 "selected_candidate_index": int(selected_index),
                 "drill_tool_frame_policy": DRILL_TOOL_FRAME_POLICY,
@@ -11675,6 +12343,7 @@ class DENTORobotWorkflowFacade:
             self.stopPreview()
             self._motion_plan = None
             self._preflight_drilling_plan = None
+            self._drilling_truncation = None
             self._preflight_task_fingerprint = ""
             self._preflight_orientation_commitment = {}
             self._preflight_complete_approach_evidence = None
@@ -11694,16 +12363,19 @@ class DENTORobotWorkflowFacade:
                     "Task Home is not validated in the current ROS/MoveIt session. "
                     "Return to 6.2 and apply it before planning Approach."
                 )
-            if not self.workspaceRuntimeValidated(parameter_node):
-                raise ValueError(
-                    "Workspace evidence is not validated in the current ROS/MoveIt "
-                    "session. Return to 6.3, regenerate it, review its envelope, "
-                    "and confirm the task again."
-                )
-            if not self._logic.assistedTaskLimitsReviewed(parameter_node):
-                raise ValueError(
-                    "Review the assisted workspace limits in 6.3 before planning Approach."
-                )
+            # Operator 2026-10-02: the 6.3 workspace and its limit review are an
+            # optional visual. The prerequisite is that the accepted Base reaches
+            # the whole PreEntry->Target stroke kinematically.
+            stroke_check = getattr(self._logic, "step6CurrentBaseStrokeReachability", None)
+            if callable(stroke_check):
+                stroke = stroke_check(parameter_node)
+                if not stroke.get("reachable"):
+                    raise ValueError(
+                        "The accepted Base cannot reach the whole PreEntry-to-Target "
+                        f"drilling stroke (first unreachable station: "
+                        f"{stroke.get('first_failed_station')}). Use Find Reachable Base "
+                        "in 6.1, accept it, and confirm the task again."
+                    )
             snapshot = self._logic.confirmedTaskRecord(parameter_node)
             guide_fit = self._guide_fit_evidence(parameter_node)
             tool_insertion = self._tool_insertion_evidence(
@@ -11883,6 +12555,13 @@ class DENTORobotWorkflowFacade:
             diagnostic_records: list[dict[str, object]] = []
             planned_candidate_routes: list[dict[str, object]] = []
             clearance_candidate_routes: list[dict[str, object]] = []
+            candidate_total = min(len(ik_candidates), GOAL1_MAX_PLANNED_IK_CANDIDATES)
+            self._candidate_evaluation = {
+                "mode": "dev_first_complete" if self._dev_first_complete_route else "all",
+                "total": candidate_total,
+                "evaluated": candidate_total,
+                "notEvaluated": 0,
+            }
             for candidate_index, candidate in enumerate(
                 ik_candidates[:GOAL1_MAX_PLANNED_IK_CANDIDATES]
             ):
@@ -11899,17 +12578,20 @@ class DENTORobotWorkflowFacade:
                         }
                     )
                     continue
-                candidate_plan = self._bridge.plan_moveit_joint_goal(
-                    start_joint_positions_si=home_positions,
-                    goal_joint_positions_si=candidate["positions"],
-                    refresh_planning_scene=(candidate_index == 0),
-                    planning_attempts=self._joint_planning_attempts,
-                    allowed_planning_time_sec=self._joint_planning_time_sec,
-                    planner_id=self._joint_planner_id,
+                candidate_plan = self._plan_home_to_preentry_with_corridor(
+                    parameter_node,
+                    home_positions,
+                    candidate["positions"],
+                    pre_entry=pre_entry,
+                    entry=snapshot.entry_ras_mm,
+                    target=snapshot.target_ras_mm,
+                    fixed_rotation_ras=candidate["orientationCommitment"]["rotationRas"],
+                    roll_deg=float(candidate["rollDeg"]),
                     planner_context=(
                         "task_home_to_preentry_"
                         + str(candidate.get("routeType") or "direct")
                     ),
+                    refresh_planning_scene=(candidate_index == 0),
                 )
                 if getattr(candidate_plan, "effective_planner_id", ""):
                     self._effective_joint_planner_id = (
@@ -11996,6 +12678,12 @@ class DENTORobotWorkflowFacade:
                         "diagnosticIndex": len(diagnostic_records) - 1,
                     }
                     planned_candidate_routes.append(route)
+                    if self._dev_first_complete_route and chain["status"] == "Complete":
+                        self._candidate_evaluation.update(
+                            evaluated=candidate_index + 1,
+                            notEvaluated=candidate_total - candidate_index - 1,
+                        )
+                        break
                     if chain["status"] != "Complete":
                         plan_failures.append(
                             {
@@ -12764,6 +13452,46 @@ class DENTORobotWorkflowFacade:
                     preflight_phases,
                     task_fingerprint=snapshot.snapshot_fingerprint,
                 )
+                drilling_offset = len(preflight_waypoints) - len(
+                    drilling_preflight.waypoint_joint_vectors_si
+                )
+                if not guard_valid and int(invalid_index) >= drilling_offset:
+                    # Operator policy 2b (2026-10-02) also applies to the final
+                    # composed chain (Stage 1 + axis + Stage 2 + drilling, r7):
+                    # a spindle-housing/template block truncates drilling.
+                    blocker = self._bridge.last_task_joint_status()
+                    shortened, truncation_or_reason = self._truncate_drilling_for_spindle_collision(
+                        parameter_node,
+                        snapshot,
+                        preflight_waypoints[:drilling_offset],
+                        preflight_phases[:drilling_offset],
+                        drilling_preflight,
+                        drilling_offset,
+                        invalid_index,
+                        (getattr(blocker, "first_body", ""), getattr(blocker, "second_body", "")),
+                        validate_chain=validate_chain,
+                        entry=snapshot.entry_ras_mm,
+                        target=snapshot.target_ras_mm,
+                    )
+                    if shortened is not None:
+                        drilling_preflight = shortened
+                        if selected_chain_evaluation is not None:
+                            selected_chain_evaluation = {
+                                **selected_chain_evaluation,
+                                "drillingTruncation": truncation_or_reason,
+                                "drillingPlan": shortened,
+                            }
+                        preflight_waypoints = (
+                            preflight_waypoints[:drilling_offset]
+                            + tuple(shortened.waypoint_joint_vectors_si)
+                        )
+                        preflight_phases = (
+                            preflight_phases[:drilling_offset]
+                            + ("drilling",) * len(shortened.waypoint_joint_vectors_si)
+                        )
+                        guard_valid, guard_message, invalid_index = True, shortened.message, -1
+                    else:
+                        guard_message = f"{guard_message} Truncation not applied: {truncation_or_reason}"
                 if not guard_valid:
                     raise RuntimeError(
                         guard_message
@@ -12837,6 +13565,19 @@ class DENTORobotWorkflowFacade:
                 self._preflight_drilling_plan = drilling_preflight
                 self._preflight_task_fingerprint = snapshot.snapshot_fingerprint
                 self._preflight_orientation_commitment = selected_orientation
+                truncation = (
+                    selected_chain_evaluation.get("drillingTruncation")
+                    if selected_chain_evaluation is not None
+                    else None
+                )
+                self._drilling_truncation = dict(truncation) if truncation else None
+                if self._drilling_truncation:
+                    show_remainder = getattr(
+                        self._bridge, "show_unreachable_drilling_remainder", None
+                    )
+                    if callable(show_remainder):
+                        start, end = self._drilling_truncation["unreachable_segment_ras_mm"]
+                        show_remainder(start, end)
             # The successful Goal 1 route is the operator's current diagnostic
             # evidence.  A failed drilling preflight remains an explicit
             # deferred stage-3 outcome and never authorizes Goal 2.
@@ -12877,7 +13618,8 @@ class DENTORobotWorkflowFacade:
             plan = PhasePlan(
                 success=True,
                 message=(
-                    f"Approach ready: {len(strict_waypoints)} free-space, "
+                    _dev_fast_mode_stamp(self._candidate_evaluation)
+                    + f"Approach ready: {len(strict_waypoints)} free-space, "
                     f"{len(terminal_waypoints)} fixed-axis Stage-2 checkpoint(s) "
                     f"from {source_count} MoveIt samples. "
                     "The independent phase guard keeps all non-tool collision "
@@ -12892,12 +13634,21 @@ class DENTORobotWorkflowFacade:
                         else ". "
                     )
                     + (
-                        "The complete Entry-to-Target drilling line passed the "
-                        "canonical TCP reachability preflight."
+                        (
+                            _drilling_truncation_warning(self._drilling_truncation)
+                            if self._drilling_truncation
+                            else "The complete Entry-to-Target drilling line passed the "
+                            "canonical TCP reachability preflight."
+                        )
                         if drilling_preflight is not None
                         else (
                             "Full-task status is Blocked at Stage 3; this partial "
                             "route is display-only evidence and cannot be previewed."
+                            + (
+                                f" Stage 3 reason: {_bounded_text(drilling_preflight_error)}"
+                                if drilling_preflight_error
+                                else ""
+                            )
                         )
                     )
                     + " " + str(tool_insertion["message"])
@@ -13033,6 +13784,8 @@ class DENTORobotWorkflowFacade:
                         )
                     ),
                     "drillingPreflightError": drilling_preflight_error,
+                    "drillingTruncation": self._drilling_truncation,
+                    "candidateEvaluation": dict(self._candidate_evaluation),
                     "fullTaskStatus": (
                         "CompletedWithWarnings"
                         if drilling_preflight is not None
@@ -13169,7 +13922,12 @@ class DENTORobotWorkflowFacade:
             plan = PhasePlan(
                 success=True,
                 message=(
-                    f"Drill preview ready: {len(waypoints)} guarded Entry-to-Target "
+                    (
+                        _drilling_truncation_warning(self._drilling_truncation) + " "
+                        if self._drilling_truncation
+                        else ""
+                    )
+                    + f"Drill preview ready: {len(waypoints)} guarded Entry-to-Target "
                     f"checkpoint(s) from {len(source_waypoints)} MoveIt samples. "
                     "The five-DOF arm constrains the drilling axis; axial roll remains unconstrained. "
                     "Solver collision avoidance is disabled for this exploratory "
@@ -13215,6 +13973,7 @@ class DENTORobotWorkflowFacade:
                 details={
                     "waypointCount": len(waypoints),
                     "sourceWaypointCount": len(source_waypoints),
+                    "drillingTruncation": self._drilling_truncation,
                     "cartesianFraction": float(result.fraction),
                     "coordinateFrame": str(result.coordinate_frame),
                     "startPositionErrorMm": result.start_position_error_mm,
@@ -14927,6 +15686,22 @@ class DENTORobotWorkflowFacade:
 
             if not workspace_plan_is_current():
                 return fail("workspace_context_changed", "Workspace inputs changed; the provisional cloud was not promoted.")
+            # Visual reach envelope (operator 2026-10-02; display only).
+            reach_envelope = {"status": "unavailable"}
+            envelope_builder = getattr(self._logic, "updateStep6ReachEnvelope", None)
+            if callable(envelope_builder):
+                try:
+                    reach_envelope = envelope_builder(
+                        parameter_node,
+                        [sample.tcp_base_mm for sample in runtime_accepted],
+                        [
+                            runtime_accepted[index].tcp_base_mm
+                            for index in home_indices
+                            if sample_evidence[index]["home_connectivity"].get("status") == "HomeConnected"
+                        ],
+                    )
+                except Exception as exc:  # display aid must never fail the workspace
+                    reach_envelope = {"status": "error", "reason": _bounded_text(exc)}
             proposal_started = monotonic()
             proposal = self._logic.proposeAssistedTaskLimits(parameter_node, report)
             proposal_payload = proposal.to_dict()
@@ -15037,9 +15812,11 @@ class DENTORobotWorkflowFacade:
                     f"{counts['homeConnectivityEvaluatedCount']}. "
                     f"Task axis: {axis_status}; static-valid yield {yield_fraction:.1%}. "
                     "The ROI bounds sampling only; samples do not prove exact task, route, or guard feasibility."
+                    + self._reach_envelope_sentence(reach_envelope)
                 ),
                 details=details(
                     {
+                        "reachEnvelope": reach_envelope,
                         "requestedCount": counts["roiCandidateCount"],
                         "acceptedCount": report.accepted_count,
                         "proposalReviewed": bool(proposal.reviewed),

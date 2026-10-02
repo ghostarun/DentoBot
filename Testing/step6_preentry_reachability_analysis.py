@@ -14,203 +14,29 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+import sys
 from pathlib import Path
 
 import numpy as np
 
-POSITION_TOLERANCE_M = 0.00025
-AXIS_TOLERANCE_RAD = math.radians(0.5)
-NATIVE_MAX_ITERATIONS = 120
-DAMPING = 1.0e-3
-PRISMATIC_STEP_M = 0.002
-REVOLUTE_STEP_RAD = 0.10
-TIP_LINK = "dentobot_drill_tcp"
-ROOT_LINK = "base_link"
+_PYTHON = Path(__file__).resolve().parents[1] / "DENTOWorkflow/Resources/Python"
+if str(_PYTHON) not in sys.path:
+    sys.path.insert(0, str(_PYTHON))
+
+# The kinematic model and native-replica solver live in production code so the
+# Step 6.1 Base placement search and this offline analysis share one copy.
+from dentobot_workflow.base_placement_search import (  # noqa: E402
+    AXIS_TOLERANCE_RAD,
+    NATIVE_MAX_ITERATIONS,
+    POSITION_TOLERANCE_M,
+    Chain,
+    Joint,
+    joint_margins as margins,
+    residuals,
+    solve,
+)
+
 J2 = "link-2_Slider-2"
-
-
-def rpy_matrix(roll: float, pitch: float, yaw: float) -> np.ndarray:
-    cr, sr = math.cos(roll), math.sin(roll)
-    cp, sp = math.cos(pitch), math.sin(pitch)
-    cy, sy = math.cos(yaw), math.sin(yaw)
-    rx = np.array([[1, 0, 0], [0, cr, -sr], [0, sr, cr]])
-    ry = np.array([[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]])
-    rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]])
-    return rz @ ry @ rx
-
-
-def axis_angle_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
-    x, y, z = axis
-    c, s, v = math.cos(angle), math.sin(angle), 1.0 - math.cos(angle)
-    return np.array([
-        [x * x * v + c, x * y * v - z * s, x * z * v + y * s],
-        [y * x * v + z * s, y * y * v + c, y * z * v - x * s],
-        [z * x * v - y * s, z * y * v + x * s, z * z * v + c],
-    ])
-
-
-def homogeneous(rotation: np.ndarray, translation) -> np.ndarray:
-    matrix = np.eye(4)
-    matrix[:3, :3] = rotation
-    matrix[:3, 3] = translation
-    return matrix
-
-
-@dataclass(frozen=True)
-class Joint:
-    name: str
-    kind: str
-    origin: np.ndarray
-    axis: np.ndarray
-    lower: float
-    upper: float
-
-
-class Chain:
-    """Serial chain from ``root`` to ``tip`` parsed from a URDF."""
-
-    def __init__(self, joints: list[Joint]):
-        self.joints = joints
-        self.active = [j for j in joints if j.kind in ("revolute", "prismatic", "continuous")]
-        self.names = [j.name for j in self.active]
-
-    @classmethod
-    def from_urdf(cls, path: Path, root: str = ROOT_LINK, tip: str = TIP_LINK) -> "Chain":
-        robot = ET.parse(path).getroot()
-        by_child = {}
-        for element in robot.findall("joint"):
-            child = element.find("child").get("link")
-            parent = element.find("parent").get("link")
-            origin = element.find("origin")
-            xyz = [float(v) for v in (origin.get("xyz", "0 0 0") if origin is not None else "0 0 0").split()]
-            rpy = [float(v) for v in (origin.get("rpy", "0 0 0") if origin is not None else "0 0 0").split()]
-            axis_element = element.find("axis")
-            axis = np.array([float(v) for v in axis_element.get("xyz").split()]) if axis_element is not None else np.array([0.0, 0.0, 1.0])
-            axis = axis / np.linalg.norm(axis)
-            limit = element.find("limit")
-            kind = element.get("type")
-            lower = float(limit.get("lower", "-inf")) if limit is not None and kind != "continuous" else -math.inf
-            upper = float(limit.get("upper", "inf")) if limit is not None and kind != "continuous" else math.inf
-            by_child[child] = (parent, Joint(element.get("name"), kind, homogeneous(rpy_matrix(*rpy), xyz), axis, lower, upper))
-        joints, link = [], tip
-        while link != root:
-            if link not in by_child:
-                raise ValueError(f"URDF has no joint chain from {root} to {tip}")
-            parent, joint = by_child[link]
-            joints.append(joint)
-            link = parent
-        return cls(list(reversed(joints)))
-
-    def bounds(self, relax: frozenset[str] = frozenset()) -> tuple[np.ndarray, np.ndarray]:
-        lower = np.array([-math.inf if j.name in relax else j.lower for j in self.active])
-        upper = np.array([math.inf if j.name in relax else j.upper for j in self.active])
-        return lower, upper
-
-    def forward(self, q: np.ndarray):
-        """Return tip transform and per-active-joint (world axis, origin) pairs."""
-        transform = np.eye(4)
-        frames = []
-        index = 0
-        for joint in self.joints:
-            transform = transform @ joint.origin
-            if joint in self.active:
-                world_axis = transform[:3, :3] @ joint.axis
-                frames.append((world_axis, transform[:3, 3].copy(), joint.kind))
-                if joint.kind == "prismatic":
-                    motion = homogeneous(np.eye(3), joint.axis * q[index])
-                else:
-                    motion = homogeneous(axis_angle_matrix(joint.axis, q[index]), [0, 0, 0])
-                transform = transform @ motion
-                index += 1
-        return transform, frames
-
-    def jacobian(self, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        tip, frames = self.forward(q)
-        position = tip[:3, 3]
-        jac = np.zeros((6, len(self.active)))
-        for column, (axis, origin, kind) in enumerate(frames):
-            if kind == "prismatic":
-                jac[:3, column] = axis
-            else:
-                jac[:3, column] = np.cross(axis, position - origin)
-                jac[3:, column] = axis
-        return tip, jac
-
-
-def clamp(chain: Chain, q: np.ndarray, lower: np.ndarray, upper: np.ndarray) -> np.ndarray:
-    q = np.minimum(np.maximum(q, lower), upper)
-    for index, joint in enumerate(chain.active):
-        if joint.kind == "continuous" and math.isinf(lower[index]):
-            q[index] = math.atan2(math.sin(q[index]), math.cos(q[index]))
-    return q
-
-
-def residuals(chain: Chain, q, target_position, target_axis) -> tuple[float, float]:
-    tip, _ = chain.forward(np.asarray(q, dtype=float))
-    axis = tip[:3, 2] / np.linalg.norm(tip[:3, 2])
-    position_error = float(np.linalg.norm(target_position - tip[:3, 3]))
-    axis_error = float(math.acos(max(-1.0, min(1.0, float(axis @ target_axis)))))
-    return position_error, axis_error
-
-
-def solve(chain: Chain, seed, target_position, target_axis, *, iterations=NATIVE_MAX_ITERATIONS,
-          relax: frozenset[str] = frozenset()) -> dict:
-    """Native-identical DLS position+axis solve; returns best state and termination."""
-    lower, upper = chain.bounds(relax)
-    q = clamp(chain, np.array(seed, dtype=float), lower, upper)
-    projector = np.eye(3) - np.outer(target_axis, target_axis)
-    best = {"score": math.inf}
-    termination = "iteration_limit"
-    count = 0
-    for iteration in range(iterations):
-        count = iteration + 1
-        tip, jac = chain.jacobian(q)
-        axis = tip[:3, 2] / np.linalg.norm(tip[:3, 2])
-        position_error = target_position - tip[:3, 3]
-        p_err = float(np.linalg.norm(position_error))
-        a_err = float(math.acos(max(-1.0, min(1.0, float(axis @ target_axis)))))
-        score = (p_err / POSITION_TOLERANCE_M) ** 2 + (a_err / AXIS_TOLERANCE_RAD) ** 2
-        if score < best["score"]:
-            best = {"score": score, "q": q.copy(), "position_m": p_err, "axis_rad": a_err}
-        if p_err <= POSITION_TOLERANCE_M and a_err <= AXIS_TOLERANCE_RAD:
-            termination = "converged"
-            break
-        task_jac = np.vstack([jac[:3] / POSITION_TOLERANCE_M, projector @ jac[3:] / AXIS_TOLERANCE_RAD])
-        task_err = np.concatenate([position_error / POSITION_TOLERANCE_M,
-                                   np.cross(axis, target_axis) / AXIS_TOLERANCE_RAD])
-        normal = task_jac.T @ task_jac + DAMPING ** 2 * np.eye(len(q))
-        delta = np.linalg.solve(normal, task_jac.T @ task_err)
-        if not np.all(np.isfinite(delta)):
-            termination = "nonfinite_step"
-            break
-        scale = 1.0
-        for index, joint in enumerate(chain.active):
-            limit = PRISMATIC_STEP_M if joint.kind == "prismatic" else REVOLUTE_STEP_RAD
-            if abs(delta[index]) > limit:
-                scale = min(scale, limit / abs(delta[index]))
-        if np.linalg.norm(delta) * scale < 1.0e-12:
-            termination = "stalled"
-            break
-        q = clamp(chain, q + scale * delta, lower, upper)
-    return {
-        "termination": termination,
-        "iterations": count,
-        "q": [float(v) for v in best["q"]],
-        "position_residual_mm": best["position_m"] * 1000.0,
-        "axis_residual_deg": math.degrees(best["axis_rad"]),
-    }
-
-
-def margins(chain: Chain, q) -> dict[str, float]:
-    out = {}
-    for joint, value in zip(chain.active, q):
-        if joint.kind == "continuous":
-            continue
-        scale = 1000.0 if joint.kind == "prismatic" else 180.0 / math.pi
-        out[joint.name] = min(value - joint.lower, joint.upper - value) * scale
-    return out
 
 
 def multi_seed(chain: Chain, target_position, target_axis, seeds, *, iterations, relax, rng, random_count):

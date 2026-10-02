@@ -196,13 +196,22 @@ def _wait_for_phase_completion(
         process_events(0.05)
 
 
-def _endpoint_fk_observation(bridge, parameter_node, session, joints_si, *, phase):
+def _endpoint_fk_observation(bridge, parameter_node, session, joints_si, *, phase, drilling_truncation=None):
     outcome = session.get("full_task_outcome")
     conditioning = outcome.get("target_conditioning") if isinstance(outcome, Mapping) else None
     if not isinstance(conditioning, Mapping) or not isinstance(outcome, Mapping):
         raise ValueError(f"{phase} endpoint FK has no persisted target conditioning")
     endpoint_key = "entry_world_ras_mm" if phase == "approach" else "target_world_ras_mm"
     expected_position = conditioning.get(endpoint_key)
+    drafted_target = expected_position
+    endpoint_kind = "entry" if phase == "approach" else "drafted_target"
+    # Policy 2b (2026-10-02): a spindle-truncated drilling plan ends at its
+    # effective target; the drafted remainder is reported, not reached (r16).
+    if phase == "drilling" and isinstance(drilling_truncation, Mapping) and (
+        drilling_truncation.get("effective_target_ras_mm") is not None
+    ):
+        expected_position = drilling_truncation["effective_target_ras_mm"]
+        endpoint_kind = "effective_truncated_target"
     expected_axis = outcome.get("tool_axis_ras")
     if (
         not isinstance(expected_position, (tuple, list))
@@ -256,6 +265,9 @@ def _endpoint_fk_observation(bridge, parameter_node, session, joints_si, *, phas
         "fk_message": str(fk_message or ""),
         "accepted_joints_si": dict(joints_si),
         "expected_endpoint_world_ras_mm": expected_position,
+        "expected_endpoint_kind": endpoint_kind,
+        "drafted_endpoint_world_ras_mm": drafted_target,
+        "drilling_truncation": full_chain._jsonable(drilling_truncation) if phase == "drilling" else None,
         "actual_pose_world_ras_mm": pose,
         "expected_tool_axis_ras": expected_axis,
         "position_residual_mm": position_error,
@@ -365,7 +377,8 @@ def _verify_phase_result(
     ):
         raise ValueError(f"{phase} endpoint is not attached to the same current diagnostic session")
     fk = _endpoint_fk_observation(
-        bridge, parameter_node, session, snapshot["joints_si"]["accepted"], phase=phase
+        bridge, parameter_node, session, snapshot["joints_si"]["accepted"], phase=phase,
+        drilling_truncation=getattr(facade, "drillingTruncation", None),
     )
     return {
         "native_status": full_chain._jsonable(status),
@@ -428,6 +441,7 @@ def run_complete_cycles(
     capture_callback,
     joint_names,
     cycles=2,
+    click_guard=None,
 ) -> dict[str, object]:
     """Run exactly two button-driven Approach→Drill→Return Home cycles.
 
@@ -454,6 +468,14 @@ def run_complete_cycles(
     saved_speed_index = None
     speed = getattr(panel, "previewSpeedCombo", None)
     stage_for_failure = "preconditions"
+
+    def press(button, name, substep):
+        # Each action is owned by one Step 6 substep; enter it first (r12).
+        full_chain._enter_substep(widget, panel, substep, process_events)
+        if click_guard is None:
+            button.click()
+        else:
+            click_guard(button, name)
 
     try:
         if isinstance(cycles, bool) or cycles != 2:
@@ -557,7 +579,7 @@ def run_complete_cycles(
             before_plan = full_chain._snapshot(facade, bridge, canonical_names)
             if not full_chain._button_enabled(panel.planApproachButton):
                 raise ValueError("production Plan Guarded Approach is disabled")
-            panel.planApproachButton.click()
+            press(panel.planApproachButton, "plan_guarded_approach", full_chain.STEP6_PLANNING_SUBSTEP)
             evidence["button_invocations"]["plan_guarded_approach"] += 1
             cycle["button_invocations"]["plan_guarded_approach"] += 1
             process_events(0.05)
@@ -586,7 +608,7 @@ def run_complete_cycles(
             chain = full_chain._require_complete_chain(
                 facade, panel, parameter_node, identity, bridge
             )
-            if approach_label["dentobot_state"] not in (None, "ok"):
+            if approach_label["dentobot_state"] not in full_chain.ok_states(facade):
                 raise ValueError("production Plan Guarded Approach status reports failure")
             approach_plan = facade.motionPlan
             approach_plan_evidence = _plan_evidence(
@@ -651,7 +673,7 @@ def run_complete_cycles(
             if not full_chain._button_enabled(panel.previewApproachButton):
                 raise ValueError("production Preview Approach button is disabled")
             phase_start = time.monotonic()
-            panel.previewApproachButton.click()
+            press(panel.previewApproachButton, "preview_approach", full_chain.STEP6_PREVIEW_SUBSTEP)
             evidence["button_invocations"]["preview_approach"] += 1
             cycle["button_invocations"]["preview_approach"] += 1
             process_events(0.05)
@@ -703,7 +725,7 @@ def run_complete_cycles(
             stage_for_failure = f"cycle_{cycle_number}_prepare_drill"
             if not full_chain._button_enabled(panel.planDrillingButton):
                 raise ValueError("production Prepare Drill Preview button is disabled after Approach")
-            panel.planDrillingButton.click()
+            press(panel.planDrillingButton, "prepare_drill_preview", full_chain.STEP6_PLANNING_SUBSTEP)
             evidence["button_invocations"]["prepare_drill_preview"] += 1
             cycle["button_invocations"]["prepare_drill_preview"] += 1
             process_events(0.05)
@@ -721,7 +743,7 @@ def run_complete_cycles(
             )
             drilling_plan = facade.motionPlan
             drilling_label = full_chain._label(panel.drillingStatusLabel)
-            if drilling_label["dentobot_state"] not in (None, "ok"):
+            if drilling_label["dentobot_state"] not in full_chain.ok_states(facade):
                 raise ValueError("production Prepare Drill Preview status reports failure")
             drill_plan_evidence = _plan_evidence(
                 drilling_plan,
@@ -760,7 +782,7 @@ def run_complete_cycles(
             if not full_chain._button_enabled(panel.previewDrillingButton):
                 raise ValueError("production Preview Drill button is disabled")
             phase_start = time.monotonic()
-            panel.previewDrillingButton.click()
+            press(panel.previewDrillingButton, "preview_drill", full_chain.STEP6_PREVIEW_SUBSTEP)
             evidence["button_invocations"]["preview_drill"] += 1
             cycle["button_invocations"]["preview_drill"] += 1
             process_events(0.05)

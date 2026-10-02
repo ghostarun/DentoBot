@@ -59,6 +59,38 @@ def _button_enabled(button) -> bool:
     return bool(getattr(button, "enabled", False))
 
 
+STEP6_PLANNING_SUBSTEP = 3
+STEP6_PREVIEW_SUBSTEP = 4
+
+
+def _enter_substep(widget, panel, index, process_events) -> None:
+    """Select a Step 6 substep through the production navigator combo.
+
+    Panel actions are owned by one substep (``ACTION_OWNER_SUBSTEP``): Preview,
+    Stop and Return Home belong to 6.4, planning to 6.3. A click from the wrong
+    substep is silently blocked (r11/r12 preview never started).
+    """
+    combo = getattr(widget, "_step6SubstepComboBox", None)
+    if combo is None:
+        raise ValueError("production Step 6 substep navigator is unavailable")
+    if int(getattr(combo, "currentIndex", -1)) != int(index):
+        setter = getattr(combo, "setCurrentIndex", None)
+        setter(int(index)) if callable(setter) else setattr(combo, "currentIndex", int(index))
+        process_events(0.05)
+    if (
+        int(getattr(panel, "_activeSubstep", -1)) != int(index)
+        or int(getattr(widget, "_step6SubstepIndex", -1)) != int(index)
+    ):
+        raise ValueError(f"production navigator did not select Step 6 substep {index}")
+
+
+def ok_states(facade) -> tuple:
+    """Status states of a successful plan; a truncated drill is a warning (2026-10-02)."""
+    if getattr(facade, "drillingTruncation", None):
+        return (None, "ok", "warning")
+    return (None, "ok")
+
+
 def _label(label) -> dict[str, object]:
     text = str(getattr(label, "text", ""))
     state = None
@@ -176,7 +208,9 @@ def _require_complete_chain(facade, panel, parameter_node, identity, bridge):
     if str(getattr(plan, "requested_phase", "")) != "approach":
         raise ValueError("current PhasePlan is not the guarded Approach plan")
     phases = tuple(str(value) for value in getattr(plan, "waypoint_phases", ()))
-    for field in ("source_waypoint_count", "strict_waypoint_count", "axis_waypoint_count", "contact_waypoint_count"):
+    # axis_waypoint_count is a legacy field: Stage-2 samples live in the
+    # terminal-contact plan, so a complete chain has 0 axis waypoints (r9).
+    for field in ("source_waypoint_count", "strict_waypoint_count", "contact_waypoint_count"):
         if int(getattr(plan, field, 0)) <= 0:
             raise ValueError(f"complete-chain PhasePlan has no {field}")
     if "approach" not in phases or "terminal_contact" not in phases:
@@ -294,10 +328,8 @@ def _preconditions(widget, panel, facade, bridge):
         raise ValueError("current PreparedBranch is not eligible")
     if not facade.taskHomeRuntimeValidated(parameter_node):
         raise ValueError("five-joint Task Home is not runtime-validated")
-    if not facade.workspaceRuntimeValidated(parameter_node):
-        raise ValueError("current workspace is not runtime-validated")
-    if not logic.assistedTaskLimitsReviewed(parameter_node):
-        raise ValueError("current assisted joint limits are not reviewed")
+    # Operator 2026-10-02 (S6-WORKSPACE-PURPOSE): workspace and assisted-limit
+    # review are an optional visual; Plan Approach gates on stroke reach instead.
     home_review = facade.manualTaskHomeReview()
     if (
         not bool(getattr(home_review, "success", False))
@@ -543,7 +575,21 @@ def run_full_chain_interruption_probe(
         if not _button_enabled(panel.planApproachButton):
             raise ValueError("production Plan Guarded Approach became disabled")
         pre_plan_state = _snapshot(facade, bridge, joint_names)
-        click(panel.planApproachButton, "plan_guarded_approach")
+        try:
+            click(panel.planApproachButton, "plan_guarded_approach")
+        except Exception as exc:
+            # A result dialog (e.g. "Blocked at Stage 3") is the planner verdict:
+            # keep its text and the persisted diagnostic before failing (r5).
+            evidence.update({
+                "plan_button_invocation_count": invocations.get("plan_guarded_approach", 0),
+                "plan_modal_text": str(getattr(exc, "dialog_text", "") or exc),
+                "approach_status": _label(panel.approachStatusLabel),
+                "phase_result_or_diagnostic_identity": _jsonable(_read_session(parameter_node)),
+                "guard_status_after_plan": _jsonable(bridge.last_task_joint_status()),
+                "guard_identity_after_plan": _jsonable(bridge.current_task_guard_identity()),
+                "chain_error": str(exc),
+            })
+            raise
         if wait_until(lambda: not bool(getattr(widget, "_workflowActionBusy", False)), 300.0) is None and bool(getattr(widget, "_workflowActionBusy", False)):
             raise ValueError("Plan Guarded Approach workflow busy flag did not clear")
         label = _label(panel.approachStatusLabel)
@@ -564,7 +610,7 @@ def run_full_chain_interruption_probe(
             raise ValueError("Plan Guarded Approach changed accepted, monitored, or displayed J1-J5")
         try:
             chain = _require_complete_chain(facade, panel, parameter_node, identity, bridge)
-            if label["dentobot_state"] not in (None, "ok"):
+            if label["dentobot_state"] not in ok_states(facade):
                 raise ValueError("Plan Guarded Approach UI reported a failed phase result")
         except Exception as exc:
             _capture(capture_callback, captures, "plan_guarded_approach_failed")
@@ -595,6 +641,8 @@ def run_full_chain_interruption_probe(
         setter(slow_index) if callable(setter) else setattr(speed, "currentIndex", slow_index)
         if not math.isclose(float(panel.previewSpeedMultiplier()), 0.25, rel_tol=0.0, abs_tol=1.0e-12):
             raise ValueError("production preview speed did not select 0.25x")
+        _enter_substep(widget, panel, STEP6_PREVIEW_SUBSTEP, process_events)
+        _capture(capture_callback, captures, "preview_control_substep")
         click(panel.previewApproachButton, "preview_approach")
 
         def first_ack():
@@ -613,6 +661,18 @@ def run_full_chain_interruption_probe(
             )
 
         if wait_until(first_ack, 60.0) is None and not first_ack():
+            # r11: record why no acknowledgement arrived before failing.
+            _capture(capture_callback, captures, "preview_first_ack_timeout")
+            plan_now = facade.motionPlan
+            evidence["preview_first_ack_timeout"] = {
+                "preview_active": bool(facade.previewActive),
+                "preview_index": int(facade.previewIndex),
+                "plan_waypoints": len(tuple(getattr(plan_now, "waypoint_joint_vectors_si", ()))) if plan_now is not None else 0,
+                "last_task_joint_status": _jsonable(bridge.last_task_joint_status()),
+                "guard_identity": _jsonable(bridge.current_task_guard_identity()),
+                "approach_status": _label(panel.approachStatusLabel),
+                "incomplete_preview_evidence": _jsonable(getattr(facade, "_incomplete_preview_evidence", None)),
+            }
             raise ValueError("no accepted Approach waypoint acknowledgement arrived before timeout")
         first_status = bridge.last_task_joint_status()
         prefix_state = _snapshot(facade, bridge, joint_names)

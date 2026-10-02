@@ -217,7 +217,7 @@ def test_collision_guard_has_fingerprinted_simulation_phase_channel():
     assert "scene->checkCollision(\n        collision_request, collision_result, sample, allowed_collision_matrix)" in guard
     assert "scene->checkCollision(\n          phase_request, phase_result, sample, phase_collision_matrix)" in guard
     assert "non-tool or unconfigured collision" in guard
-    assert 'if (!burr_target && !housing_guide)' in guard
+    assert 'if (!burr_target && !(housing_guide && spindle_guide_tolerated))' in guard
     assert 'first == "pneumatic_spindle-Copy" && is_configured_guide(second)' in guard
     assert 'second == "pneumatic_spindle-Copy" && is_configured_guide(first)' in guard
 
@@ -283,3 +283,12 @@ def test_ik_is_runtime_urdf_srdf_kdl_not_hard_coded():
     guard = (ROOT / "dentobot_moveit_config/src/collision_guard.cpp").read_text()
     assert 'getJointModelGroup(group_name_)' in guard
     assert "getVariableNames()" in guard
+
+
+def test_spindle_guide_contact_tolerance_is_optional_and_disabled_by_default():
+    launch = (ROOT / "dentobot_moveit_config/launch/simulation.launch.py").read_text()
+    guard = (ROOT / "dentobot_moveit_config/src/collision_guard.cpp").read_text()
+    assert '"allow_spindle_guide_contact",\n                default_value="false"' in launch
+    assert 'declare_parameter<bool>(\n      "allow_spindle_guide_contact", false)' in guard
+    assert "allow_spindle_guide_contact_ || task_config->allow_spindle_guide_contact" in guard
+    assert "!(housing_guide && spindle_guide_tolerated)" in guard

@@ -281,10 +281,10 @@ def test_step64_confirmation_keeps_home_context_gates_without_workspace_gate() -
     confirmation_only = source[prerequisite_start:planning_prerequisites_start]
     assert "workspace" not in confirmation_only.lower()
     assert "assisted_reviewed" not in confirmation_only
-    assert "if not workspace_runtime_validated:" in prerequisites
-    assert "Revalidate or generate workspace evidence in 6.3." in prerequisites
-    assert "if not assisted_reviewed:" in prerequisites
-    assert "Review and apply assisted joint limits in 6.3." in prerequisites
+    # Operator 2026-10-02: workspace and limit review are optional visuals.
+    assert "if not workspace_runtime_validated:" not in prerequisites
+    assert "Revalidate or generate workspace evidence in 6.3." not in prerequisites
+    assert "if not assisted_reviewed:" not in prerequisites
     assert '" ".join(planning_prerequisites or task_issues)' in prerequisites
     assert '" ".join(confirmation_prerequisites or task_issues)' not in prerequisites
 

@@ -285,6 +285,167 @@ class RobotPlacementWidgetMixin:
                     self._onRobotPlacementNodeModified,
                 )
 
+    def _setupSpindleGuideContactAdvancedOption(self) -> None:
+        """Step 4C advanced option mirroring the 6.3 checkbox (one shared setting)."""
+        container = getattr(self.ui, "targetDockingCollapsibleButton", None)
+        if container is None or getattr(self, "_step4SpindleGuideContactCheckBox", None):
+            return
+        group = qt.QGroupBox(_("Advanced options"), container)
+        layout = qt.QVBoxLayout(group)
+        box = qt.QCheckBox(_("Allow spindle-housing contact with template (\u2264 0.5 mm)"), group)
+        box.objectName = "DENTOBOTAllowSpindleGuideContact4C"
+        box.toolTip = _(
+            "Off (default): the spindle housing may not touch the template; drilling is "
+            "truncated at the last collision-free state. On: up to 0.5 mm contact is "
+            "tolerated as a warning. Shared with the Step 6.3 advanced option."
+        )
+        layout.addWidget(box)
+        container.layout().addWidget(group)
+        box.connect("toggled(bool)", self._onSetSpindleGuideContact)
+        self._step4SpindleGuideContactCheckBox = box
+
+    def _onSetSpindleGuideContact(self, checked: bool) -> None:
+        """Store the shared advanced option and keep both checkboxes in sync."""
+        if not self._parameterNode:
+            return
+        checked = bool(checked)
+        if bool(self._parameterNode.step6AllowSpindleGuideContact) != checked:
+            self._parameterNode.step6AllowSpindleGuideContact = checked
+            if self.logic:
+                self.logic.invalidateStep6TaskConfirmation(
+                    self._parameterNode,
+                    _("Spindle/template contact tolerance changed; re-plan."),
+                )
+        boxes = [getattr(self, "_step4SpindleGuideContactCheckBox", None)]
+        panel = getattr(self, "_robotSimulationPanel", None)
+        if panel is not None:
+            boxes.append(getattr(panel, "allowSpindleGuideContactCheckBox", None))
+        for box in boxes:
+            if box is not None and bool(box.checked) != checked:
+                was = box.blockSignals(True)
+                box.checked = checked
+                box.blockSignals(was)
+
+    def _onSetMouthBarrierEdgeMode(self, mode: str) -> None:
+        """Store the 6.3 mouth-barrier edge mode and keep the combo box in sync."""
+        if not self._parameterNode:
+            return
+        mode = str(mode or "gum_line")
+        if mode not in ("gum_line", "biting_edge", "off"):
+            mode = "gum_line"
+        if str(self._parameterNode.step6MouthBarrierEdgeMode or "gum_line") != mode:
+            self._parameterNode.step6MouthBarrierEdgeMode = mode
+            if self.logic:
+                self.logic.invalidateStep6TaskConfirmation(
+                    self._parameterNode,
+                    _("Mouth barrier edges changed; re-plan."),
+                )
+        panel = getattr(self, "_robotSimulationPanel", None)
+        box = getattr(panel, "mouthBarrierEdgeModeComboBox", None) if panel is not None else None
+        if box is not None:
+            index = box.findData(mode)
+            if index >= 0 and int(box.currentIndex) != index:
+                was = box.blockSignals(True)
+                box.currentIndex = index
+                box.blockSignals(was)
+
+    def _setupReachEnvelopeOption(self) -> None:
+        """6.3 Workspace: show/hide the reach envelope next to Generate Workspace."""
+        label = getattr(self.ui, "robotWorkspaceStatusLabel", None)
+        parent = label.parentWidget() if label is not None else None
+        if parent is None or parent.layout() is None or getattr(self, "_showReachEnvelopeCheckBox", None):
+            return
+        box = qt.QCheckBox(_("Show reach envelope"), parent)
+        box.objectName = "DENTOBOTShowReachEnvelope63"
+        box.checked = True
+        box.toolTip = _(
+            "Show or hide the see-through envelope around the reachable drill-tip "
+            "samples and the green Home-connected samples. Display only."
+        )
+        parent.layout().addWidget(box)
+        box.connect("toggled(bool)", self._onSetShowReachEnvelope)
+        self._showReachEnvelopeCheckBox = box
+
+    @staticmethod
+    def _syncCheckBox(box, checked: bool) -> None:
+        if box is not None and bool(box.checked) != checked:
+            was = box.blockSignals(True)
+            box.checked = checked
+            box.blockSignals(was)
+
+    def _onSetShowMouthBarrier(self, checked: bool) -> None:
+        """Display-only toggle for the 3D mouth barrier model."""
+        if not self._parameterNode:
+            return
+        checked = bool(checked)
+        if bool(self._parameterNode.step6ShowMouthBarrier) != checked:
+            self._parameterNode.step6ShowMouthBarrier = checked
+        if self.logic:
+            self.logic.setStep6MouthBarrierVisible(checked)
+        panel = getattr(self, "_robotSimulationPanel", None)
+        self._syncCheckBox(getattr(panel, "showMouthBarrierCheckBox", None) if panel is not None else None, checked)
+
+    def _onSetShowReachEnvelope(self, checked: bool) -> None:
+        """Display-only toggle for the 6.3 reach envelope and Home-connected samples."""
+        if not self._parameterNode:
+            return
+        checked = bool(checked)
+        if bool(self._parameterNode.step6ShowReachEnvelope) != checked:
+            self._parameterNode.step6ShowReachEnvelope = checked
+        if self.logic:
+            self.logic.setStep6ReachEnvelopeVisible(checked)
+        self._syncCheckBox(getattr(self, "_showReachEnvelopeCheckBox", None), checked)
+
+    def _onStep6SearchBasePlacement(self) -> None:
+        """Run the forehead-plane IK preflight and stage the best Base for review."""
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if not panel or not facade or not self._parameterNode or not self.logic:
+            return
+        if self._parameterNode.robotBaseMountLocked:
+            message = _("Unlock the Base before searching for a reachable placement.")
+            panel.manualBaseReviewStatusLabel.text = message
+            self._updateStep6PlanningUi(message, error=True)
+            return
+        qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
+        try:
+            report = self.logic.searchForeheadBasePlacement(self._parameterNode)
+        except (OSError, RuntimeError, ValueError) as exc:
+            message = _("Base placement search failed: %1").replace("%1", str(exc))
+            panel.manualBaseReviewStatusLabel.text = message
+            self._updateStep6PlanningUi(message, error=True)
+            return
+        finally:
+            qt.QApplication.restoreOverrideCursor()
+        self._lastBasePlacementSearch = report
+        best = report.get("best")
+        if best is None:
+            message = _(
+                "IK preflight: no Base within +-30 mm of the forehead-plane centre "
+                "reaches the whole PreEntry-to-Target stroke (%1 checked; depth and "
+                "orientation locked). Base sliding cannot fix reach here."
+            ).replace("%1", str(report.get("evaluated")))
+            panel.manualBaseReviewStatusLabel.text = message
+            self._updateStep6PlanningUi(message, error=True)
+            return
+        result = facade.stageManualBaseReview(tuple(best["matrix_world_ras_mm"]))
+        message = _(
+            "IK preflight: %1 of %2 forehead-plane Bases reach the full stroke. "
+            "Staged nearest: u=%3 mm, v=%4 mm (minimum slider margin %5 mm). "
+            "Review and Accept it; collision and planning are checked afterwards."
+        ).replace("%1", str(report["feasible_count"])).replace(
+            "%2", str(report["evaluated"])).replace(
+            "%3", f"{best['u_mm']:.1f}").replace("%4", f"{best['v_mm']:.1f}").replace(
+            "%5", f"{best['minimum_slider_margin_mm']:.2f}")
+        fallback = report.get("depth_fallback") or {}
+        if fallback.get("ran"):
+            message += _(" No in-plane Base worked, so depth was unlocked (+-10 mm): depth %1 mm.").replace(
+                "%1", f"{best['depth_mm']:.1f}")
+        if not result.success:
+            message = str(result.message)
+        panel.manualBaseReviewStatusLabel.text = message
+        self._updateStep6PlanningUi(message, error=not result.success)
+
     def _onRobotPlacementNodeModified(self, caller=None, event=None) -> None:
         del event
         if self._updatingRobotPlacementUI:
@@ -295,9 +456,16 @@ class RobotPlacementWidgetMixin:
             and caller is self._parameterNode.robotBaseTransform
         ):
             poseFingerprint = self.logic.robotBasePoseFingerprint(caller)
+            # Accept/Reconcile Base moves and locks the Base itself and verifies
+            # the result; do not treat that sanctioned move as an operator edit
+            # (which would unreview and unlock the Base mid-acceptance).
+            acceptanceOwnsChange = bool(
+                getattr(self._robotWorkflowFacade, "manualBaseAcceptanceInProgress", False)
+            )
             if (
                 self._lastRobotBasePoseFingerprint
                 and poseFingerprint != self._lastRobotBasePoseFingerprint
+                and not acceptanceOwnsChange
             ):
                 caller.SetAttribute(
                     self.logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
@@ -331,6 +499,13 @@ class RobotPlacementWidgetMixin:
     def _updateRobotPlacementStatus(self, message: str = "") -> None:
         if not self._parameterNode or not self.logic:
             return
+        self._onSetSpindleGuideContact(bool(self._parameterNode.step6AllowSpindleGuideContact))
+        self._onSetMouthBarrierEdgeMode(str(self._parameterNode.step6MouthBarrierEdgeMode or "gum_line"))
+        panel = getattr(self, "_robotSimulationPanel", None)
+        self._syncCheckBox(getattr(panel, "showMouthBarrierCheckBox", None) if panel is not None else None,
+                           bool(self._parameterNode.step6ShowMouthBarrier))
+        self._syncCheckBox(getattr(self, "_showReachEnvelopeCheckBox", None),
+                           bool(self._parameterNode.step6ShowReachEnvelope))
         baseTransform = self._parameterNode.robotBaseTransform
         modelCount = len(self.logic.robotModelNodes())
         if message:

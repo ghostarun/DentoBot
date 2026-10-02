@@ -185,3 +185,159 @@ def test_malformed_or_non_dictionary_metadata_stays_unknown(tmp_path, monkeypatc
     assert payload["launcher_checkout_match"] == "unknown"
     assert "bad json" not in line
     watchdog.close()
+
+
+def _fake_snapshots(module, monkeypatch, *snapshots):
+    iterator = iter(snapshots)
+    last = [snapshots[-1]]
+
+    def snapshot():
+        last[0] = next(iterator, last[0])
+        return dict(last[0])
+
+    monkeypatch.setattr(module, "_process_snapshot", snapshot)
+    monkeypatch.setattr(module, "_host_context", lambda: {"host_swap_free_mib": 512})
+
+
+def _snapshot(main_ticks, process_ticks, major_faults=0, swap_mib=100.0):
+    return {
+        "main_state": "S",
+        "main_ticks": main_ticks,
+        "process_ticks": process_ticks,
+        "major_faults": major_faults,
+        "rss_mib": 2000.0,
+        "swap_mib": swap_mib,
+        "threads": 90,
+    }
+
+
+def test_stall_records_cpu_fraction_paging_and_host_context(tmp_path, monkeypatch):
+    module, timers = load_watchdog(monkeypatch)
+    ticks = module._CLOCK_TICKS
+    # baseline at construction, then the snapshot taken when the stall is reported
+    _fake_snapshots(
+        module, monkeypatch,
+        _snapshot(0, 0), _snapshot(int(0.3 * ticks), int(1.0 * ticks), major_faults=40),
+        _snapshot(int(0.3 * ticks), int(1.0 * ticks), major_faults=40),
+    )
+    clock = [0.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    watchdog = module.UiStallWatchdog(tmp_path)
+    clock[0] = 6.0
+    timers[0].callback()
+    line = next(l for l in Path(watchdog.log.name).read_text().splitlines() if "UI_STALL_RECOVERED" in l)
+    assert "gap_seconds=6.000 phase=Idle" in line
+    assert "main_cpu_seconds=0.30 main_cpu_fraction=0.05 blocked_hint=waiting" in line
+    assert "major_faults_delta=40" in line
+    assert "swap_mib=100.0" in line and "host_swap_free_mib=512" in line
+    watchdog.close()
+
+
+def test_cpu_bound_gap_is_hinted_as_cpu_bound(tmp_path, monkeypatch):
+    module, timers = load_watchdog(monkeypatch)
+    ticks = module._CLOCK_TICKS
+    _fake_snapshots(module, monkeypatch, _snapshot(0, 0), _snapshot(int(5.5 * ticks), int(6 * ticks)))
+    clock = [0.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    watchdog = module.UiStallWatchdog(tmp_path)
+    clock[0] = 6.0
+    timers[0].callback()
+    assert "blocked_hint=cpu_bound" in Path(watchdog.log.name).read_text()
+    watchdog.close()
+
+
+def test_action_end_reports_stalls_and_timed_waits(tmp_path, monkeypatch):
+    module, timers = load_watchdog(monkeypatch)
+    clock = [0.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(module, "_process_snapshot", lambda: None)
+    monkeypatch.setattr(module, "_host_context", lambda: {})
+    watchdog = module.UiStallWatchdog(tmp_path)
+    monkeypatch.setattr(module, "_watchdog", watchdog)
+    token = watchdog.begin_action("Guarded approach")
+    clock[0] = 6.2
+    timers[0].callback()
+    with module.ui_wait("task_command_result", "approach") as scope:
+        clock[0] = 8.0
+        scope.outcome = "timeout"
+    with module.ui_wait("task_command_result", "approach"):
+        clock[0] = 8.2
+    assert watchdog.end_action(token, "success")
+    log = Path(watchdog.log.name).read_text()
+    wait_lines = [l for l in log.splitlines() if " UI_WAIT " in l]
+    assert len(wait_lines) == 1  # the 0.2 s ok wait stays below the logging floor
+    assert 'kind=task_command_result label="approach" duration_seconds=1.800 outcome=timeout' in wait_lines[0]
+    end = next(l for l in log.splitlines() if " ACTION_END " in l)
+    assert "max_gap_seconds=6.200 stalls=1 stalled_seconds=6.200" in end
+    assert "waits=2 wait_seconds=2.000 wait_max_seconds=1.800 wait_timeouts=1" in end
+    watchdog.close()
+    assert "SESSION_END stalls=1 stalled_seconds=6.200 max_gap_seconds=6.200 waits=2" in (
+        Path(watchdog.log.name).read_text()
+    )
+
+
+def test_ui_wait_is_inert_without_an_installed_watchdog(monkeypatch):
+    module, _ = load_watchdog(monkeypatch)
+    monkeypatch.setattr(module, "_watchdog", None)
+    with module.ui_wait("task_command_result", "x") as scope:
+        scope.outcome = "timeout"
+    with pytest.raises(ValueError):
+        with module.ui_wait("task_command_result", "x"):
+            raise ValueError("propagates")
+
+
+def test_active_stall_is_reported_while_it_is_still_running(tmp_path, monkeypatch):
+    import time as real_time
+
+    module, timers = load_watchdog(monkeypatch)
+    clock = [0.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(module, "_process_snapshot", lambda: None)
+    monkeypatch.setattr(module, "_host_context", lambda: {})
+    watchdog = module.UiStallWatchdog(tmp_path, active_stall_reports=True, active_check_seconds=0.01)
+    watchdog.note_phase("Guarded approach")
+
+    def wait_for(text):
+        deadline = real_time.time() + 3
+        while real_time.time() < deadline:
+            if text in Path(watchdog.log.name).read_text():
+                return
+            real_time.sleep(0.01)
+        raise AssertionError(f"{text!r} not logged:\n{Path(watchdog.log.name).read_text()}")
+
+    clock[0] = 7.0
+    wait_for("UI_STALL_ACTIVE gap_so_far_seconds=7.0 phase=Guarded approach")
+    clock[0] = 40.0
+    wait_for("UI_STALL_ONGOING gap_so_far_seconds=40.0")
+    log = Path(watchdog.log.name).read_text()
+    assert log.count("UI_STALL_ACTIVE") == 1
+    timers[0].callback()
+    assert "UI_STALL_RECOVERED gap_seconds=40.000" in Path(watchdog.log.name).read_text()
+    watchdog.close()
+    assert not watchdog._active_thread.is_alive()
+    watchdog.close()
+
+
+def test_run_id_and_graphics_environment_are_recorded(tmp_path, monkeypatch):
+    module, _ = load_watchdog(monkeypatch)
+    monkeypatch.delenv("DENTOBOT_RUN_ID", raising=False)
+    monkeypatch.setenv("DENTOBOT_HEADED_EVIDENCE_DIR", "/data/dentobot-runs/s6-live-01-r16/evidence")
+    monkeypatch.setenv("LIBGL_ALWAYS_SOFTWARE", "1")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "/not/a/safe/value")
+    metadata = module._session_metadata()
+    assert metadata["run_id"] == "s6-live-01-r16"
+    assert metadata["graphics_environment"]["LIBGL_ALWAYS_SOFTWARE"] == "1"
+    assert metadata["graphics_environment"]["QT_QPA_PLATFORM"] is None
+    monkeypatch.setenv("DENTOBOT_RUN_ID", "explicit-run.1")
+    assert module._session_metadata()["run_id"] == "explicit-run.1"
+    monkeypatch.setenv("DENTOBOT_RUN_ID", "bad/value")
+    assert module._session_metadata()["run_id"] == "s6-live-01-r16"
+
+
+@pytest.mark.skipif(not Path("/proc/self/task").exists(), reason="Linux /proc only")
+def test_process_snapshot_reads_the_live_process(monkeypatch):
+    module, _ = load_watchdog(monkeypatch)
+    snapshot = module._process_snapshot()
+    assert snapshot["main_state"] in set("RSDTtZXIPW")
+    assert snapshot["rss_mib"] > 0 and snapshot["threads"] >= 1
+    assert snapshot["major_faults"] >= 0

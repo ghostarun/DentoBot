@@ -137,6 +137,15 @@ class DENTOWorkflowParameterNode:
     step6TrajectoryRegistryJson: str = ""
     step6SchemaMigrationPending: bool = False
     step6ApproachStandoffMm: float = 2.0
+    # Advanced option (Step 4C / 6.3): tolerate spindle-housing/template contact
+    # up to 0.5 mm in the guard. Default off: such contact truncates drilling.
+    step6AllowSpindleGuideContact: bool = False
+    # Advanced option (6.3): 3D mouth barrier opening edges. "gum_line" (lips
+    # retracted, default), "biting_edge" (lips relaxed) or "off".
+    step6MouthBarrierEdgeMode: str = "gum_line"
+    # Display toggles (6.3): mouth barrier model and the workspace reach envelope.
+    step6ShowMouthBarrier: bool = True
+    step6ShowReachEnvelope: bool = True
     # Retained only for older .dentocase/MRML packages. Planner v4 validates
     # the complete PreEntry→Entry line with the independent phase guard.
     step6TerminalContactToleranceMm: float = 0.25
