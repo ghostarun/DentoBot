@@ -1490,7 +1490,20 @@ def configure_task_phase_guard(
     handshake_json = json.dumps(handshake, sort_keys=True, separators=(",", ":"))
     status_after = _last_task_status_at
     deadline = time.monotonic() + ROS2_TASK_GUARD_SCENE_SYNC_TIMEOUT_SEC
+    reply_timed_out = False
     while time.monotonic() < deadline:
+        if reply_timed_out:
+            # r19 016: a late reply (guard still ingesting a fresh collision
+            # scene) means the guard may already have accepted sequence 0 of
+            # this session; re-sending it is then rejected as "stale or
+            # duplicated". Retry as sequence 0 of a fresh session instead; the
+            # late reply of the abandoned session no longer matches.
+            payload["guard_session_id"] = uuid4().hex
+            handshake["guard_session_id"] = payload["guard_session_id"]
+            _last_task_config_json = json.dumps(
+                payload, sort_keys=True, separators=(",", ":")
+            )
+            handshake_json = json.dumps(handshake, sort_keys=True, separators=(",", ":"))
         config_publisher.Publish(_last_task_config_json)
         try:
             import slicer
@@ -1508,6 +1521,7 @@ def configure_task_phase_guard(
             after_monotonic=status_after,
             timeout_sec=0.4,
         )
+        reply_timed_out = status is None
         if status is None:
             continue
         status_after = _last_task_status_at

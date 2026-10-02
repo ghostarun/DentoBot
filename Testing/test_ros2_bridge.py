@@ -2392,3 +2392,46 @@ def test_task_command_wait_is_timed_by_the_ui_watchdog_and_survives_its_absence(
 
     monkeypatch.setitem(sys.modules, "dentobot_workflow.ui_stall_watchdog", None)  # import fails
     assert bridge._wait_for_task_command_result(phase="approach") == "status"
+
+
+def test_handshake_retry_after_late_reply_uses_a_fresh_guard_session(monkeypatch):
+    """r19 016: re-sending sequence 0 of the same session after a late reply
+    was rejected by the guard as stale; the retry must start a fresh session."""
+
+    class Publisher:
+        def __init__(self):
+            self.messages = []
+
+        def Publish(self, message):
+            self.messages.append(message)
+
+    config_publisher, command_publisher = Publisher(), Publisher()
+    monkeypatch.setattr(bridge_module, "_native_joint_positions", [0.1] * len(ROS2_JOINT_SI_ORDER))
+    monkeypatch.setattr(bridge_module, "_last_task_config_json", "")
+    monkeypatch.setattr(bridge_module, "_ensure_task_publishers", lambda: (config_publisher, command_publisher))
+    monkeypatch.setattr(bridge_module, "_ensure_task_status_subscriber", lambda: object())
+    monkeypatch.setattr(bridge_module, "world_ras_mm_to_base_m", lambda point, _base: list(point))
+    monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
+    waits = []
+
+    def fake_wait(**kwargs):
+        waits.append(kwargs["guard_session_id"])
+        if len(waits) == 1:
+            return None  # the first reply is late
+        return SimpleNamespace(accepted=True, accepted_positions=[0.2] * 5, reason="ok")
+
+    monkeypatch.setattr(bridge_module, "_wait_for_task_command_result", fake_wait)
+    ok, reason = configure_task_phase_guard(
+        task_fingerprint="task", target_object_id="selected-tooth",
+        clearance_exempt_object_ids=["selected-tooth"], base_transform=None,
+        entry_ras_mm=(0, 0, 0), target_ras_mm=(0, 0, 10),
+        corridor_radius_mm=0.75, approach_standoff_mm=5,
+    )
+    assert ok, reason
+    handshakes = [json.loads(message) for message in command_publisher.messages]
+    configs = [json.loads(message) for message in config_publisher.messages]
+    assert [h["sequence"] for h in handshakes] == [0, 0]
+    assert handshakes[0]["guard_session_id"] != handshakes[1]["guard_session_id"]
+    assert waits == [h["guard_session_id"] for h in handshakes]
+    assert configs[-1]["guard_session_id"] == handshakes[1]["guard_session_id"]
+    assert json.loads(bridge_module._last_task_config_json)["guard_session_id"] == handshakes[1]["guard_session_id"]
