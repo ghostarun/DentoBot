@@ -711,7 +711,21 @@ if [[ ${container_slicer_priority} != "0" ]]; then
   exit 2
 fi
 
+git_source_identity() {
+  local repo="$1" branch commit changes
+  branch="$(git -C "${repo}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  commit="$(git -C "${repo}" rev-parse --short HEAD 2>/dev/null || true)"
+  if [[ -z ${commit} ]]; then
+    printf '%s (not a git checkout)' "${repo}"
+    return
+  fi
+  changes="$(git -C "${repo}" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  printf '%s (%s @ %s, %s uncommitted)' "${repo}" "${branch:-detached}" "${commit}" "${changes}"
+}
+
 printf '%s\n' \
+  "Source checkout: $(git_source_identity "${repository_root}")" \
+  "SlicerROS2 source: $(git_source_identity "${ros2_workspace_root}/src/slicer_ros2_module")" \
   "Backend Python: ${backend_python}" \
   "Backend adapter: ${backend_execution_mode}" \
   "Backend device: ${backend_device}" \
