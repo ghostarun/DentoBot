@@ -40,6 +40,35 @@ def load_stl(path) -> vtk.vtkPolyData:
     return out
 
 
+def drop_zero_area_triangles(polydata: vtk.vtkPolyData, min_area_mm2: float = 1e-12) -> vtk.vtkPolyData:
+    """Remove zero-area triangles (no surface) before building collision trees.
+
+    vtkOBBTree divides by each node's summed triangle area; a node of only
+    zero-area triangles gets NaN axes, logs "vtkMath::Jacobi: Error extracting
+    eigenfunctions" and is not tested reliably. Segment closed surfaces carry
+    4-498 such triangles each (r23 obstacle probe).
+    """
+    quality = vtk.vtkMeshQuality()
+    quality.SetInputData(polydata)
+    quality.SetTriangleQualityMeasureToArea()
+    quality.Update()
+    areas = quality.GetOutput().GetCellData().GetArray("Quality")
+    if areas is None or min(areas.GetRange()) > min_area_mm2:
+        return polydata
+    threshold = vtk.vtkThreshold()
+    threshold.SetInputConnection(quality.GetOutputPort())
+    threshold.SetInputArrayToProcess(0, 0, 0, vtk.vtkDataObject.FIELD_ASSOCIATION_CELLS, "Quality")
+    threshold.SetUpperThreshold(min_area_mm2)
+    threshold.SetThresholdFunction(vtk.vtkThreshold.THRESHOLD_UPPER)
+    surface = vtk.vtkGeometryFilter()
+    surface.SetInputConnection(threshold.GetOutputPort())
+    surface.Update()
+    out = vtk.vtkPolyData()
+    out.DeepCopy(surface.GetOutput())
+    out.GetCellData().RemoveArray("Quality")
+    return out
+
+
 class ToolMeshSweep:
     """Tool meshes posed by robot FK, tested against fixed world obstacles."""
 
@@ -56,7 +85,7 @@ class ToolMeshSweep:
         if missing:
             raise ValueError("Robot tool meshes are missing: " + ", ".join(missing))
         self._tool_meshes = {name: load_stl(reference[name].mesh_path) for name in self._tool_links}
-        valid = [(name, mesh) for name, mesh in obstacles
+        valid = [(name, drop_zero_area_triangles(mesh)) for name, mesh in obstacles
                  if mesh is not None and mesh.GetNumberOfPoints() > 0]
         self._obstacle_names = [name for name, _mesh in valid]
         # Fast path: one filter per tool against all obstacles merged; names are

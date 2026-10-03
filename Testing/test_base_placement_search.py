@@ -199,3 +199,28 @@ def test_tool_mesh_sweep_detects_contact_along_straight_path():
     assert result["clear"] is False
     assert result["contacts"] == ["burr<->obstacle"]
     assert 0.0 < result["first_contact_fraction"] <= 1.0
+
+
+def test_zero_area_triangles_are_dropped_before_collision_trees():
+    """Error log 2026-10-03: segment surfaces carry zero-area triangles; OBB
+    nodes made only of them gave NaN axes and vtkMath::Jacobi warnings."""
+    import vtk
+
+    from dentobot_workflow.path_clearance import drop_zero_area_triangles
+
+    points = vtk.vtkPoints()
+    for xyz in ((0, 0, 0), (1, 0, 0), (0, 1, 0), (2, 0, 0), (3, 0, 0), (4, 0, 0)):
+        points.InsertNextPoint(*xyz)
+    cells = vtk.vtkCellArray()
+    for tri in ((0, 1, 2), (3, 4, 5), (1, 3, 4)):  # one real, two collinear
+        cells.InsertNextCell(3, tri)
+    mesh = vtk.vtkPolyData()
+    mesh.SetPoints(points)
+    mesh.SetPolys(cells)
+    cleaned = drop_zero_area_triangles(mesh)
+    assert cleaned.GetNumberOfCells() == 1
+    assert cleaned.GetCellData().GetArray("Quality") is None
+    bounds = cleaned.GetBounds()
+    assert (bounds[0], bounds[1], bounds[2], bounds[3]) == (0.0, 1.0, 0.0, 1.0)
+    clean = drop_zero_area_triangles(cleaned)
+    assert clean is cleaned  # no copy when nothing is degenerate
