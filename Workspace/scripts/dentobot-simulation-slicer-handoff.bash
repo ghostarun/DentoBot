@@ -262,6 +262,11 @@ fi
 
 handoff_reason=slicer_launch_requested
 handoff_log slicer_launch_request argc="$#"
+# Slicer files everything on stderr as CRITICAL, so in-process ROS 2/MoveIt
+# console lines (INFO included) turned its error log red on every passing run.
+# Send them to stdout (filed as INFO; the [WARN]/[ERROR] text is kept) for
+# Slicer only; the simulation stack above keeps its own log.
+export RCUTILS_LOGGING_USE_STDOUT=1 RCUTILS_LOGGING_BUFFERED_STREAM=1
 handoff_reason=diagnostic_entry
 handoff_log diagnostic_entry
 
