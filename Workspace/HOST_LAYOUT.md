@@ -61,7 +61,8 @@ current candidate on 3 October 2026: `lab/2026-10-03-2`, SlicerROS2 `ece3c427443
 First-time: `scripts/install-lab-wsl.bash` (or `install-lab-wsl.bat` from Windows).
 Updates: `scripts/update-lab-release.bash` (or `update-lab-release.bat`).
 Launch: `./launch-dentobot` or `scripts/launch-dentoworkflow.bash` from `~/dentobot`
-(or `launch-lab-workflow.bat`). Native Ubuntu desktops can add an app-menu
+(or `launch-lab-workflow.bat`). Add `--choose-checkout` to pick another
+checkout for one launch. Native Ubuntu desktops can add an app-menu
 entry with `scripts/install-desktop-launcher.bash` (`--remove` undoes it).
 Use `launch-lab-workflow.bat` for this profile. The retired ambiguous
 `launch-dentoworkflow.ps1` exits with profile-selection guidance.

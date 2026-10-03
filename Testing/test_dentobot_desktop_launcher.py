@@ -81,3 +81,75 @@ def test_launcher_summary_names_source_checkout_branch_and_commit(tmp_path):
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [f'{repo} (demo @ {commit}, 1 uncommitted)',
                                           f'{tmp_path / "none"} (not a git checkout)']
+
+
+def _checkout_fixture(tmp_path):
+    ros2 = tmp_path / 'ws/ros2_ws'
+    current = ros2 / 'src/DentoBot'
+    current.mkdir(parents=True)
+
+    def git(repo, *args, date=None):
+        env = {**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@example.invalid',
+               'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@example.invalid'}
+        if date:
+            env.update(GIT_AUTHOR_DATE=date, GIT_COMMITTER_DATE=date)
+        subprocess.run(['git', '-C', str(repo), *args], check=True, env=env, capture_output=True)
+
+    git(current, 'init', '-q', '-b', 'main')
+    (current / 'Workspace/scripts').mkdir(parents=True)
+    (current / 'Workspace/scripts/launch-dentoworkflow.bash').write_text('echo stub\n')
+    git(current, 'add', '-A')
+    git(current, 'commit', '-q', '-m', 'Older main work', date='2026-09-01T10:00:00+00:00')
+    newer = ros2 / 'src/DentoBot-feature'
+    git(current, 'worktree', 'add', '-q', '-b', 'feature/new', str(newer))
+    git(newer, 'commit', '-q', '--allow-empty', '-m', 'Newest feature work', date='2026-10-02T09:30:00+00:00')
+    outside = tmp_path / 'outside'
+    git(current, 'worktree', 'add', '-q', '-b', 'scratch', str(outside))
+    (current / 'BRANCH_OBSOLETE.md').write_text('retired\n')
+    return ros2, current, newer, outside
+
+
+def _select(ros2, current, answer):
+    launcher = (SCRIPTS / 'launch-dentoworkflow.bash').read_text()
+    start = launcher.index('select_checkout() {')
+    function = launcher[start:launcher.index('\n}\n', start) + 3]
+    script = (f'set -euo pipefail\nrepository_root={current}\nros2_workspace_root={ros2}\n'
+              + function + 'select_checkout\necho "selected=${selected_checkout}"')
+    return subprocess.run(['bash', '-c', script], input=answer, capture_output=True, text=True, timeout=20)
+
+
+def test_choose_checkout_lists_newest_first_and_runs_chosen(tmp_path):
+    ros2, current, newer, outside = _checkout_fixture(tmp_path)
+    result = _select(ros2, current, '1\n')
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert lines[1] == '  1) feature/new' and str(outside) not in result.stdout
+    assert 'Newest feature work' in lines[2] and '2026-10-02' in lines[2]
+    assert lines[4].startswith('  2) main [current] [retired]')
+    assert 'Older main work' in lines[5] and '2026-09-01' in lines[5]
+    assert lines[-1] == f'selected={newer}'
+    assert _select(ros2, current, '\n').stdout.splitlines()[-1] == f'selected={current}'
+
+
+def test_choose_checkout_rejects_bad_or_missing_choice(tmp_path):
+    ros2, current, _newer, _outside = _checkout_fixture(tmp_path)
+    for answer, message in (('9\n', 'Not a listed checkout number'), ('x\n', 'Not a listed checkout number'),
+                            ('', 'No checkout chosen')):
+        result = _select(ros2, current, answer)
+        assert result.returncode == 2 and message in result.stderr
+
+
+def test_choose_checkout_is_opt_in_and_forwards_other_options():
+    launcher = (SCRIPTS / 'launch-dentoworkflow.bash').read_text()
+    assert 'choose_checkout=false' in launcher
+    assert '    --choose-checkout)\n      choose_checkout=true' in launcher
+    assert ('exec bash "${selected_checkout}/Workspace/scripts/launch-dentoworkflow.bash" '
+            '"${forward_args[@]}"') in launcher
+    start = launcher.index('forward_args=()')
+    block = launcher[start:launcher.index('\ndone', start) + 5]
+    result = subprocess.run(['bash', '-c', 'set -euo pipefail\nset -- --render-probe c.dentocase '
+                             '--choose-checkout --check-only\n' + block + '\nprintf "%s\\n" "${forward_args[@]}"'],
+                            capture_output=True, text=True, timeout=10)
+    assert result.stdout.splitlines() == ['--render-probe', 'c.dentocase', '--check-only']
+    desktop = (SCRIPTS / 'install-desktop-launcher.bash').read_text()
+    assert 'Exec="${entry}" --choose-checkout' in desktop

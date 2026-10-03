@@ -2046,6 +2046,16 @@ resolves its own checkout from the real script path.
   `--remove` deletes it. Installed on this workstation.
 - To make another checkout active, re-point `~/dentobot/scripts` (and the
   other root links); both shortcuts follow it.
+- One-off choice without re-pointing: `./launch-dentobot --choose-checkout`
+  (or right-click the app-menu icon → "Choose checkout…"). The launcher lists
+  this repository's checkouts under `ros2_ws` (the folders the container can
+  see), newest commit first, with branch, short commit, date/time, message and
+  markers `[current]`, `[retired]` (has `BRANCH_OBSOLETE.md`) and
+  `[N uncommitted]`. Enter keeps the current checkout; a number runs that
+  checkout's own launcher with the other options. Without the option nothing
+  changes. The launch summary then prints `Source checkout: <path> (<branch> @
+  <commit>, N uncommitted)`. All checkouts share one SlicerROS2 install, which
+  is built from `ros2_ws/src/slicer_ros2_module` on every launch.
 
 ## SlicerROS2 render-fix overlay (5.10) — 3 October 2026
 

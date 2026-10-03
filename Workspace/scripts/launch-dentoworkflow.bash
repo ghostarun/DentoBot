@@ -33,6 +33,7 @@ check_only=false
 print_backend_python=false
 diagnostic_no_spindle_collision=false
 render_probe_case=""
+choose_checkout=false
 x11_access_granted=false
 
 usage() {
@@ -55,8 +56,18 @@ usage() {
     "--render-probe CASE" \
     "              Open CASE (a DentoCase under the workspace data/ folder)," \
     "              measure 3D render throughput for 5 s, exit Slicer, and" \
-    "              judge the graphics acceptance (renderer, display, >=60 FPS)."
+    "              judge the graphics acceptance (renderer, display, >=60 FPS)." \
+    "--choose-checkout" \
+    "              List this repository's checkouts under ros2_ws (newest commit" \
+    "              first) and run the chosen one's launcher with the other options."
 }
+
+forward_args=()
+for argument in "$@"; do
+  if [[ ${argument} != "--choose-checkout" ]]; then
+    forward_args+=("${argument}")
+  fi
+done
 
 while (( $# > 0 )); do
   case "$1" in
@@ -73,6 +84,9 @@ while (( $# > 0 )); do
       render_probe_case="${2:?--render-probe requires a DentoCase path}"
       shift
       ;;
+    --choose-checkout)
+      choose_checkout=true
+      ;;
     --help|-h)
       usage
       exit 0
@@ -84,6 +98,65 @@ while (( $# > 0 )); do
   esac
   shift
 done
+
+# Lists this repository's runnable checkouts (git worktrees under ros2_ws,
+# which is what the container mounts), newest commit first, and sets
+# selected_checkout to the operator's choice (Enter keeps this checkout).
+select_checkout() {
+  local path stamp row index answer branch commit when subject changes markers
+  local -a rows=() sorted=()
+  while IFS= read -r path; do
+    [[ ${path} == "${ros2_workspace_root}/"* ]] || continue
+    [[ -f ${path}/Workspace/scripts/launch-dentoworkflow.bash ]] || continue
+    stamp="$(git -C "${path}" log -1 --format=%ct 2>/dev/null)" || continue
+    rows+=("${stamp}"$'\t'"${path}")
+  done < <(git -C "${repository_root}" worktree list --porcelain | sed -n 's/^worktree //p')
+  if (( ${#rows[@]} == 0 )); then
+    printf 'No DentoBot checkouts found under %s.\n' "${ros2_workspace_root}" >&2
+    exit 2
+  fi
+  mapfile -t sorted < <(printf '%s\n' "${rows[@]}" | sort -t $'\t' -k1,1nr)
+  printf 'DentoBot checkouts (newest commit first):\n'
+  index=0
+  for row in "${sorted[@]}"; do
+    path="${row#*$'\t'}"
+    index=$((index + 1))
+    branch="$(git -C "${path}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    [[ ${branch} != "HEAD" && -n ${branch} ]] || branch="(detached)"
+    IFS=$'\t' read -r commit when subject < <(
+      git -C "${path}" log -1 --date=format:'%Y-%m-%d %H:%M' --format=$'%h\t%cd\t%s'
+    )
+    changes="$(git -C "${path}" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+    markers=""
+    [[ ${path} == "${repository_root}" ]] && markers+=" [current]"
+    [[ -f ${path}/BRANCH_OBSOLETE.md ]] && markers+=" [retired]"
+    (( changes > 0 )) && markers+=" [${changes} uncommitted]"
+    printf '  %d) %s%s\n     %s  %s  %s\n     %s\n' \
+      "${index}" "${branch}" "${markers}" "${when}" "${commit}" "${subject:0:72}" "${path}"
+  done
+  if ! read -r -p "Run which checkout? [1-${index}, Enter = current]: " answer; then
+    printf '\nNo checkout chosen.\n' >&2
+    exit 2
+  fi
+  if [[ -z ${answer} ]]; then
+    selected_checkout="${repository_root}"
+    return
+  fi
+  if [[ ! ${answer} =~ ^[0-9]+$ ]] || (( answer < 1 || answer > index )); then
+    printf 'Not a listed checkout number: %s\n' "${answer}" >&2
+    exit 2
+  fi
+  selected_checkout="${sorted[answer - 1]#*$'\t'}"
+}
+
+if [[ ${choose_checkout} == true ]]; then
+  select_checkout
+  if [[ ${selected_checkout} != "${repository_root}" ]]; then
+    printf 'Launching checkout %s\n' "${selected_checkout}"
+    exec bash "${selected_checkout}/Workspace/scripts/launch-dentoworkflow.bash" "${forward_args[@]}"
+  fi
+  printf 'Launching the current checkout %s\n' "${repository_root}"
+fi
 
 if [[ -f ${workspace_config} ]]; then
   set -a

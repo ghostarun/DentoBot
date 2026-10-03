@@ -64,6 +64,11 @@ Icon=${repository_root}/DentalDrillNav.png
 Terminal=true
 Categories=Science;MedicalSoftware;
 StartupNotify=false
+Actions=choose-checkout;
+
+[Desktop Action choose-checkout]
+Name=Choose checkout…
+Exec="${entry}" --choose-checkout
 EOF
 if command -v desktop-file-validate >/dev/null 2>&1; then
   desktop-file-validate "${desktop_file}"
