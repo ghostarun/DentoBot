@@ -240,7 +240,11 @@ def run_session(namespace: dict, session_dir: Path, process_events, *, idle_limi
                           traceback=traceback.format_exc(limit=12))
         record["duration_sec"] = round(clock() - started, 3)
         reloader.note_new_modules()
-        (outbox / f"{name}.json").write_text(json.dumps(record, indent=2))
+        # Atomic: results can be ~10 MB (r22 cycles) and the host sender polls
+        # the outbox; it must never read a half-written file.
+        staging = outbox / f".{name}.json.tmp"
+        staging.write_text(json.dumps(record, indent=2))
+        staging.rename(outbox / f"{name}.json")
         script.rename(done / script.name)
         print(f"DENTOBOT_SESSION_COMMAND_END {name} {record['status']} {record['duration_sec']}s", flush=True)
         executed.append({"command": name, "status": record["status"], "duration_sec": record["duration_sec"]})

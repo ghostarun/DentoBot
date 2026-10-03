@@ -47,7 +47,12 @@ def send(run_dir: Path, command: str, timeout_sec: float, *, poll=1.0, clock=tim
     started = clock()
     while clock() - started < timeout_sec:
         if result_path.is_file():
-            record = json.loads(result_path.read_text())
+            try:
+                record = json.loads(result_path.read_text())
+            except json.JSONDecodeError:
+                # A pre-atomic driver may still be writing a large result (r22).
+                sleep(poll)
+                continue
             return (0 if record.get("status") == "ok" else 1), record
         if (run_dir / "transaction-status.json").is_file():
             return 3, {"error": "the run has ended", "command": name}

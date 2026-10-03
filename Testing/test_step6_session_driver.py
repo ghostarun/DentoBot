@@ -143,3 +143,29 @@ def test_modules_imported_after_start_are_baselined_not_reported_changed(tmp_pat
     importlib.import_module("dentobot_workflow.late")
     reloader.note_new_modules()
     assert reloader.reload_changed()["changed"] == []
+
+
+def test_outbox_results_are_written_atomically():
+    source = (Path(__file__).resolve().parent / "step6_session_driver.py").read_text()
+    assert 'staging = outbox / f".{name}.json.tmp"' in source
+    assert 'staging.rename(outbox / f"{name}.json")' in source
+
+
+def test_sender_retries_a_partially_written_result(tmp_path):
+    import step6_session_send as sender
+
+    session = tmp_path / "session"
+    for part in ("inbox", "outbox", "done"):
+        (session / part).mkdir(parents=True)
+    (session / "ready.json").write_text("{}")
+    calls = {"n": 0}
+
+    def fake_sleep(_seconds):
+        calls["n"] += 1
+        queued = next((session / "inbox").glob("*.py"), None)
+        stem = queued.stem if queued else "001-reload"
+        out = session / "outbox" / f"{stem}.json"
+        out.write_text('{"status": "ok", "res' if calls["n"] == 1 else json.dumps({"status": "ok", "result": 2}))
+
+    code, record = sender.send(tmp_path, "reload", 10.0, sleep=fake_sleep)
+    assert code == 0 and record["result"] == 2 and calls["n"] >= 2
