@@ -1,6 +1,38 @@
 # DENTOBOT Low-Level Changelog
 
-## 2026-10-03 — Launcher builds the launched checkout's robot packages; `main` in the chooser (integration `51293e6`, not yet released)
+## 2026-10-03 — Lab release candidate `lab/2026-10-03-4` (main `40386f0` + pin)
+
+- **Why:** Operator asked to push the launcher build guard and the `main`
+  chooser entry to `main` and the lab release.
+- **Identity:** DentoBot tag `lab/2026-10-03-4` (`main`); native SlicerROS2
+  `ece3c42` and GHCR image `jazzy-moveit-sim-20260909`, both unchanged.
+  Supersedes `lab/2026-10-03-3`.
+- **Contents since `lab/2026-10-03-3`** (launcher, tests and docs only; no
+  DENTOWorkflow, planner, native or image change): the launcher rebuilds
+  `dentobot_description`/`dentobot_moveit_config` when their build came from
+  another checkout, stops when colcon fails, and `--choose-checkout` lists
+  `main` first (entry below).
+- **Verification:** launcher, desktop and graphics-profile tests 50 passed;
+  host suite 1087 passed at `51293e6`; Ubuntu GUI relaunch at `51293e6`
+  rebuilt both packages from the launched checkout, loaded robot without
+  `Revolute-6`; lab pin parsed with `lab-release-lib.bash` from `origin/main`.
+- **Safety notes:**
+  - Simulation only. No robot hardware motion, drilling, or patient-facing use
+    is enabled or verified by this release.
+  - Candidate, not accepted: the safety and verdict notes of
+    `lab/2026-10-03-2` still apply. Step 6 runs r2 and r4–r26 used mixed
+    packages on the development workstation and need a rerun (`S6-LIVE-01`).
+  - Lab effect: a lab PC has one checkout, so its build cache normally matches
+    and nothing is rebuilt; a failed colcon build now stops the launch instead
+    of opening Slicer on stale packages.
+  - Not run with this tag: Windows/WSLg install/update and launch
+    (`PLAT-U-04`); choosing `main` in `--choose-checkout` (creates
+    `ros2_ws/src/DentoBot-main`) outside host tests.
+- **Rollback:** set `DENTOBOT_TAG` in `Workspace/LAB_RELEASE` on `main` back to
+  `lab/2026-10-03-3` (same `SLICERROS2_SHA`) and rerun `Update Dentobot
+  Lab.bat`. Published tags are not moved or deleted.
+
+## 2026-10-03 — Launcher builds the launched checkout's robot packages; `main` in the chooser (integration `51293e6`; released in `lab/2026-10-03-4`)
 
 - **Why:** A `--choose-checkout` test launch showed the shared `ros2_ws`
   build kept `dentobot_description` from the retired checkout (6-joint URDF)

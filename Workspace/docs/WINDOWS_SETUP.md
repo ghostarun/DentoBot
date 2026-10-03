@@ -23,7 +23,7 @@ case data, model caches, or credentials through Git.
 
 ## Release status
 
-Current `Workspace/LAB_RELEASE` selects immutable tag `lab/2026-10-03-3`, native
+Current `Workspace/LAB_RELEASE` selects immutable tag `lab/2026-10-03-4`, native
 SlicerROS2 `ece3c42` (DentoBot fork), and GHCR image
 `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260909` (same
 published image identity; `Dockerfile.slicerros2` is unchanged since
@@ -33,7 +33,7 @@ hardware or drilling. Release contents, evidence, safety notes and rollback are
 in `docs/changelog.md` (3 October 2026 entry). Lab and test machines must
 install or update to that pin (via `install-lab-wsl` / `Update Dentobot
 Lab.bat`), not follow `main` or a dirty development checkout. Previous pins:
-`lab/2026-10-03-2`, `lab/2026-10-03`, `lab/2026-09-10`.
+`lab/2026-10-03-3`, `lab/2026-10-03-2`, `lab/2026-10-03`, `lab/2026-09-10`.
 
 Windows note for this pin: the launcher refuses `DENTOBOT_GRAPHICS_MODE=nvidia`
 under WSL. Keep `wslg` (or `auto`); NVIDIA inference on WSL stays available
