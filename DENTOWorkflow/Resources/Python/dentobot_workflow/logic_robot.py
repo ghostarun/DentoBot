@@ -1143,7 +1143,8 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         if workspace is not None:
             workspace.SetAttribute("DENTOBOT.WorkspaceState", "Stale")
         if had_confirmation:
-            logging.warning("Invalidated Step 6 task confirmation: %s", reason)
+            # Expected after an operator edit; the UI shows it (error log, 2026-10-03).
+            logging.info("Invalidated Step 6 task confirmation: %s", reason)
         self.markStep6MotionDiagnosticStale(parameterNode, reason)
 
     def getTaskJointLimits(self, parameterNode) -> TaskJointLimits:

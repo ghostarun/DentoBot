@@ -327,8 +327,8 @@ class LifecycleWidgetMixin:
         marked = mark_slicer_ros2_runtime_nodes_transient()
         cleared = clear_legacy_dentobot_moveit_source_attributes()
         clearedActive = clear_stale_ros2_motion_active_attributes()
-        if marked:
-            logging.warning(
+        if marked:  # Expected housekeeping, not a warning (error log, 2026-10-03).
+            logging.info(
                 "Excluded %d imported SlicerROS2 runtime node(s) from future "
                 "DENTOBOT scene saves",
                 marked,

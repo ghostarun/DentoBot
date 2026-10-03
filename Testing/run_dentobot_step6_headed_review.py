@@ -1507,7 +1507,7 @@ def _capture_anterior_view(report, evidence_dir: Path, run_id: str, key: str) ->
              camera_node.GetParallelScale(), camera_node.GetViewAngle())
     try:
         import ctk
-        view.lookFromViewAxis(ctk.ctkAxesWidget.Anterior)
+        view.lookFromAxis(ctk.ctkAxesWidget.Anterior)
         view.resetFocalPoint()
         _process_events(0.2)
         return _capture(report, evidence_dir, run_id, key)
