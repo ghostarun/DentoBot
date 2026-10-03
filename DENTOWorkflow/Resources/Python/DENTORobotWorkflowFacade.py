@@ -12556,8 +12556,10 @@ class DENTORobotWorkflowFacade:
             planned_candidate_routes: list[dict[str, object]] = []
             clearance_candidate_routes: list[dict[str, object]] = []
             candidate_total = min(len(ik_candidates), GOAL1_MAX_PLANNED_IK_CANDIDATES)
+            # Read once: the 6.3 run option may be toggled while this plan runs.
+            dev_first_complete = bool(self._dev_first_complete_route)
             self._candidate_evaluation = {
-                "mode": "dev_first_complete" if self._dev_first_complete_route else "all",
+                "mode": "dev_first_complete" if dev_first_complete else "all",
                 "total": candidate_total,
                 "evaluated": candidate_total,
                 "notEvaluated": 0,
@@ -12678,7 +12680,7 @@ class DENTORobotWorkflowFacade:
                         "diagnosticIndex": len(diagnostic_records) - 1,
                     }
                     planned_candidate_routes.append(route)
-                    if self._dev_first_complete_route and chain["status"] == "Complete":
+                    if dev_first_complete and chain["status"] == "Complete":
                         self._candidate_evaluation.update(
                             evaluated=candidate_index + 1,
                             notEvaluated=candidate_total - candidate_index - 1,

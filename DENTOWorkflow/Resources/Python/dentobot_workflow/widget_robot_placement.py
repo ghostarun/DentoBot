@@ -395,6 +395,17 @@ class RobotPlacementWidgetMixin:
         if self.logic:
             self.logic.setStep6MouthBarrierOpacity(opacity)
 
+    def _onSetDevFastMode(self, checked: bool) -> None:
+        """Development-only first-Complete route mode; stamped, read at Plan Approach."""
+        facade = getattr(self, "_robotWorkflowFacade", None)
+        if facade is not None:
+            facade._dev_first_complete_route = bool(checked)
+
+    def _onSetDepthPeeling(self, checked: bool) -> None:
+        """3D-view depth peeling; display only (operator 2026-10-03)."""
+        if self.logic:
+            self.logic.setStep6DepthPeeling(bool(checked))
+
     def _step6TaskSpaceBoxCenter(self):
         """ROI draft centre when loaded, else the current opened-incisor midpoint."""
         panel = getattr(self, "_robotSimulationPanel", None)
@@ -555,6 +566,12 @@ class RobotPlacementWidgetMixin:
                 show_task_space_box=bool(self._parameterNode.step6ShowTaskSpaceBox),
                 task_space_box_side_mm=float(self._parameterNode.step6TaskSpaceBoxSideMm),
                 task_space_box_opacity=float(self._parameterNode.step6TaskSpaceBoxOpacity),
+            )
+        if panel is not None and hasattr(panel, "syncStep6RunOptions"):
+            facade = getattr(self, "_robotWorkflowFacade", None)
+            panel.syncStep6RunOptions(
+                dev_fast_mode=bool(getattr(facade, "_dev_first_complete_route", False)),
+                depth_peeling=self.logic.step6DepthPeelingEnabled(),
             )
         if bool(self._parameterNode.step6ShowTaskSpaceBox) and not self.logic.step6TaskSpaceBoxShown():
             self._onSetTaskSpaceBox(True, float(self._parameterNode.step6TaskSpaceBoxSideMm),

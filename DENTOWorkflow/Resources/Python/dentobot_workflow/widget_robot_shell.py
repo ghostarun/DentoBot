@@ -49,6 +49,8 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 "set_show_mouth_barrier": self._onSetShowMouthBarrier,
                 "set_mouth_barrier_opacity": self._onSetMouthBarrierOpacity,
                 "set_task_space_box": self._onSetTaskSpaceBox,
+                "set_dev_fast_mode": self._onSetDevFastMode,
+                "set_depth_peeling": self._onSetDepthPeeling,
                 "cancel_manual_base_review": self._onStep6CancelManualBaseReview,
                 "reconcile_manual_base": self._onStep6ReconcileManualBaseAcceptance,
                 "appearance_changed": self._onStep6AppearanceChanged,

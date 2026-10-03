@@ -6887,7 +6887,9 @@ def test_dev_fast_mode_breaks_only_on_complete_chain_and_records_evaluation():
     source = (HELPERS / "DENTORobotWorkflowFacade.py").read_text()
     block = source[source.index("planned_candidate_routes.append(route)"):]
     block = block[:block.index('if chain["status"] != "Complete":')]
-    assert 'if self._dev_first_complete_route and chain["status"] == "Complete":' in block
+    assert 'if dev_first_complete and chain["status"] == "Complete":' in block
+    # Read once per plan so a mid-plan 6.3 run-option toggle cannot change it.
+    assert "dev_first_complete = bool(self._dev_first_complete_route)" in source
     assert "notEvaluated=candidate_total - candidate_index - 1" in block and "break" in block
     assert '"candidateEvaluation": dict(self._candidate_evaluation)' in source
     assert "_dev_fast_mode_stamp(self._candidate_evaluation)" in source

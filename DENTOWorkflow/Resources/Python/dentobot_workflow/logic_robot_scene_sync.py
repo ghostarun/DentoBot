@@ -1068,6 +1068,18 @@ class RobotSceneSyncLogicMixin:
             if bool(view_node.GetBoxVisible()) != bool(visible):
                 view_node.SetBoxVisible(bool(visible))
 
+    @staticmethod
+    def setStep6DepthPeeling(enabled: bool) -> None:
+        """3D-view depth peeling (display only; operator run option 2026-10-03)."""
+        for view_node in slicer.util.getNodesByClass("vtkMRMLViewNode"):
+            if bool(view_node.GetUseDepthPeeling()) != bool(enabled):
+                view_node.SetUseDepthPeeling(bool(enabled))
+
+    @staticmethod
+    def step6DepthPeelingEnabled() -> bool:
+        views = slicer.util.getNodesByClass("vtkMRMLViewNode")
+        return all(bool(view_node.GetUseDepthPeeling()) for view_node in views) if views else True
+
     def _showStep6MouthBarrier(self, parts, summary, visible: bool = True,
                                opacity: float = 0.12) -> None:
         """Display-only model so the barrier is visible in the viewport and recordings."""

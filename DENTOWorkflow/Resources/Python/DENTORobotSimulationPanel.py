@@ -1595,6 +1595,37 @@ class DENTORobotSimulationPanel:
         self.taskSpaceBoxStatusLabel.setProperty("dentobotRole", "status")
         planning_advanced_layout.addWidget(self.taskSpaceBoxStatusLabel)
         approach_layout.addWidget(self.planningAdvancedGroup)
+        # Run options set before planning (operator 2026-10-03): development fast
+        # mode and 3D depth peeling. Neither changes collision or guard results.
+        self.planningRunOptionsGroup = qt.QGroupBox("Run options", self.approachGroup)
+        run_options_layout = qt.QVBoxLayout(self.planningRunOptionsGroup)
+        self.devFastModeCheckBox = qt.QCheckBox(
+            "Development fast mode: stop at the first Complete route", self.planningRunOptionsGroup
+        )
+        self.devFastModeCheckBox.objectName = "DENTOBOTDevFastMode63"
+        self.devFastModeCheckBox.checked = False
+        self.devFastModeCheckBox.toolTip = (
+            "Off (default): Plan Approach plans and guards every IK candidate before "
+            "choosing; required for any recorded, accepted or case-comparison result. "
+            "On: planning stops at the first Complete route. The plan message is "
+            "stamped DEVELOPMENT FAST MODE and the result is not for acceptance. "
+            "Takes effect at the next Plan Approach."
+        )
+        run_options_layout.addWidget(self.devFastModeCheckBox)
+        self.depthPeelingCheckBox = qt.QCheckBox(
+            "Depth peeling: exact transparency, slower 3D redraws", self.planningRunOptionsGroup
+        )
+        self.depthPeelingCheckBox.objectName = "DENTOBOTDepthPeeling63"
+        self.depthPeelingCheckBox.checked = True
+        self.depthPeelingCheckBox.toolTip = (
+            "On (Slicer default): see-through models (mouth barrier, envelope, robot "
+            "ghosts) are layered exactly. Off: faster 3D redraws (r19 software "
+            "rendering: 46 ms vs 204 ms per frame) but overlapping see-through "
+            "surfaces may blend in the wrong order. Applies to all 3D views. Display "
+            "only: no effect on planning, collision or guard results."
+        )
+        run_options_layout.addWidget(self.depthPeelingCheckBox)
+        approach_layout.addWidget(self.planningRunOptionsGroup)
         approach_buttons = qt.QHBoxLayout()
         self.planApproachButton = qt.QPushButton("Plan Guarded Approach", self.approachGroup)
         self.checkPreEntryIKButton = qt.QPushButton(
@@ -1742,6 +1773,12 @@ class DENTORobotSimulationPanel:
         self.showTaskSpaceBoxCheckBox.toggled.connect(lambda _checked: self._invoke_task_space_box())
         self.taskSpaceBoxSideSpinBox.valueChanged.connect(lambda _value: self._invoke_task_space_box())
         self.taskSpaceBoxOpacitySlider.valueChanged.connect(lambda _value: self._invoke_task_space_box())
+        self.devFastModeCheckBox.toggled.connect(
+            lambda checked: self._invoke("set_dev_fast_mode", bool(checked))
+        )
+        self.depthPeelingCheckBox.toggled.connect(
+            lambda checked: self._invoke("set_depth_peeling", bool(checked))
+        )
         self.showMouthBarrierCheckBox.toggled.connect(
             lambda checked: self._invoke("set_show_mouth_barrier", bool(checked))
         )
@@ -3919,6 +3956,15 @@ class DENTORobotSimulationPanel:
             if getattr(widget, attribute) != value:
                 was = widget.blockSignals(True)
                 setattr(widget, attribute, value)
+                widget.blockSignals(was)
+
+    def syncStep6RunOptions(self, *, dev_fast_mode: bool, depth_peeling: bool) -> None:
+        """Mirror the live run options (facade flag, 3D view state) without re-emitting."""
+        for widget, checked in ((self.devFastModeCheckBox, dev_fast_mode),
+                                (self.depthPeelingCheckBox, depth_peeling)):
+            if bool(widget.checked) != bool(checked):
+                was = widget.blockSignals(True)
+                widget.checked = bool(checked)
                 widget.blockSignals(was)
 
     def _invoke_appearance(self, key: str) -> None:

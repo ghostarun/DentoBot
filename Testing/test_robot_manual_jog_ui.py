@@ -6026,3 +6026,35 @@ def test_task_space_box_is_optional_off_by_default_with_side_and_opacity_control
     assert boxes[-1] == (None, 120.0, 0.25, False)
     methods["_onSetMouthBarrierOpacity"](host, 1.7)
     assert opacities == [1.0] and host._parameterNode.step6MouthBarrierOpacity == 1.0
+
+
+def test_run_options_offer_dev_fast_mode_and_depth_peeling_before_planning():
+    """Operator 2026-10-03: depth peeling as a GUI option before planning, alongside
+    the development fast mode. Both display/run options; fast mode stays off."""
+    panel = (PYTHON / "DENTORobotSimulationPanel.py").read_text()
+    shell = (PYTHON / "dentobot_workflow/widget_robot_shell.py").read_text()
+    logic = (PYTHON / "dentobot_workflow/logic_robot_scene_sync.py").read_text()
+    assert "self.devFastModeCheckBox.checked = False" in panel
+    assert "self.depthPeelingCheckBox.checked = True" in panel
+    group = panel.index("self.planningRunOptionsGroup = qt.QGroupBox(")
+    assert group < panel.index("self.planApproachButton = qt.QPushButton(")
+    assert '"set_dev_fast_mode": self._onSetDevFastMode' in shell
+    assert '"set_depth_peeling": self._onSetDepthPeeling' in shell
+    assert "view_node.SetUseDepthPeeling(bool(enabled))" in logic
+    methods = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_placement.py",
+        "RobotPlacementWidgetMixin",
+        {"_onSetDevFastMode", "_onSetDepthPeeling"},
+        {"_": lambda text: text},
+    )
+    peeling = []
+    host = SimpleNamespace(
+        _robotWorkflowFacade=SimpleNamespace(_dev_first_complete_route=False),
+        logic=SimpleNamespace(setStep6DepthPeeling=peeling.append),
+    )
+    methods["_onSetDevFastMode"](host, True)
+    assert host._robotWorkflowFacade._dev_first_complete_route is True
+    methods["_onSetDevFastMode"](host, False)
+    assert host._robotWorkflowFacade._dev_first_complete_route is False
+    methods["_onSetDepthPeeling"](host, False)
+    assert peeling == [False]
