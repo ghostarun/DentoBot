@@ -1,6 +1,6 @@
 # DENTOBOT pending backlog
 
-Latest scoped checkpoint: **4 October 2026** (`PLAT-U-07` / `S6-P2-03`).
+Latest scoped checkpoint: **4 October 2026** (`S6-LIVE-01`, `PLAT-U-07`, `S6-P2-03`).
 Local destination checkout: `/home/tarun/dentobot/ros2_ws/src/DentoBot` on `main`.
 The broader 1 October task reconciliation and source-station integration routing
 remain dated context; this checkpoint does not accept their open gates.
@@ -31,6 +31,28 @@ Home→PreEntry→Entry→Target chain. Keep exact J1–J5, fixed spindle/TCP ge
 strict IK/collision/phase ownership, and explicit Base/Home acceptance. Saved
 configuration/history never restores live ROS, route or preview authority.
 Operator confirms performance integration completed (1 October); integrated manual-trial responsiveness remains OPEN under S6-P2-03. Slicer 5.12 remains held.
+
+**4October narrow supersession (`S6-LIVE-01`):** Tarun explicitly requests
+Oct4-case Home revalidation diagnosis, correction, Python reload and testing in
+the same open headed runtime. That scope is complete for the rejection/cancel
+recovery defect: host242 PASS and real Review → strict collision rejection →
+Cancel → fresh Review PASS in PID2071. The rejected zero-joint pose remains
+invalid; no Home was saved. Original draft/case/accepted state are preserved.
+Tarun's usability verdict, admissible Home and broader continuity gates remain
+open. This is not a fourth old repeatability-campaign attempt or authorization
+for planner/preview/geometry changes. See [evidence](logbook/2026-10-04.md).
+
+**Later4October steering (`S6-LIVE-01`):** “cannot plan and apply new home”
+extends the same owner to the missing new-draft action. Plan + Apply Home Draft
+is implemented/reloaded in PID2071 and targets the exact current or reviewed
+draft; separate acceptance still saves Home. Actual button reached MoveIt;
+all3 existing internal attempts stopped at CheckStartStateCollision for
+`dentobot_mouth_barrier_lip_slab` / `pneumatic_spindle-Copy` in the all-zero
+start. No waypoint/case/Home save. Source/UI routing correction is demonstrated;
+positive route/application and Tarun verdict remain OPEN. Next bounded action:
+operator review of this collision and selection of a collision-free starting
+setup; no geometry/policy change or further planner retry is inferred.
+See [4October evidence](logbook/2026-10-04.md).
 
 Evidence routes: [current handoff](diagnostics/STEP6_IMPLEMENTATION_HANDOFF_2026-10-01.md),
 [renovation contract](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md),

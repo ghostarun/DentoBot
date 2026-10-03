@@ -18,6 +18,35 @@ from DENTOStep6State import JOINT_NAMES, parse_manual_simulation_record
 
 
 class RobotManualWidgetMixin:
+    def _updateTaskHomeDraftApplyUi(self, live_scene, anatomy_ready, controls, capabilities, review_result):
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        unresolved = bool(
+            facade and (facade._manual_jog_reconciliation_required or facade._manual_jog_in_progress)
+        )
+        details = getattr(review_result, "details", {}) or {}
+        staged_ready = bool(
+            isinstance(details, Mapping) and getattr(review_result, "success", False)
+            and details.get("setupMode") == "connected"
+            and details.get("staged") is True and details.get("identityStatus") == "current"
+            and details.get("acceptanceStatus") == "review" and not details.get("acceptanceUncertainty")
+            and details.get("candidateJointPositionsSi") == panel.manualJogJointPositionsSi()
+        )
+        panel.applyTaskHomeButton.text = "Plan + Apply Home Draft"
+        panel.applyTaskHomeButton.toolTip = (
+            "Plan from the monitored robot state to the current J1–J5 draft; "
+            "every waypoint must pass the strict simulation guard. "
+            "Then review and accept to save it as Home."
+        )
+        panel.applyTaskHomeButton.enabled = bool(
+            live_scene and anatomy_ready and (controls["review"] or staged_ready)
+            and capabilities and capabilities.planning_scene_synchronized
+            and panel._manualJogDraftWithinCommandLimits and not unresolved
+        )
+        if unresolved:
+            panel.reviewTaskHomeButton.enabled = False
+            panel.acceptTaskHomeButton.enabled = False
+
 
     def _onShellSetTcpDragEnabled(self, enabled: bool) -> bool:
         panel = self._robotSimulationPanel

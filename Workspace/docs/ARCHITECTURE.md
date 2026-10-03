@@ -2010,3 +2010,15 @@ The reviewed integration candidate uses five additional sibling mixins to satisf
 ## Native Ubuntu rendering selection — 1 October 2026
 
 The consolidated5.10 integration uses explicit native NVIDIA container graphics as an alternative to Mesa DRM rendering. Rendering mode is independent of segmentation inference device: NVIDIA graphics with CPU inference is supported by configuration. NVIDIA selection uses the existing GPU reservation overlay plus a native-only DRM-device reset. It does not change workflow geometry, planner policy or Slicer version. Actual hardware/renderer/frame-pacing acceptance remains workstation-specific; nativeUbuntu results do not establish WSL/WSLg behavior.
+
+
+## 2026-10-04 — Home draft application ownership
+
+The 6.2 Plan + Apply Home Draft callback calls the shared facade's
+applyTaskHomeDraft, which plans from monitored current state to a finite exact
+J1–J5 draft using the existing MoveIt bridge and applies every waypoint through
+the strict simulation guard. This action does not persist or validate Home;
+manualTaskHomeReview/acceptManualTaskHomeReview retain that ownership. Current
+review identity/candidate must match before applying a staged review. Uncertain
+submission uses the existing read-only native accepted-state reconciliation;
+no second ROS/kinematic implementation or hardware path is introduced.

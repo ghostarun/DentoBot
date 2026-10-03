@@ -1,5 +1,27 @@
 # Dentobot Technical Decisions
 
+## 2026-10-04 — Recover Task Home review after definitive rejection
+
+**Operator statement:** “saved a new dentocase in oct4 folder. Problem seems
+to be revalidating task home after a collision task home configuration failed.
+Test this out in currently open headed runtime, diagnose and fix , reload
+module and test out in same open slicer runtime.” No operator cause or geometry
+decision beyond that hypothesis is inferred.
+
+**Evidence/decision (`S6-LIVE-01`, Priority0):** The live review is not staged,
+identity is current and acceptance is certain, but retained `rejected` status
+disables Review. Cancellation intentionally retains rejection evidence; keep
+that owner behavior and permit fresh review for this definitive state. Preserve
+the stricter staged-candidate acceptance, accepted-pose matching, stale/unknown
+identity and uncertainty gates. Apply the same recovery to offline draft
+readiness. No collision tolerance, Base, pose, native bridge or saved case change.
+
+**Result:** host242 PASS; same-PID2071 actual button recovery PASS after Python
+hot reload. Strict guard still rejects zero joints at sample1/1 for
+`dentobot_mouth_barrier_lip_slab ↔ pneumatic_spindle-Copy`. Robot/Home/case state
+is unchanged. This closes the bounded recovery correction, not valid-Home or
+operator/full-cycle acceptance. See [logbook](logbook/2026-10-04.md).
+
 ## 2026-10-03 — Destination published-source handoff under PLAT-U-07
 
 **Operator direction:** “update local dentobot to latest progress, pull and
@@ -7180,3 +7202,19 @@ launcher evidence and pending NVIDIA checklist. Target `main` and the existing
 commit does not merge unrelated source, promote a lab tag, or accept pending
 NVIDIA/representative/operator gates. Engineer-owned records, local backup
 payloads, credentials and runtime artifacts are excluded.
+
+
+## Later 2026-10-04 — new Home draft action under the same owner
+
+Operator reports “cannot plan and apply new home”. Extend S6-LIVE-01 to the
+missing 6.2 application action. Use explicit Plan + Apply Home Draft for the
+current or exactly matching reviewed candidate, preserving the saved-Home
+service API and separate save/validation owner. Preserve monitored start,
+current case identity, strict guard for every waypoint and unknown-state native
+reconciliation. This supersedes the earlier agent-selected no-plan/apply
+boundary only for this simulated Home action. No geometry, Base, native code,
+collision tolerance or planner policy change follows. The real request stopped
+at MoveIt's start-collision adapter; retain that first cause and stop route
+retries. The standing request to update docs and publish main/integration is
+applied to this verified source correction, with positive-route/operator gates
+remaining open. See the 4October logbook.

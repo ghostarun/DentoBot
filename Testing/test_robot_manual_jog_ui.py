@@ -2694,7 +2694,7 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
     assert "J1 5.73 deg" in panel.taskHomeCurrentStateLabel.text
     assert "J1 11.46 deg" in panel.taskHomeCandidateLabel.text
     assert "Home review: review; identity: current" in panel.taskHomeReviewStatusLabel.text
-    assert "use Guarded Manual Jog separately" in panel.taskHomeReviewStatusLabel.text
+    assert "use Plan + Apply Home Draft" in panel.taskHomeReviewStatusLabel.text
     assert "Home review sends no motion" in panel.taskHomeReviewStatusLabel.text
     assert "pneumatic_spindle" not in panel.taskHomeCandidateLabel.text
 
@@ -2714,7 +2714,7 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
             },
         )
     )
-    assert "use Guarded Manual Jog separately" not in panel.taskHomeReviewStatusLabel.text
+    assert "use Plan + Apply Home Draft" not in panel.taskHomeReviewStatusLabel.text
 
     panel.setManualTaskHomeReviewResult(
         SimpleNamespace(
@@ -2791,7 +2791,7 @@ def test_task_home_mode_labels_and_offline_configuration_never_claim_live_accept
     assert panel._manualJogAcceptedJointPositionsSi is None
     assert "unavailable while offline" in panel.taskHomeCurrentStateLabel.text
     assert "configuration only; not live-validated" in panel.taskHomeConfiguredStateLabel.text
-    assert "use Guarded Manual Jog separately" not in panel.taskHomeReviewStatusLabel.text
+    assert "use Plan + Apply Home Draft" not in panel.taskHomeReviewStatusLabel.text
 
     panel._manualJogAcceptedJointPositionsSi = dict(configured)
     panel.setManualTaskHomeReviewResult(
@@ -3060,6 +3060,98 @@ def test_manual_draft_refresh_uses_live_ghost_only_when_connected():
     method(SimpleNamespace(_robotSimulationPanel=connected_panel), positions)
     assert "display-only candidate shown" in connected_panel.manualJogDraftStateLabel.text
     assert bridge_calls == [positions]
+
+
+def test_home_apply_handler_plans_current_draft_and_does_not_claim_home_validation():
+    calls = []
+    draft = {name: float(index) for index, name in enumerate(JOINT_NAMES)}
+    outcome = SimpleNamespace(success=True, message="Draft applied; review to save Home.",
+                              details={"homeSaved": False, "runtimeValidated": False})
+    method = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_shell.py", "RobotShellWidgetMixin",
+        {"_onStep6ApplyTaskHome"},
+        {"slicer": SimpleNamespace(util=SimpleNamespace(errorDisplay=lambda message: calls.append(message)))},
+    )["_onStep6ApplyTaskHome"]
+    panel = SimpleNamespace(manualJogJointPositionsSi=lambda: dict(draft), homeStatusLabel=object())
+    facade = SimpleNamespace(
+        applyTaskHomeDraft=lambda positions: calls.append(("draft", positions)) or outcome,
+        applyTaskHome=lambda: (_ for _ in ()).throw(AssertionError("saved Home must not be used")),
+    )
+    host = SimpleNamespace(
+        _robotWorkflowFacade=facade, _robotSimulationPanel=panel, _workflowActionBusy=False,
+        _updateRobotPlacement=lambda: calls.append("placement"),
+        _updateStep6PlanningUi=lambda *args, **kwargs: calls.append(("ui", args, kwargs)),
+        _setStep6PanelResult=lambda label, result: calls.append(("result", label, result)),
+    )
+    method(host)
+    assert calls[0] == ("draft", draft)
+    assert calls[-1] == ("result", panel.homeStatusLabel, outcome)
+    assert host._workflowActionBusy is False
+    host._workflowActionBusy = True
+    before = list(calls)
+    method(host)
+    assert calls == before
+
+
+def test_cancelled_rejected_task_home_can_start_a_fresh_review_without_bypassing_gates():
+    method = _methods(
+        PYTHON / "dentobot_workflow/widget_robot.py",
+        "RobotWidgetMixin",
+        {"_manualTaskHomeReviewControlState"},
+        {"JOINT_NAMES": JOINT_NAMES, "Mapping": Mapping, "isfinite": isfinite},
+    )["_manualTaskHomeReviewControlState"]
+    accepted = {name: 0.0 for name in JOINT_NAMES}
+    for setup_mode, live_scene in (("connected", True), ("offline", False)):
+        details = {
+            "setupMode": setup_mode,
+            "staged": False,
+            "identityStatus": "current",
+            "acceptanceStatus": "rejected",
+            "acceptanceFailure": {"code": "task_home_collision_rejected"},
+            "acceptanceUncertainty": "",
+            "candidateJointPositionsSi": None,
+            "acceptedJointPositionsSi": dict(accepted),
+        }
+
+        def controls(**changes):
+            return method(
+                None, live_scene,
+                SimpleNamespace(success=True, details={**details, **changes}),
+            )
+
+        assert controls() == {
+            "group": True, "review": True, "cancel": False,
+            "accept": False, "reconcile": False,
+        }, setup_mode
+        for invalid in (
+            {"identityStatus": "stale"},
+            {"identityStatus": "unknown"},
+            {"setupMode": "unknown"},
+            {"acceptanceStatus": "unknown"},
+            {"acceptanceUncertainty": "save outcome may have committed"},
+        ):
+            assert controls(**invalid)["review"] is False, (setup_mode, invalid)
+        assert method(
+            None, live_scene, SimpleNamespace(success=False, details=details)
+        )["review"] is False
+        if setup_mode == "connected":
+            assert method(
+                None, False, SimpleNamespace(success=True, details=details)
+            )["review"] is False
+
+        # A rejected staged candidate still needs cancellation/restaging.
+        # It cannot be accepted even if it matches the current robot joints.
+        staged = controls(staged=True, candidateJointPositionsSi=dict(accepted))
+        assert staged["review"] is False
+        assert staged["accept"] is False
+        assert staged["cancel"] is True
+        uncertain = controls(
+            staged=True, acceptanceUncertainty="save outcome may have committed"
+        )
+        assert uncertain["review"] is False
+        assert uncertain["accept"] is False
+        assert uncertain["cancel"] is False
+        assert uncertain["reconcile"] is (setup_mode == "connected")
 
 
 def test_task_home_review_buttons_require_current_identity_and_matching_candidate():

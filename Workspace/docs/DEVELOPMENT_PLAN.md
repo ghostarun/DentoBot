@@ -1,4 +1,18 @@
 # DENTOBOT Development Plan
+
+## 4 October — bounded Task Home recovery evidence (`S6-LIVE-01`)
+
+Current operator scope authorizes the Oct4-case collision-rejection recovery
+fix, Python reload and test in the existing headed runtime. The cancelled,
+definitively rejected review now permits a new review in current/certain
+connected or offline setup. Host242 PASS and real button sequence PASS in the
+same Slicer PID2071. Strict guard rejection remains effective; original draft,
+accepted/monitored/displayed state, Home JSON and case SHA are preserved.
+See [task contract](TASKS.md) and [4October evidence](logbook/2026-10-04.md).
+No valid Home was established. Broader continuity, changed-Base/Home repeat,
+admissible pose and Tarun's visual verdict remain under the existing backlog
+owner; this defect check does not reopen the old retry-ceiling campaign.
+
 **30 September operator refresh gate:** Tarun directs that no further Step 6 implementation changes enter integration until they are fully implemented, tested and verified. Hold the existing incorporated `e7cd29f` checkpoint; do not merge later unfinished renovation checkpoints. This supersedes the earlier periodic unfinished-checkpoint refresh strategy for future transfers only. Resume source refresh from an identified completed/verified renovation commit with recorded evidence; then run delta-affected combined checks. Current integration-only capture evidence remains distinct; the inherited maintainability gate was subsequently closed on1October.
 
 
@@ -1756,3 +1770,14 @@ uses existing matrix `runtime.ubuntu_nvidia_render_acceptance` and recorded
 requires save/close confirmation; representative render probe requires a named
 approved case. NVIDIA OpenGL/FPS and operator Step6 verdict are NOT RUN. No
 claim of improvement, full migration, hardware or clinical acceptance.
+
+
+## Later 4 October — new Home application evidence (`S6-LIVE-01`)
+
+Operator's “cannot plan and apply new home” extends the current Home recovery
+scope. The exact draft is now a guarded MoveIt goal before separate explicit
+Home acceptance. Actual button reaches MoveIt in the unchanged headed runtime,
+then fails on the current all-zero start's mouth-barrier/spindle collision.
+No waypoint applies. Successful route/application and Tarun's verdict remain
+in the existing backlog owner; no geometry/policy exception is an acceptance
+path. Source/host/routing evidence is in the 4October logbook.

@@ -3204,7 +3204,9 @@ class DENTORobotWorkflowFacade:
                 echo[name] = float(value)
             echo_vector = tuple(echo[name] for name in JOINT_NAMES)
             parameter_node = self._require_context()
-            identity_before = self._manual_jog_current_identity(parameter_node)
+            identity_before = self._manual_jog_current_identity(
+                parameter_node, for_task_home_review=uncertainty.get("forTaskHomeReview") is True
+            )
             details["identityBefore"] = dict(identity_before)
             if identity_before != dict(expected_identity):
                 details["identityStatus"] = "stale"
@@ -3405,7 +3407,9 @@ class DENTORobotWorkflowFacade:
                 )
 
             try:
-                identity_after = self._manual_jog_current_identity(parameter_node)
+                identity_after = self._manual_jog_current_identity(
+                    parameter_node, for_task_home_review=uncertainty.get("forTaskHomeReview") is True
+                )
                 audit_after = self._logic.collisionSceneAuditRecord(parameter_node)
                 expected_ids_after = audit_object_ids(audit_after)
             except (RuntimeError, ValueError, TypeError, OSError, KeyError, AttributeError) as exc:
@@ -6907,6 +6911,117 @@ class DENTORobotWorkflowFacade:
             )
         except (RuntimeError, ValueError, OSError, KeyError) as exc:
             return RobotActionResult(False, "task_home_failed", str(exc))
+
+    def applyTaskHomeDraft(self, joint_positions_si: Mapping[str, float]) -> RobotActionResult:
+        """Plan/apply a captured Home draft without saving or validating Home."""
+        details = {"simulationOnly": True, "runtimeValidated": False,
+                   "homeSaved": False, "appliedWaypointCount": 0}
+        identity = None
+        submitted = False
+
+        def finish(success, code, message):
+            details["manualJogReconciliationRequired"] = self._manual_jog_reconciliation_required
+            if self._manual_jog_reconciliation_required:
+                message += " Use Reconcile State in 6.3 Manual before further Home actions."
+            return RobotActionResult(success, code, message, details=dict(details))
+
+        if (self._manual_jog_in_progress or self._manual_jog_reconciliation_required
+                or self._manual_task_home_acceptance_in_progress
+                or self._manual_task_home_acceptance_uncertain):
+            return finish(False, "task_home_draft_busy",
+                          "Cancel the Home review or reconcile outstanding state before applying a new Home draft.")
+        try:
+            if not isinstance(joint_positions_si, Mapping) or set(joint_positions_si) != set(JOINT_NAMES):
+                raise ValueError("A Home draft requires exactly the five canonical J1–J5 SI values.")
+            if any(isinstance(value, bool) or not isfinite(float(value)) for value in joint_positions_si.values()):
+                raise ValueError("Home draft joint values must be finite SI numbers.")
+            goal = {name: float(joint_positions_si[name]) for name in JOINT_NAMES}
+            parameter_node = self._require_context()
+            identity = self._manual_jog_current_identity(parameter_node, for_task_home_review=True)
+            review = self._manual_task_home_review
+            if review is not None and (
+                review.get("identity") != identity or review.get("setupMode") != "connected"
+                or self._manual_task_home_review_status != "review"
+                or review.get("candidateJointPositionsSi") != goal
+            ):
+                raise ValueError("The Home draft differs from its current review; cancel and review the exact draft again.")
+            start = self._bridge.monitored_joint_positions_si()
+            accepted = self._bridge.last_accepted_joint_positions_si()
+            displayed = self.currentRobotState().joint_positions_si
+            if any(not isinstance(vector, Mapping) or set(vector) != set(JOINT_NAMES)
+                   or any(isinstance(v, bool) or not isfinite(float(v)) for v in vector.values())
+                   for vector in (start, accepted, displayed)):
+                raise ValueError("A complete finite accepted, monitored and displayed start state is required.")
+            if not all(self._joint_positions_match(start, positions)[0] for positions in (accepted, displayed)):
+                raise ValueError("Accepted, monitored and displayed robot state must agree before Home-draft planning.")
+            details.update(requestedJointPositionsSi=dict(goal), monitoredStartJointPositionsSi=dict(start))
+            self._manual_jog_in_progress = True
+            plan = self._bridge.plan_moveit_joint_goal(
+                start_joint_positions_si=start, goal_joint_positions_si=goal,
+                planner_id=STEP6_JOINT_PLANNER_ID,
+                planner_context="monitored_current_to_task_home_draft",
+            )
+            if not plan.success or not plan.waypoint_joint_vectors_si:
+                return finish(False, "task_home_draft_moveit_plan_failed",
+                              "MoveIt could not plan from the monitored state to the Home draft. " + plan.message)
+            waypoints = tuple(plan.waypoint_joint_vectors_si)
+            for waypoint in waypoints:
+                if (not isinstance(waypoint, Mapping) or set(waypoint) != set(JOINT_NAMES)
+                        or any(isinstance(v, bool) or not isfinite(float(v)) for v in waypoint.values())):
+                    raise ValueError("MoveIt returned an incomplete or nonfinite Home-draft waypoint.")
+            if any(abs(float(waypoints[-1][name]) - goal[name]) > 1.0e-12 for name in JOINT_NAMES):
+                raise ValueError("MoveIt did not reach the exact requested Home draft; nothing was applied.")
+            details["plannedWaypointCount"] = len(waypoints)
+            for index, waypoint in enumerate(waypoints):
+                if self._manual_jog_current_identity(parameter_node, for_task_home_review=True) != identity:
+                    raise ValueError("Home-draft planning identity changed; application stopped.")
+                # Once submitted, uncertain/partial execution must be reconciled
+                # through the existing read-only native accepted-state query.
+                self._manual_jog_uncertainty = {
+                    "identity": dict(identity), "requested": dict(goal),
+                    "sessionId": self._manual_jog_session_id, "forTaskHomeReview": True,
+                }
+                self._manual_jog_reconciliation_required = True
+                submitted = True
+                applied = self._apply_positions_si(waypoint)
+                if not applied.success:
+                    details["rejectedWaypointIndex"] = index
+                    return finish(False, "task_home_draft_guard_rejected",
+                                  "The strict guard rejected Home-draft waypoint "
+                                  f"{index + 1}/{len(waypoints)}. " + applied.message)
+                self.invalidateMotionPlan()
+                details["appliedWaypointCount"] += 1
+            matched, message, monitored, error = self._bridge.wait_for_monitored_joint_positions_si(goal)
+            accepted = self._bridge.last_accepted_joint_positions_si()
+            displayed = self.currentRobotState().joint_positions_si
+            validity = self._checkStateValidity()
+            finite_state = all(
+                isinstance(vector, Mapping) and set(vector) == set(JOINT_NAMES)
+                and all(not isinstance(v, bool) and isfinite(float(v)) for v in vector.values())
+                for vector in (accepted, displayed, monitored)
+            )
+            if (not finite_state or matched is not True or not self._joint_positions_match(goal, accepted)[0]
+                    or not self._joint_positions_match(goal, displayed)[0]
+                    or not validity.success or not validity.details.get("authoritative")
+                    or self._manual_jog_current_identity(parameter_node, for_task_home_review=True) != identity):
+                return finish(False, "task_home_draft_state_unknown",
+                              "Home-draft state was not authoritatively confirmed; use Reconcile State in 6.3 Manual. " + message)
+            self._manual_jog_reconciliation_required = False
+            self._manual_jog_uncertainty = None
+            details.update(acceptedJointPositionsSi=dict(accepted),
+                           monitoredJointPositionsSi=dict(monitored), maximumJointError=error)
+            return finish(True, "task_home_draft_applied",
+                          "MoveIt planned the Home draft, every waypoint passed the strict guard, "
+                          "and the monitored robot matches it. Review and Accept & Validate to save it as Task Home.")
+        except (AttributeError, RuntimeError, ValueError, TypeError, OverflowError, OSError, KeyError) as exc:
+            return finish(False, "task_home_draft_failed", str(exc))
+        finally:
+            if submitted:
+                self._runtime_validated_task_home_key = ""
+                self._runtime_task_home_evidence = {}
+                self.invalidateMotionPlan()
+            if identity is not None:
+                self._manual_jog_in_progress = False
 
     def applyTaskHome(self) -> RobotActionResult:
         """Plan current-to-Home in MoveIt, then apply it through the guard.

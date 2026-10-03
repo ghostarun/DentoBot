@@ -1,5 +1,32 @@
 # DENTOBOT agent context
 
+## Later 4 October steering — new Home draft application (`S6-LIVE-01`)
+
+Operator reports “cannot plan and apply new home”. The 6.2 action now plans and
+applies the exact current/currently reviewed draft without requiring saved Home;
+separate Accept & Validate still saves Home. The actual button reached MoveIt
+in unchanged PID2071, then stopped at CheckStartStateCollision: mouth-barrier
+lip slab versus spindle housing in the accepted all-zero start. No waypoint
+applied; original draft/case/Home/accepted state preserved. The collision/start
+blocker, positive route/application and Tarun verdict remain in backlog. This
+later scope supersedes the earlier agent-selected no-plan/apply boundary only
+for this Home action. See the 4October logbook; NVIDIA acceptance remains open.
+
+
+## Local Task Home recovery — 4 October 2026
+
+Latest operator scope: diagnose/fix the Oct4 DentoCase Home revalidation defect,
+reload Python and test in the already open headed Slicer. Existing `S6-LIVE-01`
+Priority0 owns this bounded correction. Cancel after definitive collision
+rejection now permits a fresh review when identity is current and acceptance
+is certain. Host242 PASS and the actual button sequence PASS in unchanged
+Slicer PID2071; ROS connection, accepted joints, original draft and saved case
+are preserved. The zero-joint pose still fails the strict mouth-barrier/spindle
+collision guard; no valid Home or full-cycle acceptance is claimed. See
+[4October evidence](logbook/2026-10-04.md) and the retained backlog gate.
+This narrow authorization does not restart the old repeatability campaign or
+authorize a new planner/preview/geometry trial. NVIDIA acceptance remains open.
+
 ## Local source handoff — 3 October 2026
 
 This destination now uses `/home/tarun/dentobot/ros2_ws/src/DentoBot`,

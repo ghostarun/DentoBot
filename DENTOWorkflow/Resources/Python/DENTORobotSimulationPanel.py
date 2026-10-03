@@ -379,9 +379,9 @@ class DENTORobotSimulationPanel:
         self.homeGroup.objectName = "DENTOBOTTaskHomeGroupBox"
         home_layout = qt.QVBoxLayout(self.homeGroup)
         home_description = qt.QLabel(
-            "Edit all five joints, review the exact draft, then save it offline or "
-            "accept and validate it in a connected session. Review and save send no "
-            "motion; Plan + Apply remains a separate live operation.",
+            "Edit all five joints and review the exact draft. Offline: save its "
+            "configuration. Connected: Plan + Apply Home Draft, then Accept and "
+            "Validate. Review and save send no motion.",
             self.homeGroup,
         )
         home_description.wordWrap = True
@@ -471,11 +471,12 @@ class DENTORobotSimulationPanel:
         self.taskHomeDetailsButton = qt.QPushButton("Home Details…", self.homeGroup)
         self.taskHomeDetailsButton.objectName = "DENTOBOTTaskHomeDetailsButton"
         self.applyTaskHomeButton = qt.QPushButton(
-            "Plan + Apply Saved Home", self.homeGroup
+            "Plan + Apply Home Draft", self.homeGroup
         )
         self.applyTaskHomeButton.toolTip = (
-            "Requires a current Task Home validated in the connected ROS + MoveIt "
-            "session and a prepared case scene. This is a separate live operation."
+            "Plan from the monitored robot state to the current J1–J5 draft and "
+            "apply every waypoint through the strict simulation guard. "
+            "This does not save Home; review and accept the applied draft afterward."
         )
         home_secondary_actions.addWidget(self.taskHomeDetailsButton)
         home_secondary_actions.addWidget(self.applyTaskHomeButton)
@@ -3065,7 +3066,7 @@ class DENTORobotSimulationPanel:
             if setup_mode == "connected" and not matches:
                 status += (
                     " Candidate differs from the current accepted robot state; "
-                    "use Guarded Manual Jog separately. Home review sends no motion."
+                    "use Plan + Apply Home Draft, then accept and validate it. Home review sends no motion."
                 )
         allowed_statuses = (
             {"review", "accepted", "configuration_saved"}
