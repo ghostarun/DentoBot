@@ -2002,3 +2002,13 @@ Profile host test result:13passed/0.08s; shell syntax and frame-probe self-check
 
 
 Native responsive-plan source pin (2October): separate slicer_ros2_module commit58fce9bc21709d9fd4e23fdb95febac9e19402c5, parent333c410. Existing normal5.10 installation was built from these identical bytes; integration1581380 alone does not contain this separate repository. Reconstruct affected native package from this pin; no5.12 update is authorized.
+
+## SlicerROS2 render-fix overlay (5.10) — 3 October 2026
+
+Separate install `/tmp/dentobot-s6-render-fix-install/slicer_ros2_module` (container), built from a copy of the u01 source `/tmp/dentobot-slicerros2-shutdown-5-10` at `/tmp/dentobot-slicerros2-render-fix-5-10` with exactly three files replaced by canonical `ros2_ws/src/slicer_ros2_module` commit `c8b446e` ("Skip re-applying unchanged tf lookup transforms"; parent `58fce9b`): `MRML/vtkMRMLROS2NodeNode.cxx`, `MRML/vtkMRMLROS2Tf2LookupNode.cxx`, `MRML/vtkMRMLROS2Tf2LookupNode.h` (these three were byte-identical between u01 source and `58fce9b` before the patch).
+
+Build (ubuntu user, `source /opt/ros/jazzy/setup.bash`, 2 min 55 s, compiler warnings only):
+`colcon --log-base /tmp/dentobot-s6-render-fix-log build --base-paths /tmp/dentobot-slicerros2-render-fix-5-10 --packages-select slicer_ros2_module --build-base /tmp/dentobot-s6-render-fix-build --install-base /tmp/dentobot-s6-render-fix-install --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Debug -DSlicer_DIR=/opt/slicer/Slicer-SuperBuild/Slicer-build`.
+Installed file list equals u01 except runtime `__pycache__`. MRML `.so` SHA-256 `d72253bf260ee2425560608d780afd8add8cef9e7329ea3937d060cf741ceb5b`; Logic `.so` `739ecc7c4378cde5a79c324d52cbff9c655655689fd190f6788ffaf5f016f348`.
+
+Use: run scripts (`launch-gdb.bash`, `run-in-container.bash`) of a prepared run replace `/tmp/dentobot-s6-u01-install` with `/tmp/dentobot-s6-render-fix-install` (first used by r20). Rollback: keep using `/tmp/dentobot-s6-u01-install` (untouched). Not a 5.12 build; the native branch name `upgrade/slicer-5.12` remains historical routing. `/tmp` content is container-ephemeral; rebuild from commit `c8b446e` with the command above.
