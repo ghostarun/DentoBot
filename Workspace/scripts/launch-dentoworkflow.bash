@@ -99,6 +99,15 @@ compose_wslg_file="${repository_root}/Workspace/compose.wslg.yaml"
 compose_nvidia_file="${repository_root}/Workspace/compose.nvidia.yaml"
 compose_cuda_file="${repository_root}/Workspace/compose.cuda.yaml"
 
+host_is_wsl() {
+  # WSL2 kernels report "microsoft" in osrelease; WSLg adds /dev/dxg and /mnt/wslg.
+  local osrelease=""
+  if [[ -r /proc/sys/kernel/osrelease ]]; then
+    osrelease="$(< /proc/sys/kernel/osrelease)"
+  fi
+  [[ ${osrelease,,} == *microsoft* || -e /dev/dxg || -d /mnt/wslg ]]
+}
+
 if [[ ${graphics_mode} == "auto" ]]; then
   if [[ -c ${render_device} ]]; then
     graphics_mode="mesa"
@@ -113,6 +122,15 @@ if [[ ${graphics_mode} != "mesa" && ${graphics_mode} != "wslg" && \
   printf '%s\n' \
     "Unsupported DENTOBOT_GRAPHICS_MODE=${graphics_mode}." \
     'Use mesa, wslg, nvidia (native Ubuntu NVIDIA), or auto.' >&2
+  exit 2
+fi
+# Under WSL the NVIDIA prerequisite checks can all pass while Slicer still
+# renders in software (no WSLg overlay), so refuse instead of degrading silently.
+if [[ ${graphics_mode} == "nvidia" ]] && host_is_wsl; then
+  printf '%s\n' \
+    'DENTOBOT_GRAPHICS_MODE=nvidia is for native Ubuntu NVIDIA hosts only; this host is WSL.' \
+    'Set DENTOBOT_GRAPHICS_MODE=wslg (or auto) in .dentobot.env.' \
+    'For NVIDIA inference on WSL, keep wslg graphics and set DENTOBOT_BACKEND_DEVICE=cuda:0.' >&2
   exit 2
 fi
 if [[ -z ${backend_python} ]]; then

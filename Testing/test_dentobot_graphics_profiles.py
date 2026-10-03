@@ -102,3 +102,35 @@ def test_profile_contract_and_selected_checkout():
     end = LAUNCHER.index('\nif [[ -z ${backend_python}', start)
     result = _shell('graphics_mode=invalid\n' + LAUNCHER[start:end])
     assert result.returncode == 2 and 'Unsupported' in result.stderr
+
+
+@pytest.mark.parametrize('graphics,wsl,refused', [
+    ('nvidia', True, True), ('nvidia', False, False),
+    ('wslg', True, False), ('mesa', False, False),
+])
+def test_nvidia_mode_is_refused_under_wsl(graphics, wsl, refused):
+    start = LAUNCHER.index('if [[ ${graphics_mode} == "nvidia" ]] && host_is_wsl; then')
+    end = LAUNCHER.index('\nif [[ -z ${backend_python}', start)
+    stub = f'host_is_wsl() {{ return {0 if wsl else 1}; }}\ngraphics_mode={graphics}\n'
+    result = _shell(stub + LAUNCHER[start:end] + '\nprintf "continued\\n"')
+    assert result.returncode == (2 if refused else 0), result.stderr
+    if refused:
+        assert 'native Ubuntu NVIDIA hosts only' in result.stderr
+        assert 'DENTOBOT_GRAPHICS_MODE=wslg' in result.stderr
+        assert 'continued' not in result.stdout
+    else:
+        assert result.stdout.strip() == 'continued'
+
+
+def test_wsl_detection_probes_and_this_host():
+    start = LAUNCHER.index('host_is_wsl() {')
+    end = LAUNCHER.index('\n}\n', start) + 3
+    function = LAUNCHER[start:end]
+    assert '/proc/sys/kernel/osrelease' in function and '*microsoft*' in function
+    assert '-e /dev/dxg' in function and '-d /mnt/wslg' in function
+    osrelease = Path('/proc/sys/kernel/osrelease')
+    on_wsl = (osrelease.exists() and 'microsoft' in osrelease.read_text().lower()) or \
+        Path('/dev/dxg').exists() or Path('/mnt/wslg').is_dir()
+    result = _shell(function + '\nif host_is_wsl; then echo wsl; else echo native; fi')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ('wsl' if on_wsl else 'native')
