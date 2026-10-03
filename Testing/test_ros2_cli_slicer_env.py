@@ -116,3 +116,28 @@ def test_gui_launcher_ensures_docker_daemon_before_compose():
     assert "try_systemctl enable docker.socket docker.service" in launcher
     assert ensure_idx < compose_idx
     assert launcher.index("ensure_docker_daemon\n") < compose_idx
+
+
+def test_slicer_ros_console_goes_to_stdout_so_info_is_not_a_slicer_error():
+    """Error log 2026-10-03: Slicer files stderr as CRITICAL, so in-process ROS
+    INFO lines turned the error log red. Only Slicer gets stdout logging; the
+    simulation stack keeps its own log."""
+    root = Path(__file__).resolve().parents[1]
+    handoff = (
+        root / "Workspace/scripts/dentobot-simulation-slicer-handoff.bash"
+    ).read_text(encoding="utf-8")
+    export = handoff.index("export RCUTILS_LOGGING_USE_STDOUT=1 RCUTILS_LOGGING_BUFFERED_STREAM=1")
+    assert handoff.index("setsid ros2 launch dentobot_moveit_config simulation.launch.py") < export
+    assert export < handoff.index('if "$@"; then')
+
+
+def test_expected_housekeeping_is_logged_as_info_not_warning():
+    root = Path(__file__).resolve().parents[1]
+    python = root / "DENTOWorkflow/Resources/Python/dentobot_workflow"
+    lifecycle = (python / "widget_lifecycle.py").read_text(encoding="utf-8")
+    robot = (python / "logic_robot.py").read_text(encoding="utf-8")
+    assert 'logging.warning(\n                "Excluded %d imported SlicerROS2' not in lifecycle
+    assert 'logging.info(\n                "Excluded %d imported SlicerROS2' in lifecycle
+    assert 'logging.info("Invalidated Step 6 task confirmation: %s", reason)' in robot
+    runner = (root / "Testing/run_dentobot_step6_headed_review.py").read_text(encoding="utf-8")
+    assert "lookFromViewAxis" not in runner  # deprecated: logs a Qt warning
