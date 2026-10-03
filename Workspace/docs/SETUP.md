@@ -2000,6 +2000,30 @@ Host/mock/profile tests and frame-probe `--self-check` are authorized here. GPU 
 
 Profile host test result:13passed/0.08s; shell syntax and frame-probe self-check passed. These are source/mock evidence only; NVIDIA workstation verification deliberately deferred. Existing container on this PC was not reconfigured.
 
+### NVIDIA workstation acceptance test — added 3 October 2026
+
+Run on a native Ubuntu desktop session (not SSH, not WSL; the launcher refuses `nvidia` under WSL) with `DENTOBOT_GRAPHICS_MODE=nvidia` in `~/dentobot/.dentobot.env`. Close any running DENTO Slicer first.
+
+1. Host prerequisites (record the output):
+
+   ```bash
+   nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
+   docker info --format '{{json .Runtimes}}'
+   echo "$XDG_SESSION_TYPE"
+   ```
+
+2. Render probe (one command; matrix check `runtime.ubuntu_nvidia_render_acceptance`), from a checkout that contains `Testing/evaluate_render_probe.py`, with any DentoCase under `~/dentobot/data/`:
+
+   ```bash
+   <DentoBot checkout>/Workspace/scripts/launch-dentoworkflow.bash --render-probe ~/dentobot/data/<path>/<case>.dentocase
+   ```
+
+   The launcher runs its NVIDIA driver/runtime/container checks and opens the case in Slicer on the real display. It rotates the 3D view for 5 s, exits Slicer, and prints `DENTOBOT_RENDER_ACCEPTANCE PASS|FAIL` with one line per check. Evidence: `~/dentobot/data/dentobot-runs/render-probe-<UTC>/slicer-probe.log` and `verdict.json`. PASS requires all of: probe complete, case loaded, real display, hardware (non-llvmpipe) renderer, renderer/vendor naming NVIDIA, and a median render interval <= 17.0 ms (>=60 FPS target; 17.0 ms tolerates VSync-locked 60 Hz). The measurement is forced VTK render throughput, not presented frames.
+
+3. Launch normally in the same mode and complete one Step 6 pass for the operator's visual verdict.
+
+Container recreation: in NVIDIA mode (or `DENTOBOT_BACKEND_DEVICE=cuda:0`) the launcher now recreates the existing container only when it lacks the `nvidia` GPU device request (or, for NVIDIA graphics, `graphics` in `NVIDIA_DRIVER_CAPABILITIES`). Docker Compose itself still recreates on any service-config change, including the first switch from Mesa to NVIDIA.
+
 
 Native responsive-plan source pin (2October): separate slicer_ros2_module commit58fce9bc21709d9fd4e23fdb95febac9e19402c5, parent333c410. Existing normal5.10 installation was built from these identical bytes; integration1581380 alone does not contain this separate repository. Reconstruct affected native package from this pin; no5.12 update is authorized.
 

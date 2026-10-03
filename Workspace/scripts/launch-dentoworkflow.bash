@@ -32,6 +32,7 @@ backend_dependency_label=""
 check_only=false
 print_backend_python=false
 diagnostic_no_spindle_collision=false
+render_probe_case=""
 x11_access_granted=false
 
 usage() {
@@ -50,7 +51,11 @@ usage() {
     "--print-backend-python" \
     "              Print the single configured backend interpreter path." \
     "--diagnostic-no-spindle-collision" \
-    "              Experiment A only: omit the spindle-housing collision body."
+    "              Experiment A only: omit the spindle-housing collision body." \
+    "--render-probe CASE" \
+    "              Open CASE (a DentoCase under the workspace data/ folder)," \
+    "              measure 3D render throughput for 5 s, exit Slicer, and" \
+    "              judge the graphics acceptance (renderer, display, >=60 FPS)."
 }
 
 while (( $# > 0 )); do
@@ -63,6 +68,10 @@ while (( $# > 0 )); do
       ;;
     --diagnostic-no-spindle-collision)
       diagnostic_no_spindle_collision=true
+      ;;
+    --render-probe)
+      render_probe_case="${2:?--render-probe requires a DentoCase path}"
+      shift
       ;;
     --help|-h)
       usage
@@ -132,6 +141,28 @@ if [[ ${graphics_mode} == "nvidia" ]] && host_is_wsl; then
     'Set DENTOBOT_GRAPHICS_MODE=wslg (or auto) in .dentobot.env.' \
     'For NVIDIA inference on WSL, keep wslg graphics and set DENTOBOT_BACKEND_DEVICE=cuda:0.' >&2
   exit 2
+fi
+render_probe_container_case=""
+render_probe_dir=""
+if [[ -n ${render_probe_case} ]]; then
+  if [[ ${check_only} == true ]]; then
+    printf '%s\n' '--render-probe opens Slicer; it cannot be combined with --check-only.' >&2
+    exit 2
+  fi
+  if [[ ! -f ${render_probe_case} ]]; then
+    printf 'Render-probe case file is missing: %s\n' "${render_probe_case}" >&2
+    exit 2
+  fi
+  render_probe_case="$(readlink -f -- "${render_probe_case}")"
+  render_probe_data_root="$(readlink -f -- "${workspace_root}/data")"
+  if [[ ${render_probe_case} != "${render_probe_data_root}/"* ]]; then
+    printf '%s\n' \
+      "Render-probe case must be under ${render_probe_data_root}/ (mounted as /workspace/data):" \
+      "${render_probe_case}" >&2
+    exit 2
+  fi
+  render_probe_container_case="/workspace/data/${render_probe_case#"${render_probe_data_root}/"}"
+  render_probe_dir="${render_probe_data_root}/dentobot-runs/render-probe-$(date -u +%Y%m%dT%H%M%SZ)"
 fi
 if [[ -z ${backend_python} ]]; then
   printf '%s\n' \
@@ -544,6 +575,15 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
 fi
 
 printf 'Starting the DENTOBOT development container...\n'
+container_has_nvidia_gpu_request() {
+  docker inspect --format '{{json .HostConfig.DeviceRequests}}' "${container_name}" \
+    | grep -Fq '"Driver":"nvidia"' || return 1
+  if [[ ${graphics_mode} == "nvidia" ]]; then
+    docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${container_name}" \
+      | grep -Eq '^NVIDIA_DRIVER_CAPABILITIES=.*graphics' || return 1
+  fi
+}
+
 container_needs_recreate=false
 if docker inspect "${container_name}" >/dev/null 2>&1; then
   container_runtime_user="$(
@@ -556,12 +596,15 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
     | grep -Fq '"Destination":"/home/dentobot"'; then
     container_needs_recreate=true
   fi
+  # Compose also recreates on any service-config change; this guards a
+  # container created outside this Compose project without the GPU request.
+  if [[ ${backend_device} == "cuda:0" || ${graphics_mode} == "nvidia" ]] \
+    && ! container_has_nvidia_gpu_request; then
+    printf '%s\n' \
+      'Recreating the container so NVIDIA GPU device requests are applied...'
+    container_needs_recreate=true
+  fi
 else
-  container_needs_recreate=true
-fi
-if [[ ${backend_device} == "cuda:0" || ${graphics_mode} == "nvidia" ]]; then
-  printf '%s\n' \
-    'Recreating the container so NVIDIA GPU device requests are applied...'
   container_needs_recreate=true
 fi
 if [[ ${container_needs_recreate} == true ]]; then
@@ -806,10 +849,15 @@ fi
 if [[ -n ${XAUTHORITY:-} ]]; then
   docker_exec_env+=(-e "XAUTHORITY=${XAUTHORITY}")
 fi
-docker exec "${docker_exec_options[@]}" \
-  "${docker_exec_env[@]}" \
-  "${container_name}" \
-  bash -lc '
+if [[ -n ${render_probe_case} ]]; then
+  # Captured, non-interactive run: the probe exits Slicer when it finishes.
+  docker_exec_options=()
+  docker_exec_env+=(
+    -e "DENTOBOT_PERF_CASE=${render_probe_container_case}"
+    -e "DENTOBOT_RENDER_PROBE_SCRIPT=${container_repository_root}/Testing/run_dentobot_render_frame_probe.py"
+  )
+fi
+container_launch_script='
     set -euo pipefail
     # ROS/ament setup files are designed to tolerate unset tracing variables,
     # but Bash nounset turns their compatibility checks into fatal errors.
@@ -831,9 +879,39 @@ docker exec "${docker_exec_options[@]}" \
       export SLICER_ROS2_MODULE_PATHS="${extra_module_paths}${SLICER_ROS2_MODULE_PATHS:+:${SLICER_ROS2_MODULE_PATHS}}"
     fi
 
+    if [[ -n ${DENTOBOT_RENDER_PROBE_SCRIPT:-} ]]; then
+      exec bash "${DENTOBOT_CONTAINER_REPOSITORY_ROOT}/Workspace/scripts/dentobot-simulation-slicer-handoff.bash" \
+        --stack-log /tmp/dentobot-simulation-stack.log \
+        -- \
+        ros2 launch slicer_ros2_module slicer.launch.py \
+        "slicer_args:=--no-splash --python-script ${DENTOBOT_RENDER_PROBE_SCRIPT}"
+    fi
     exec bash "${DENTOBOT_CONTAINER_REPOSITORY_ROOT}/Workspace/scripts/dentobot-simulation-slicer-handoff.bash" \
       --stack-log /tmp/dentobot-simulation-stack.log \
       -- \
       ros2 launch slicer_ros2_module slicer.launch.py \
       "slicer_args:=--no-splash --python-code '"'"'slicer.util.selectModule(\"DENTOWorkflow\")'"'"'"
   '
+if [[ -z ${render_probe_case} ]]; then
+  docker exec "${docker_exec_options[@]}" \
+    "${docker_exec_env[@]}" \
+    "${container_name}" \
+    bash -lc "${container_launch_script}"
+else
+  mkdir -p "${render_probe_dir}"
+  printf 'Render probe: %s (graphics %s); evidence in %s\n' \
+    "${render_probe_container_case}" "${graphics_mode}" "${render_probe_dir}"
+  set +e
+  docker exec "${docker_exec_env[@]}" "${container_name}" \
+    bash -lc "${container_launch_script}" 2>&1 \
+    | tee "${render_probe_dir}/slicer-probe.log"
+  render_probe_launch_status=${PIPESTATUS[0]}
+  set -e
+  python3 "${repository_root}/Testing/evaluate_render_probe.py" \
+    --graphics-mode "${graphics_mode}" \
+    --launch-status "${render_probe_launch_status}" \
+    --case "${render_probe_container_case}" \
+    --source-head "$(git -C "${repository_root}" rev-parse HEAD 2>/dev/null || echo unknown)" \
+    --output "${render_probe_dir}/verdict.json" \
+    "${render_probe_dir}/slicer-probe.log"
+fi

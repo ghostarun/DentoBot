@@ -1038,7 +1038,27 @@
       "evidence_level": "host_pure",
       "entrypoint": "Testing/test_dentobot_graphics_profiles.py",
       "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_dentobot_graphics_profiles.py && python3 Testing/run_dentobot_render_frame_probe.py --self-check && bash -n Workspace/scripts/launch-dentoworkflow.bash",
-      "pass_condition": "host exit0; Mesa and native NVIDIA CPU/CUDA selection, unavailable driver/runtime failures, source routing, proxy frame statistics; no actual GPU/container/Slicer or FPS acceptance"
+      "pass_condition": "host exit0; Mesa and native NVIDIA CPU/CUDA selection, NVIDIA refused under WSL, container recreated only without the NVIDIA GPU request/graphics capability, render-probe case mapping and evaluator verdicts, unavailable driver/runtime failures, source routing, proxy frame statistics; no actual GPU/container/Slicer or FPS acceptance"
+    },
+    {
+      "id": "runtime.ubuntu_nvidia_render_acceptance",
+      "execution_kind": "manual",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "pure.ubuntu_graphics_profiles"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "hardware_runtime_operator",
+      "entrypoint": "Workspace/scripts/launch-dentoworkflow.bash --render-probe",
+      "command_template": "On a native Ubuntu desktop session (not SSH, not WSL) with an NVIDIA GPU, a working nvidia-smi and the NVIDIA Container Toolkit Docker runtime, set DENTOBOT_GRAPHICS_MODE=nvidia in .dentobot.env. Close any running DENTO Slicer. (1) Run Workspace/scripts/launch-dentoworkflow.bash --render-probe <DentoCase under ~/dentobot/data/>; it applies the NVIDIA prerequisite and container GPU checks, opens the case in Slicer on the real display, measures 5 s of 3D render throughput, exits Slicer and writes data/dentobot-runs/render-probe-<UTC>/{slicer-probe.log,verdict.json}. (2) Launch normally in the same mode and complete one Step 6 pass (Task Home, Plan Approach, preview, Return Home) for the operator's visual verdict. Record host GPU/driver (nvidia-smi), desktop session type (echo $XDG_SESSION_TYPE) and verdict.json in the logbook. Simulation only; no hardware motion.",
+      "pass_condition": "verdict.json status PASS: probe_complete, case_loaded, real_display (not headless/Xvfb), hardware_renderer (not llvmpipe/softpipe/swrast), nvidia_renderer (renderer or vendor names NVIDIA) and median render interval <= 17.0 ms (>=60 FPS target; 17.0 ms tolerates VSync-locked 60 Hz); plus the operator's Step 6 verdict in NVIDIA mode. A FAIL names the failed check; on Wayland sessions a non-NVIDIA renderer is recorded as evidence, not tuned around."
     },
     {
       "id": "pure.step6_preentry_reachability",
