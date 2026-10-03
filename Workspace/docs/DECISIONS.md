@@ -7124,3 +7124,17 @@ Operator: "i authorize analysis into improving timings within the slicerros2 con
 3. **Item C (batched guard validation) not implemented**: the guard itself uses ~11 ms per check (22 s per plan); revisit only if post-fix data show transport dominating.
 4. **Task-space box** (`033ac9f`, operator: optional, off by default, adjustable side, distinct colour from the entry barrier, much lower default opacity, opacity controls): blue cube centred on the ROI draft centre or the opened-incisor midpoint, side 10–400 mm (200 default), opacity 10 % default; mouth barrier keeps rose, opacity 12 % default (was 35 %) with a slider. Display only; sampling ROI unchanged. The magenta box in r19 screenshots was Slicer's own 3D-view frame (`vtkMRMLViewNode` BoxVisible, default magenta, 200 mm field of view), now hidden while the Step 6 shell is configured.
 5. Depth peeling (204 → 46 ms per frame) is a visual change; not applied, operator decision pending.
+
+## 3 October — Run options before planning; Slicer error log shows only real failures
+
+Operator: "can depth peeling be an GUI option before starting planning alongside of fast mode and similar options"; "look into the slicer red error log dialog windows, sometimes even warnings show up as error which is misleading... But anyways ideally we dont want these error dialogs unless theres failure conditions in any of our steps as is".
+
+1. **6.3 Run options** (`9534d38`): a "Run options" group above Plan Guarded Approach with *Development fast mode* (off by default; same stamp as before; the flag is read once per plan) and *Depth peeling* (on = Slicer default; display only; applies to all 3D views). Session state only; not saved in the case. Supersedes item 5 of the previous entry: depth peeling is now the operator's per-session choice.
+2. **Causes (r22 Slicer log, 3145 lines).** 2398 CRITICAL: in-process ROS 2/MoveIt console lines; CTK files every stderr line as Critical (2000 were INFO "Published update collision object"). 117 ERROR: SlicerROS2 `vtkErrorMacro` "Cartesian planning failed … fraction=0" for rejected candidates. Warnings: 14 `vtkMath::Jacobi` (path-preflight OBB nodes made only of zero-area segment triangles), 7 STL "no coordinate system" for URDF meshes loaded with explicit RAS, and 1 DentoBot housekeeping warning. Real failures, such as the r19 guard rejection and probe RuntimeErrors, were already logged as errors.
+3. **Fixes.**
+   - In-process ROS console goes to stdout for Slicer only (`83b22bf`); the `[WARN]`/`[ERROR]` text is kept in the log file.
+   - An empty Cartesian path is logged at debug level (native `f370474`, errlog-fix overlay). A null service response is still an error.
+   - Zero-area triangles are dropped before preflight collision trees (`7c9d629`).
+   - The URDF mesh-load coordinate warning is hidden only during the load (`6f332a8`).
+   - Expected housekeeping is logged as info, and the runner no longer uses the deprecated `lookFromViewAxis` (`1d30251`).
+4. **Boundary.** DentoBot step failures stay errors. MoveIt's per-candidate "MoveGroupInterface::plan() failed or timeout reached" and its octomap configuration messages remain in the log file as Info text. Diagnostic probes that rebuild trees on raw meshes may still log their own warning.
