@@ -2049,13 +2049,25 @@ resolves its own checkout from the real script path.
 - One-off choice without re-pointing: `./launch-dentobot --choose-checkout`
   (or right-click the app-menu icon → "Choose checkout…"). The launcher lists
   this repository's checkouts under `ros2_ws` (the folders the container can
-  see), newest commit first, with branch, short commit, date/time, message and
-  markers `[current]`, `[retired]` (has `BRANCH_OBSOLETE.md`) and
-  `[N uncommitted]`. Enter keeps the current checkout; a number runs that
-  checkout's own launcher with the other options. Without the option nothing
-  changes. The launch summary then prints `Source checkout: <path> (<branch> @
-  <commit>, N uncommitted)`. All checkouts share one SlicerROS2 install, which
-  is built from `ros2_ws/src/slicer_ros2_module` on every launch.
+  see): `main` always first, then the others newest commit first, with branch,
+  short commit, date/time, message and markers `[current]`, `[retired]` (has
+  `BRANCH_OBSOLETE.md`) and `[N uncommitted]`. Enter keeps the current
+  checkout; a number runs that checkout's own launcher with the other options.
+  Without the option nothing changes. The launch summary then prints
+  `Source checkout: <path> (<branch> @ <commit>, N uncommitted)`.
+- `main` in the chooser: the list first fetches `origin main` (20 s limit;
+  offline shows the last fetched main). Choosing it uses the worktree on
+  branch `main` under `ros2_ws`, creating `ros2_ws/src/DentoBot-main` the first
+  time, and fast-forwards it to `origin/main` when it is clean (a dirty or
+  diverged main runs as it is, with a message).
+- Shared build products: every checkout builds `dentobot_description` and
+  `dentobot_moveit_config` into the one `ros2_ws/build` and `ros2_ws/install`.
+  Before building, the launcher (and the chooser, for older launchers) removes
+  a package's build and install when its CMake cache came from a different
+  checkout, so the installed URDF, MoveIt launch files and `collision_guard`
+  always come from the checkout being run. A failed colcon build now stops the
+  launch. SlicerROS2 is built from `ros2_ws/src/slicer_ros2_module` for every
+  checkout.
 
 ## SlicerROS2 render-fix overlay (5.10) — 3 October 2026
 

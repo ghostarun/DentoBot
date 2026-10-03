@@ -58,8 +58,10 @@ usage() {
     "              measure 3D render throughput for 5 s, exit Slicer, and" \
     "              judge the graphics acceptance (renderer, display, >=60 FPS)." \
     "--choose-checkout" \
-    "              List this repository's checkouts under ros2_ws (newest commit" \
-    "              first) and run the chosen one's launcher with the other options."
+    "              List this repository's checkouts under ros2_ws (main first," \
+    "              then newest commit first) and run the chosen one's launcher" \
+    "              with the other options. Choosing main creates" \
+    "              ros2_ws/src/DentoBot-main if needed and updates it from GitHub."
 }
 
 forward_args=()
@@ -99,40 +101,130 @@ while (( $# > 0 )); do
   shift
 done
 
+# --- checkout selection and shared build hygiene ---
+# All checkouts share ros2_ws/build and ros2_ws/install. A package build
+# configured from another checkout makes CMake refuse to build and leaves that
+# checkout's symlinked URDF/MoveIt files installed, so clear it first.
+clear_stale_package_builds() {
+  local checkout="$1" package cache source_home
+  for package in dentobot_description dentobot_moveit_config; do
+    cache="${ros2_workspace_root}/build/${package}/CMakeCache.txt"
+    [[ -f ${cache} ]] || continue
+    source_home="$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "${cache}")"
+    [[ -n ${source_home} ]] || continue
+    # Caches record container paths; compare them as host paths.
+    source_home="${ros2_workspace_root}${source_home#/workspace/ros2_ws}"
+    if [[ $(readlink -f -- "${source_home}") != "$(readlink -f -- "${checkout}/${package}")" ]]; then
+      printf 'Rebuilding %s from %s (its build came from %s).\n' \
+        "${package}" "${checkout}" "${source_home}"
+      rm -rf -- "${ros2_workspace_root}/build/${package}" \
+        "${ros2_workspace_root}/install/${package}"
+    fi
+  done
+}
+
+# The worktree on branch main, if one exists under ros2_ws.
+main_branch_checkout() {
+  git -C "${repository_root}" worktree list --porcelain | awk '
+    /^worktree / { path = substr($0, 10) }
+    $0 == "branch refs/heads/main" { print path; exit }'
+}
+
+print_checkout_row() {
+  local index="$1" path="$2" extra="${3:-}" branch commit when subject changes markers
+  branch="$(git -C "${path}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  [[ ${branch} != "HEAD" && -n ${branch} ]] || branch="(detached)"
+  IFS=$'\t' read -r commit when subject < <(
+    git -C "${path}" log -1 --date=format:'%Y-%m-%d %H:%M' --format=$'%h\t%cd\t%s'
+  )
+  changes="$(git -C "${path}" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  markers=""
+  [[ ${path} == "${repository_root}" ]] && markers+=" [current]"
+  [[ -f ${path}/BRANCH_OBSOLETE.md ]] && markers+=" [retired]"
+  (( changes > 0 )) && markers+=" [${changes} uncommitted]"
+  printf '  %d) %s%s%s\n     %s  %s  %s\n     %s\n' \
+    "${index}" "${branch}" "${markers}" "${extra}" "${when}" "${commit}" "${subject:0:72}" "${path}"
+}
+
+# Creates the main checkout on first use and fast-forwards it to origin/main
+# when it is clean; otherwise it runs as it is and says why.
+prepare_main_checkout() {
+  local path="$1" upstream=""
+  if git -C "${repository_root}" rev-parse -q --verify refs/remotes/origin/main >/dev/null; then
+    upstream="origin/main"
+  fi
+  if [[ ! -e ${path} ]]; then
+    if ! git -C "${repository_root}" rev-parse -q --verify refs/heads/main >/dev/null; then
+      git -C "${repository_root}" branch -q --track main origin/main
+    elif [[ -n ${upstream} ]] \
+      && git -C "${repository_root}" merge-base --is-ancestor main "${upstream}"; then
+      git -C "${repository_root}" branch -q -f main "${upstream}"
+    fi
+    printf 'Creating the main checkout at %s\n' "${path}"
+    if ! git -C "${repository_root}" worktree add -q "${path}" main; then
+      printf 'Could not create the main checkout (is main checked out outside ros2_ws?).\n' >&2
+      exit 2
+    fi
+    return
+  fi
+  if [[ $(git -C "${path}" rev-parse --abbrev-ref HEAD 2>/dev/null) != "main" ]]; then
+    printf '%s exists but is not on branch main.\n' "${path}" >&2
+    exit 2
+  fi
+  [[ -n ${upstream} ]] || return 0
+  if [[ -n $(git -C "${path}" status --porcelain) ]]; then
+    printf 'main checkout has uncommitted changes; running it without updating.\n'
+  elif ! git -C "${path}" merge -q --ff-only "${upstream}" 2>/dev/null; then
+    printf 'main has commits not on %s; running it without updating.\n' "${upstream}"
+  fi
+}
+
 # Lists this repository's runnable checkouts (git worktrees under ros2_ws,
-# which is what the container mounts), newest commit first, and sets
-# selected_checkout to the operator's choice (Enter keeps this checkout).
+# which is what the container mounts): main first, then newest commit first.
+# Sets selected_checkout to the operator's choice (Enter keeps this checkout).
 select_checkout() {
-  local path stamp row index answer branch commit when subject changes markers
-  local -a rows=() sorted=()
+  local path stamp row index answer main_path behind extra
+  local -a rows=() sorted=() choices=()
+  printf 'Checking GitHub for the latest main...\n'
+  if ! GIT_TERMINAL_PROMPT=0 timeout 20 \
+    git -C "${repository_root}" fetch -q origin main 2>/dev/null; then
+    printf '  (origin not reachable; showing the last fetched main)\n'
+  fi
+  main_path="$(main_branch_checkout)"
+  if [[ -z ${main_path} || ${main_path} != "${ros2_workspace_root}/"* ]]; then
+    main_path="${ros2_workspace_root}/src/DentoBot-main"
+  fi
   while IFS= read -r path; do
-    [[ ${path} == "${ros2_workspace_root}/"* ]] || continue
+    [[ ${path} == "${ros2_workspace_root}/"* && ${path} != "${main_path}" ]] || continue
     [[ -f ${path}/Workspace/scripts/launch-dentoworkflow.bash ]] || continue
     stamp="$(git -C "${path}" log -1 --format=%ct 2>/dev/null)" || continue
     rows+=("${stamp}"$'\t'"${path}")
   done < <(git -C "${repository_root}" worktree list --porcelain | sed -n 's/^worktree //p')
-  if (( ${#rows[@]} == 0 )); then
-    printf 'No DentoBot checkouts found under %s.\n' "${ros2_workspace_root}" >&2
-    exit 2
+  if (( ${#rows[@]} > 0 )); then
+    mapfile -t sorted < <(printf '%s\n' "${rows[@]}" | sort -t $'\t' -k1,1nr)
   fi
-  mapfile -t sorted < <(printf '%s\n' "${rows[@]}" | sort -t $'\t' -k1,1nr)
-  printf 'DentoBot checkouts (newest commit first):\n'
-  index=0
+  printf 'DentoBot checkouts (main first, then newest commit first):\n'
+  index=1
+  choices=("${main_path}")
+  if [[ -d ${main_path} ]]; then
+    extra=""
+    if behind="$(git -C "${main_path}" rev-list --count HEAD..origin/main 2>/dev/null)" \
+      && (( behind > 0 )); then
+      extra=" [${behind} behind GitHub main; updated on launch]"
+    fi
+    print_checkout_row 1 "${main_path}" "${extra}"
+  else
+    printf '  1) main [not checked out yet]\n     %s\n     will be created at %s\n' \
+      "$(git -C "${repository_root}" log -1 --date=format:'%Y-%m-%d %H:%M' \
+        --format='%cd  %h  %s' origin/main 2>/dev/null \
+        || git -C "${repository_root}" log -1 --date=format:'%Y-%m-%d %H:%M' \
+        --format='%cd  %h  %s' main)" "${main_path}"
+  fi
   for row in "${sorted[@]}"; do
     path="${row#*$'\t'}"
     index=$((index + 1))
-    branch="$(git -C "${path}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-    [[ ${branch} != "HEAD" && -n ${branch} ]] || branch="(detached)"
-    IFS=$'\t' read -r commit when subject < <(
-      git -C "${path}" log -1 --date=format:'%Y-%m-%d %H:%M' --format=$'%h\t%cd\t%s'
-    )
-    changes="$(git -C "${path}" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
-    markers=""
-    [[ ${path} == "${repository_root}" ]] && markers+=" [current]"
-    [[ -f ${path}/BRANCH_OBSOLETE.md ]] && markers+=" [retired]"
-    (( changes > 0 )) && markers+=" [${changes} uncommitted]"
-    printf '  %d) %s%s\n     %s  %s  %s\n     %s\n' \
-      "${index}" "${branch}" "${markers}" "${when}" "${commit}" "${subject:0:72}" "${path}"
+    choices+=("${path}")
+    print_checkout_row "${index}" "${path}"
   done
   if ! read -r -p "Run which checkout? [1-${index}, Enter = current]: " answer; then
     printf '\nNo checkout chosen.\n' >&2
@@ -146,13 +238,22 @@ select_checkout() {
     printf 'Not a listed checkout number: %s\n' "${answer}" >&2
     exit 2
   fi
-  selected_checkout="${sorted[answer - 1]#*$'\t'}"
+  selected_checkout="${choices[answer - 1]}"
+  if (( answer == 1 )); then
+    prepare_main_checkout "${selected_checkout}"
+    main_chosen=true
+  fi
 }
+# --- end checkout selection ---
 
 if [[ ${choose_checkout} == true ]]; then
+  main_chosen=false
   select_checkout
-  if [[ ${selected_checkout} != "${repository_root}" ]]; then
+  # Re-exec main even when it is this checkout: the update may change this script.
+  if [[ ${selected_checkout} != "${repository_root}" || ${main_chosen} == true ]]; then
     printf 'Launching checkout %s\n' "${selected_checkout}"
+    # Older checkouts' launchers lack the stale-build check; do it for them.
+    clear_stale_package_builds "${selected_checkout}"
     exec bash "${selected_checkout}/Workspace/scripts/launch-dentoworkflow.bash" "${forward_args[@]}"
   fi
   printf 'Launching the current checkout %s\n' "${repository_root}"
@@ -752,9 +853,12 @@ fi
 if [[ ${graphics_mode} == "mesa" ]]; then
   docker exec "${container_name}" test -c "${render_device}"
 fi
+clear_stale_package_builds "${repository_root}"
 docker exec \
   -e "DENTOBOT_CONTAINER_REPOSITORY_ROOT=${container_repository_root}" \
   "${container_name}" bash -lc '
+  # A failed build must stop the launch, not run Slicer on stale packages.
+  set -euo pipefail
   set +u
   source /opt/ros/jazzy/setup.bash
   set -u

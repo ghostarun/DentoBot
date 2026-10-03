@@ -62,7 +62,7 @@ First-time: `scripts/install-lab-wsl.bash` (or `install-lab-wsl.bat` from Window
 Updates: `scripts/update-lab-release.bash` (or `update-lab-release.bat`).
 Launch: `./launch-dentobot` or `scripts/launch-dentoworkflow.bash` from `~/dentobot`
 (or `launch-lab-workflow.bat`). Add `--choose-checkout` to pick another
-checkout for one launch. Native Ubuntu desktops can add an app-menu
+checkout (`main` is always listed first) for one launch. Native Ubuntu desktops can add an app-menu
 entry with `scripts/install-desktop-launcher.bash` (`--remove` undoes it).
 Use `launch-lab-workflow.bat` for this profile. The retired ambiguous
 `launch-dentoworkflow.ps1` exits with profile-selection guidance.
