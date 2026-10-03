@@ -9,6 +9,20 @@ from dentobot_workflow.offline_placement_status import (
 
 
 class RobotPlacementLogicMixin:
+    @staticmethod
+    def addRobotMeshModel(mesh_path):
+        """Load a URDF mesh in RAS. Slicer warns that the STL has no coordinate
+        header even though RAS is given here; that warning is expected, so it is
+        not shown (error log, 2026-10-03). A failed load still returns None."""
+        previous = vtk.vtkObject.GetGlobalWarningDisplay()
+        vtk.vtkObject.GlobalWarningDisplayOff()
+        try:
+            return slicer.modules.models.logic().AddModel(
+                str(mesh_path), slicer.vtkMRMLStorageNode.CoordinateSystemRAS
+            )
+        finally:
+            vtk.vtkObject.SetGlobalWarningDisplay(previous)
+
     ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE = (
         "DENTOBOT.RobotBasePlacementAuthority"
     )
@@ -477,10 +491,7 @@ class RobotPlacementLogicMixin:
         for index, pose in enumerate(poses):
             model = self._nodeByRobotLink(models, pose.link_name)
             if not model:
-                model = slicer.modules.models.logic().AddModel(
-                    str(pose.mesh_path),
-                    slicer.vtkMRMLStorageNode.CoordinateSystemRAS,
-                )
+                model = self.addRobotMeshModel(pose.mesh_path)
                 if not model:
                     raise RuntimeError(
                         _("Slicer could not load robot mesh %1.").replace(

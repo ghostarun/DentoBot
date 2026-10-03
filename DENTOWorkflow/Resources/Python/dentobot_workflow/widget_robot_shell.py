@@ -1159,9 +1159,7 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
             transforms = {}
             nodes = []
             for pose in poses:
-                model = slicer.modules.models.logic().AddModel(
-                    str(pose.mesh_path), slicer.vtkMRMLStorageNode.CoordinateSystemRAS
-                )
+                model = self.logic.addRobotMeshModel(pose.mesh_path)
                 transform = slicer.mrmlScene.AddNewNodeByClass(
                     "vtkMRMLLinearTransformNode", "[Diagnostic] Planner Replay Pose"
                 )

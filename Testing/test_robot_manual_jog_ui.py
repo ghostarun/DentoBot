@@ -6058,3 +6058,53 @@ def test_run_options_offer_dev_fast_mode_and_depth_peeling_before_planning():
     assert host._robotWorkflowFacade._dev_first_complete_route is False
     methods["_onSetDepthPeeling"](host, False)
     assert peeling == [False]
+
+
+def test_robot_mesh_load_hides_only_the_expected_stl_coordinate_warning():
+    """Error log 2026-10-03: AddModel(path, RAS) still warns that the URDF STL has
+    no coordinate header. Warnings are hidden only during the load and restored."""
+    shell = (PYTHON / "dentobot_workflow/widget_robot_shell.py").read_text()
+    logic = (PYTHON / "dentobot_workflow/logic_robot_placement.py").read_text()
+    assert "self.logic.addRobotMeshModel(pose.mesh_path)" in shell
+    assert "model = self.addRobotMeshModel(pose.mesh_path)" in logic
+    assert logic.count("AddModel(") == 1
+    state = {"display": True, "seen": None}
+
+    class VtkObject:
+        @staticmethod
+        def GetGlobalWarningDisplay():
+            return state["display"]
+
+        @staticmethod
+        def GlobalWarningDisplayOff():
+            state["display"] = False
+
+        @staticmethod
+        def SetGlobalWarningDisplay(value):
+            state["display"] = value
+
+    def add_model(path, coordinates):
+        state["seen"] = (path, coordinates, state["display"])
+        if path == "missing.stl":
+            raise RuntimeError("load failed")
+        return "model"
+
+    slicer = SimpleNamespace(
+        vtkMRMLStorageNode=SimpleNamespace(CoordinateSystemRAS=0),
+        modules=SimpleNamespace(models=SimpleNamespace(logic=lambda: SimpleNamespace(AddModel=add_model))),
+    )
+    methods = _methods(
+        PYTHON / "dentobot_workflow/logic_robot_placement.py",
+        "RobotPlacementLogicMixin",
+        {"addRobotMeshModel"},
+        {"vtk": SimpleNamespace(vtkObject=VtkObject), "slicer": slicer},
+    )
+    load = methods["addRobotMeshModel"]
+    load = getattr(load, "__func__", load)
+    assert load("link-1.stl") == "model"
+    assert state["seen"] == ("link-1.stl", 0, False) and state["display"] is True
+    try:
+        load("missing.stl")
+    except RuntimeError:
+        pass
+    assert state["display"] is True
