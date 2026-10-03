@@ -1388,6 +1388,22 @@ maintained only in AGENTS.md, with dated rationale in DECISIONS.md.
 ### `PLAT-U-07` — Multi-workstation Git and saved-case exchange
 
 - **Priority:** Unprioritized.
+- **2026-09-30 operator scope extension:** Plan migration of the main station
+  from Ubuntu 24.04 `/home/light-tarun/dentobot` to this Ubuntu 22.04.5
+  `/home/tarun/dentobot`. A verified project-context handoff is sufficient;
+  original Codex chat transfer is unnecessary. Reuse this owner without
+  changing priority or completing its existing case-exchange obligations.
+  The [migration contract and staged plan](diagnostics/WORKSTATION_MIGRATION_2026-09-30.md)
+  covers both Git repos and dirty work, native/image/build parity, local paths,
+  selected case hashes, fresh Codex context, verification and rollback.
+  Published renovation tip `6b0d573` is a candidate pending source-station
+  capture; native destination `17f9993` does not contain the Sep-25 documented
+  later TCP-FK/uncommitted IK work. Planning is complete; migration is NOT RUN.
+  Acceptance requires source capture, approved destination parity/load/reopen
+  evidence, an operator verdict and explicit primary-writer cutover. This turn
+  does not authorize checkout/environment/runtime/data/publication changes.
+  Carry this scoped addition into newer branch records without replacing them
+  with this checkout's older context. Evidence: 2026-09-30 logbook.
 - **Operator request:** Keep script development in the repository while
   exchanging the saved Slicer case work needed by multiple workstations.
 - **Outcome:** Each workstation reproduces the tracked source and runtime

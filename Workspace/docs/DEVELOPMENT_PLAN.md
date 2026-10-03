@@ -1,5 +1,18 @@
 # DENTOBOT Development Plan
 
+## 2026-09-30 main-station migration acceptance — PLAT-U-07
+
+The operator requests a safe plan from Ubuntu 24.04/light-tarun to this
+Ubuntu 22.04.5/tarun station, with verified repository-context continuation.
+The [migration plan](diagnostics/WORKSTATION_MIGRATION_2026-09-30.md) establishes
+ordered capture → context → source → environment/case parity → Codex startup
+→ separately approved checks/operator cutover gates. Migration is NOT RUN.
+This does not resume the old campaign order below. The fetched Sep-25
+renovation branch contains newer workflow-first records; preserve those records
+and resolve source-station dirty/native work before selecting an execution
+input. Slicer 5.12 remains an isolated candidate. Pending state stays under
+PLAT-U-07 in backlog.md; hardware and planner milestones are unchanged.
+
 Last reconciled: 2026-09-17.
 
 [backlog.md](backlog.md) owns the one pending-work queue, dependency order and

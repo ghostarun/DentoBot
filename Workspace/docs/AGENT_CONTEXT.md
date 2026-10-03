@@ -1,5 +1,15 @@
 # DENTOBOT agent context
 
+**2026-09-30 migration routing warning:** This station's checkout/context is
+older than fetched Sep-25 workflow records. First follow `PLAT-U-07` in
+backlog.md and the [migration plan](diagnostics/WORKSTATION_MIGRATION_2026-09-30.md).
+The operator wants Ubuntu 24.04/light-tarun → Ubuntu 22.04.5/tarun migration
+and verified project-context handoff; original Codex chats are unnecessary.
+Recommended published lane is renovation `6b0d573`, pending source-station
+dirty/native capture. Its workflow-first order supersedes old Campaign-1
+restart text for future continuation. No branch switch or runtime is performed
+by this plan. Do not overwrite newer branch records with this older file.
+
 Last reconciled: 2026-09-17. Routing plus the durable Step-4A–5B testing
 baseline below; all pending work and current order live in
 [backlog.md](backlog.md). Detailed task contracts and completion records live

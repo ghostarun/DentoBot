@@ -1,5 +1,28 @@
 # Dentobot Technical Decisions
 
+## 2026-09-30 — Safe workstation migration and verified Codex handoff
+
+**Operator direction:** Plan primary-development migration from Ubuntu 24.04
+`/home/light-tarun/dentobot` to this station. The operator explicitly says a
+verified project-context handoff is sufficient; chat-history import is not
+required. Existing `PLAT-U-07` owns the extension, retaining Unprioritized.
+
+**Planning decision:** Treat renovation `6b0d573` as the recommended published
+lane, pending source-station dirty/newer-work capture. Remote main lacks the
+30 later workflow commits; upgrade `1f072d6` is a sibling and stays isolated.
+Capture both repos and native dirty work before environment migration; the
+destination's native `17f9993` is not parity with Sep-25 described IK source.
+Use a fresh Codex chat with a revision-bound controlled handoff. Preserve the
+source station until approved destination acceptance and explicit writer
+cutover. Current instruction hierarchy controls model/permission conflicts;
+do not import runtime approvals or old context as live acceptance.
+
+The [migration plan](diagnostics/WORKSTATION_MIGRATION_2026-09-30.md) is a
+reviewable plan, not authority to execute migration. No source checkout,
+environment, case, hardware, engineer-owned record or external mirror was
+changed. Carry these scoped additions into the newer controlled records
+without replacing their workflow order. Evidence: 2026-09-30 logbook.
+
 ## 2026-09-14 — Four-central-incisor exact-case acceptance campaign
 
 **Status:** Adopted as the current P0 acceptance scope; execution remains
