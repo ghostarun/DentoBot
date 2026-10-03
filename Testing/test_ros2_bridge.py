@@ -2435,3 +2435,33 @@ def test_handshake_retry_after_late_reply_uses_a_fresh_guard_session(monkeypatch
     assert waits == [h["guard_session_id"] for h in handshakes]
     assert configs[-1]["guard_session_id"] == handshakes[1]["guard_session_id"]
     assert json.loads(bridge_module._last_task_config_json)["guard_session_id"] == handshakes[1]["guard_session_id"]
+
+
+def test_task_publishers_sweep_runtime_nodes_only_when_acquired(monkeypatch):
+    """Per-command full-scene sweeps cost ~6 ms each (r19 profile, 16.9 s/plan)."""
+
+    class Publisher:
+        def SetAttribute(self, *_args):
+            pass
+
+        def SaveWithSceneOff(self):
+            pass
+
+    class RosNode:
+        def GetPublisherNodeByTopic(self, _topic):
+            return None
+
+        def CreateAndAddPublisherNode(self, _kind, _topic):
+            return Publisher()
+
+    sweeps = []
+    monkeypatch.setattr(bridge_module, "ensure_default_ros2_node_in_scene", lambda: RosNode())
+    monkeypatch.setattr(bridge_module, "mark_slicer_ros2_runtime_nodes_transient", lambda: sweeps.append(1) or 0)
+    monkeypatch.setattr(bridge_module, "_task_config_publisher", None)
+    monkeypatch.setattr(bridge_module, "_task_command_publisher", None)
+    first = bridge_module._ensure_task_publishers()
+    second = bridge_module._ensure_task_publishers()
+    assert first == second and all(first)
+    assert sweeps == [1]
+    source = (HELPERS / "dentobot_workflow" / "widget_case_backend.py").read_text(encoding="utf-8")
+    assert "mark_slicer_ros2_runtime_nodes_transient()" in source.split("def _saveSceneSnapshotToMrb", 1)[1]

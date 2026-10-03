@@ -1258,13 +1258,16 @@ def _ensure_task_publishers() -> tuple[object | None, object | None]:
     ros_node = ensure_default_ros2_node_in_scene()
     if ros_node is None:
         return None, None
+    created = False
     if _task_config_publisher is None:
+        created = True
         _task_config_publisher = ros_node.GetPublisherNodeByTopic(
             ROS2_TASK_GUARD_CONFIG_TOPIC
         ) or ros_node.CreateAndAddPublisherNode(
             "String", ROS2_TASK_GUARD_CONFIG_TOPIC
         )
     if _task_command_publisher is None:
+        created = True
         _task_command_publisher = ros_node.GetPublisherNodeByTopic(
             ROS2_TASK_JOINT_COMMAND_TOPIC
         ) or ros_node.CreateAndAddPublisherNode(
@@ -1277,7 +1280,11 @@ def _ensure_task_publishers() -> tuple[object | None, object | None]:
         if publisher is not None:
             publisher.SetAttribute(role, "true")
             publisher.SaveWithSceneOff()
-    mark_slicer_ros2_runtime_nodes_transient()
+    if created:
+        # A full-scene sweep per guard command cost ~6 ms each (r19 profile:
+        # 16.9 s per plan). Sweep when the publishers are (re)acquired; the
+        # case-save path sweeps again before every save.
+        mark_slicer_ros2_runtime_nodes_transient()
     return _task_config_publisher, _task_command_publisher
 
 
