@@ -10,6 +10,7 @@ Root shortcuts (symlinks) exist so Ubuntu looks like a normal project:
 | `docs/` | `ros2_ws/src/DentoBot/Workspace/docs/` |
 | `AGENTS.md` | `ros2_ws/src/DentoBot/Workspace/AGENTS.md` |
 | `scripts/` | `ros2_ws/src/DentoBot/Workspace/scripts/` |
+| `launch-dentobot` | `scripts/launch-dentoworkflow.bash` (follows `scripts/`) |
 | `compose.yaml` | `ros2_ws/src/DentoBot/Workspace/compose.yaml` |
 | `tools/` | `ros2_ws/src/DentoBot/tools/` |
 
@@ -41,6 +42,7 @@ exclusive alternative.
 ~/dentobot/                          # overlay root; not a git repository
   compose.yaml -> ros2_ws/src/DentoBot/Workspace/compose.yaml
   scripts/     -> ros2_ws/src/DentoBot/Workspace/scripts/
+  launch-dentobot -> scripts/launch-dentoworkflow.bash
   docs/        -> ros2_ws/src/DentoBot/Workspace/docs/
   tools/       -> ros2_ws/src/DentoBot/tools/
   .dentobot.env                      # local; not in git
@@ -54,11 +56,13 @@ exclusive alternative.
     build/ install/ log/             # local colcon products; do not copy
 ```
 
-Pin file: `ros2_ws/src/DentoBot/Workspace/LAB_RELEASE` (current candidate:
-`lab/2026-09-03`, SlicerROS2 `17f99931f54f`).
+Pin file: `ros2_ws/src/DentoBot/Workspace/LAB_RELEASE` (read from `origin/main`;
+current candidate on 3 October 2026: `lab/2026-10-03-2`, SlicerROS2 `ece3c427443a`).
 First-time: `scripts/install-lab-wsl.bash` (or `install-lab-wsl.bat` from Windows).
 Updates: `scripts/update-lab-release.bash` (or `update-lab-release.bat`).
-Launch: `scripts/launch-dentoworkflow.bash` (or `launch-lab-workflow.bat`).
+Launch: `./launch-dentobot` or `scripts/launch-dentoworkflow.bash` from `~/dentobot`
+(or `launch-lab-workflow.bat`). Native Ubuntu desktops can add an app-menu
+entry with `scripts/install-desktop-launcher.bash` (`--remove` undoes it).
 Use `launch-lab-workflow.bat` for this profile. The retired ambiguous
 `launch-dentoworkflow.ps1` exits with profile-selection guidance.
 

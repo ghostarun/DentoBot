@@ -41,6 +41,9 @@ install_link "${workspace_root}/docs" \
   "ros2_ws/src/DentoBot/Workspace/docs"
 install_link "${workspace_root}/scripts" \
   "ros2_ws/src/DentoBot/Workspace/scripts"
+# One-word launch from the workspace root; follows the scripts link.
+install_link "${workspace_root}/launch-dentobot" \
+  "scripts/launch-dentoworkflow.bash"
 install_link "${workspace_root}/tools" \
   "ros2_ws/src/DentoBot/tools"
 install_link "${workspace_root}/ros2_ws/src/dentobot_description" \

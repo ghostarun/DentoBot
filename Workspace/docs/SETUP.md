@@ -2027,6 +2027,26 @@ Container recreation: in NVIDIA mode (or `DENTOBOT_BACKEND_DEVICE=cuda:0`) the l
 
 Native responsive-plan source pin (2October): separate slicer_ros2_module commit58fce9bc21709d9fd4e23fdb95febac9e19402c5, parent333c410. Existing normal5.10 installation was built from these identical bytes; integration1581380 alone does not contain this separate repository. Reconstruct affected native package from this pin; no5.12 update is authorized.
 
+## Launching from the workspace root — 3 October 2026
+
+Operator request: launch the current checkout from `~/dentobot` without
+changing into the branch folder. `~/dentobot/scripts` is the link that selects
+the active checkout (on this workstation:
+`ros2_ws/src/DentoBot-step6-5.10-integration/Workspace/scripts`); the launcher
+resolves its own checkout from the real script path.
+
+- `~/dentobot/launch-dentobot` → `scripts/launch-dentoworkflow.bash` (created
+  by `bootstrap-workspace.bash` on lab layouts; created by hand on this
+  workstation). Usage: `cd ~/dentobot && ./launch-dentobot` (all launcher
+  options pass through, for example `--render-probe CASE`).
+- App menu (native Ubuntu desktop, not WSL):
+  `~/dentobot/scripts/install-desktop-launcher.bash` writes
+  `~/.local/share/applications/dentobot-workflow.desktop` ("DENTO Workflow",
+  terminal kept open after exit via `launch-dentobot-desktop.bash`);
+  `--remove` deletes it. Installed on this workstation.
+- To make another checkout active, re-point `~/dentobot/scripts` (and the
+  other root links); both shortcuts follow it.
+
 ## SlicerROS2 render-fix overlay (5.10) — 3 October 2026
 
 Separate install `/tmp/dentobot-s6-render-fix-install/slicer_ros2_module` (container), built from a copy of the u01 source `/tmp/dentobot-slicerros2-shutdown-5-10` at `/tmp/dentobot-slicerros2-render-fix-5-10` with exactly three files replaced by canonical `ros2_ws/src/slicer_ros2_module` commit `c8b446e` ("Skip re-applying unchanged tf lookup transforms"; parent `58fce9b`): `MRML/vtkMRMLROS2NodeNode.cxx`, `MRML/vtkMRMLROS2Tf2LookupNode.cxx`, `MRML/vtkMRMLROS2Tf2LookupNode.h` (these three were byte-identical between u01 source and `58fce9b` before the patch).
