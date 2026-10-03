@@ -2,20 +2,27 @@
 # (operator 2026-10-03: no error entries unless a step fails). Read only.
 import collections
 
-import ctk
 import slicer
 
 model = slicer.app.errorLogModel()
-level_column = ctk.ctkErrorLogAbstractModel.LogLevelColumn
-origin_column = ctk.ctkErrorLogAbstractModel.OriginColumn
+# ctkErrorLogAbstractModel::ColumnsIds (Time, ThreadId, LogLevel, Origin,
+# Description). PythonQt exposes neither the enum nor that accessor, so read
+# the cells through the Qt item-model API.
+level_column, origin_column = 2, 3
+
+
+def _cell(row, column):
+    return str(model.data(model.index(row, column)))
+
+
 levels = collections.Counter()
 groups = collections.Counter()
 for row in range(int(model.logEntryCount())):
-    level = str(model.logEntryData(row, level_column))
+    level = _cell(row, level_column)
     levels[level] += 1
     if level in ("Info", "Debug", "Trace", "Status"):
         continue
-    origin = str(model.logEntryData(row, origin_column))
+    origin = _cell(row, origin_column)
     text = " ".join(str(model.logEntryDescription(row)).split())[:160]
     groups[(level, origin, text)] += 1
 result = {
