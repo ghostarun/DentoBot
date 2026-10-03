@@ -1,5 +1,39 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-10-03 — Lab release candidate `lab/2026-10-03-3` (main `f41952e` + pin)
+
+- **Why:** Operator asked to push the launcher work since `lab/2026-10-03-2`
+  to `main` and the lab release.
+- **Identity:** DentoBot tag `lab/2026-10-03-3` (`main`); native SlicerROS2
+  `ece3c42` and GHCR image `jazzy-moveit-sim-20260909`, both unchanged from
+  `lab/2026-10-03-2`.
+- **Contents since `lab/2026-10-03-2`** (launcher and docs only; no DENTOWorkflow,
+  planner, native or image change):
+  - `~/dentobot/launch-dentobot` workspace-root link (created by
+    `bootstrap-workspace.bash`);
+  - Ubuntu app-menu entry installer `scripts/install-desktop-launcher.bash`
+    (refuses WSL) and `launch-dentobot-desktop.bash`;
+  - launch summary prints `Source checkout:` and `SlicerROS2 source:` (branch,
+    commit, uncommitted count);
+  - opt-in `--choose-checkout`: lists the workspace's checkouts newest first
+    and runs the chosen one; without it, behaviour is unchanged.
+- **Verification:** host suite 1093 passed at `f41952e`; launcher, desktop and
+  graphics-profile tests 46 passed; `bash -n` on the changed scripts; lab pin
+  parsed with `lab-release-lib.bash` from `origin/main`.
+- **Safety notes:**
+  - Simulation only. No robot hardware motion, drilling, or patient-facing use
+    is enabled or verified by this release.
+  - Candidate, not accepted: all safety and verdict notes of
+    `lab/2026-10-03-2` (below) still apply.
+  - Not run with this tag: a GUI launch through `launch-dentobot`, the app-menu
+    entry or `--choose-checkout`; Windows/WSLg install/update (`PLAT-U-04`).
+  - `--choose-checkout` runs the chosen checkout's own launcher, but every
+    checkout shares the one SlicerROS2 install rebuilt from
+    `ros2_ws/src/slicer_ros2_module`.
+- **Rollback:** set `DENTOBOT_TAG` in `Workspace/LAB_RELEASE` on `main` back to
+  `lab/2026-10-03-2` (same `SLICERROS2_SHA`) and rerun `Update Dentobot
+  Lab.bat`. Published tags are not moved or deleted.
+
 ## 2026-10-03 — Lab release candidate `lab/2026-10-03-2` (main `279ed83` + pin)
 
 - **Why:** Operator asked to bring `main` and the Windows lab release up to the

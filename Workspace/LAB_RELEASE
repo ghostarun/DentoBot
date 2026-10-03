@@ -5,7 +5,7 @@
 # commit below; the GHCR image contains the matching runtime dependencies.
 # The image is private; authenticate Docker to GHCR before install/update.
 
-DENTOBOT_TAG=lab/2026-10-03-2
+DENTOBOT_TAG=lab/2026-10-03-3
 DENTOBOT_GIT_URL=https://github.com/ghostarun/DentoBot.git
 SLICERROS2_GIT_URL=https://github.com/ghostarun/slicer_ros2_module.git
 SLICERROS2_SHA=ece3c427443a289da373fbd9403b29734c4a415b
