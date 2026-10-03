@@ -154,6 +154,8 @@ class ManualBaseGhostSourceTest(unittest.TestCase):
             in {
                 "clearManualBaseCandidateGhost",
                 "isRobotBaseTransformNode",
+                "manualBaseCandidateTransformNode",
+                "setManualBaseCandidateInteractionEnabled",
                 "showManualBaseCandidateGhost",
             }
         ]
@@ -264,7 +266,9 @@ class ManualBaseGhostSourceTest(unittest.TestCase):
         self.assertEqual((len(ghost_models), len(ghost_transforms), len(ghost_displays)), (7, 8, 7))
         for node in owned:
             self.assertFalse(node.saved_with_scene)
-            self.assertTrue(node.hidden_from_editors)
+            # The detached candidate Base stays editor-visible for its drag handles.
+            candidate_role = node.GetAttribute("DENTOBOT.ManualBaseCandidateGhostNodeType")
+            self.assertEqual(node.hidden_from_editors, candidate_role != "CandidateBase")
         for node in ghost_models:
             self.assertIsNone(node.GetAttribute("DENTOBOT.ModelRole"))
         for node in ghost_transforms:

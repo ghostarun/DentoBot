@@ -48,6 +48,19 @@ def _string_constants(tree):
     }
 
 
+# run() is the no-case entry point; the probe steps live in the reusable
+# run_case_bound_tcp_probe() and its _preconditions() helper.
+PROBE_SCOPE = ("run", "run_case_bound_tcp_probe", "_preconditions")
+
+
+def _probe_tree():
+    return ast.Module(body=[_function(TREE, name) for name in PROBE_SCOPE], type_ignores=[])
+
+
+def _probe_source():
+    return ast.unparse(_probe_tree())
+
+
 def _run_helper(name, globals_):
     node = _function(TREE, name)
     module = ast.Module(body=[node], type_ignores=[])
@@ -151,16 +164,17 @@ def test_key_delivery_sends_qt_events_and_fails_closed_without_delivery_api():
 
 
 def test_runner_delivers_representative_translation_pitch_and_yaw_keys_to_focused_widgets():
-    run = ast.unparse(_function(TREE, "run"))
+    run = _probe_source()
     assert "qt.Qt.Key_Right" in run and "qt.Qt.NoModifier" in run
     assert "qt.Qt.Key_Up" in run and "qt.Qt.ControlModifier" in run
     assert "qt.Qt.ShiftModifier" in run
-    assert "_focus(key_target)" in run
+    assert "_focus(target, monitor)" in run
     assert "_deliver_key(target, value, mods)" in run
     assert "tcpKeyboardEnabledCheckBox.click()" in run
-    assert "numeric_editor_focus_suppressed" in run
+    assert "editor_focus_suppressed" in run and "numeric_delivery" in run and "text_delivery" in run
     assert "keyboard_opt_out_suppressed" in run
-    assert "focus_widget" in run and "QDoubleSpinBox" in _string_constants(_function(TREE, "run"))
+    assert "focusWidget" in ast.unparse(_function(TREE, "_focus"))
+    assert "panel.tcpTranslationStepMm" in run and "_focus(numeric, monitor)" in run
 
 
 def test_production_shortcut_gates_match_runner_focus_repeat_and_opt_out_checks():
@@ -169,11 +183,11 @@ def test_production_shortcut_gates_match_runner_focus_repeat_and_opt_out_checks(
     assert "not self.tcpKeyboardEnabledCheckBox.checked" in PANEL
     assert "or self._hasTcpTextEditorFocus()" in PANEL
     assert "QAbstractSpinBox" in PANEL
-    run = ast.unparse(_function(TREE, "run"))
-    assert "shortcut_auto_repeat" in run
+    run = _probe_source()
+    assert "item.autoRepeat" in run and "keyboard_auto_repeat_disabled" in run
     assert "all_shortcuts_disabled" in run
-    assert "all" in _attribute_calls(_function(TREE, "run")) | {
-        node.id for node in ast.walk(_function(TREE, "run")) if isinstance(node, ast.Name)
+    assert "all" in _attribute_calls(_probe_tree()) | {
+        node.id for node in ast.walk(_probe_tree()) if isinstance(node, ast.Name)
     }
 
 
@@ -232,7 +246,7 @@ def test_button_and_key_goal_changes_use_monotonic_input_latency_samples_and_sum
         "units": "ms",
     }
     assert summary([])["units"] == "ms"
-    run = ast.unparse(_function(TREE, "run"))
+    run = _probe_source()
     for label in (
         "button_translation_x_plus",
         "button_pitch_plus",
@@ -246,18 +260,20 @@ def test_button_and_key_goal_changes_use_monotonic_input_latency_samples_and_sum
 
 
 def test_explicit_probe_ack_solve_ik_accepted_state_and_disable_cleanup_are_gated():
-    run = ast.unparse(_function(TREE, "run"))
+    run = _probe_source()
     assert "tcpDragEnabledCheckBox.click()" in run
     assert "panel._tcpDragEnabled" in run
     assert "motion_logic.obsNode is not None" in run
-    assert "ProbeSphere_Transform" in _string_constants(_function(TREE, "run"))
-    assert "ProbeSphere" in _string_constants(_function(TREE, "run"))
+    assert "ProbeSphere_Transform" in _string_constants(_probe_tree())
+    assert "ProbeSphere" in _string_constants(_probe_tree())
     assert "solveIkButton.click()" in run
-    assert "ROS2_JOINT_SI_ORDER" in run and "len(order) != 5" in run
+    assert "tuple(bridge.ROS2_JOINT_SI_ORDER) == tuple(JOINT_NAMES)" in run
+    assert "len(native_solution) == 5" in run
     assert "matches_native_solution" in run
-    assert "accepted_state_before" in run and "accepted_state_final" in run
+    assert "accepted_state_before" in run and "accepted_monitored_displayed_after" in run
     assert "tcpDragEnabledCheckBox.click()" in run
-    assert "GetFirstNodeByName" in _attribute_calls(_function(TREE, "run"))
+    assert "getNode" in _attribute_calls(_probe_tree())
+    assert "_nodes_named('ProbeSphere')" in run
     assert "observer_removed" in run and "keyboard_checkbox_off" in run
 
 
@@ -273,8 +289,10 @@ def test_runner_is_no_case_simulation_only_and_calls_no_planner_preview_or_hardw
     kwargs = {item.arg: ast.literal_eval(item.value) for item in connection.keywords}
     assert kwargs["start_stack_if_needed"] is False
     assert kwargs["start_joint_command_stream"] is False
-    assert not ({"loadScene", "openFile", "plan", "plan_goal", "startPreview", "execute", "guardedManualJogButton"} & calls)
+    assert "require_case_scene=False" in ast.unparse(run)
+    probe_calls = _attribute_calls(_probe_tree())
+    assert not ({"loadScene", "openFile", "plan", "plan_goal", "startPreview", "execute", "guardedManualJogButton"} & probe_calls)
     constants = _string_constants(run)
     assert {"case_source", "case_loaded", "route_authority", "preview_started", "hardware_or_drilling_action"} <= constants
-    assert "solveIkButton.click()" in ast.unparse(run)
-    assert "_onShellSolveIk" not in ast.unparse(run)
+    assert "solveIkButton.click()" in _probe_source()
+    assert "_onShellSolveIk" not in _probe_source()

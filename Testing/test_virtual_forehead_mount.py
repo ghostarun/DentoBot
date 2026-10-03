@@ -87,7 +87,7 @@ def test_planar_slide_reduces_tcp_error() -> None:
     result = slide_base_for_tcp_target(plane, tcp_in_base, target)
     assert result["errorMm"] < float(np.linalg.norm(unslid_tcp - target)) - 1.0
     assert abs(float(result["slideUMm"])) <= 40.0 + 1e-6
-    assert DEFAULT_JOINT_DISPLAY == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    assert DEFAULT_JOINT_DISPLAY == (0.0, 0.0, 0.0, 0.0, 0.0)  # five-DOF arm
 
 
 def test_propose_defaults_recover_operator_capture() -> None:
@@ -103,7 +103,7 @@ def test_propose_defaults_recover_operator_capture() -> None:
     assert dumped["tzMm"] == pytest.approx(56.5915, abs=1e-3)
     extraoral = float(np.dot(base[:3, 3] - plane.origin_mm, plane.z_hat))
     assert extraoral > 0.0
-    assert DEFAULT_JOINT_DISPLAY == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    assert DEFAULT_JOINT_DISPLAY == (0.0, 0.0, 0.0, 0.0, 0.0)  # five-DOF arm
 
 
 def test_x_axis_points_patient_right() -> None:
