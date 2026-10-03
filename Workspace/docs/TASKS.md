@@ -2146,6 +2146,28 @@ acceptance still requires a complete zero-exit whole-run recording. See the
 
 ### `PLAT-U-07` — Multi-workstation Git and saved-case exchange
 
+- **2026-10-03 destination launcher result:** Operator requested testing.
+  50 focused launcher/profile tests, syntax/self-check and real check-only
+  preflight PASS; all3packages built from the updated sources. Normal startup
+  passed simulation readiness and loaded DENTOWorkflow in a visible Slicer5.10
+  window with current native libraries. Left open for operator. Nonblocking
+  extensions-directory warning retained. Shutdown, cases/FPS/operator verdict
+  and full migration/cutover remain open; see today's logbook.
+
+- **2026-10-03 local source handoff:** Operator explicitly requested latest
+  progress as-is. Destination DentoBot `main` fast-forwarded
+  `0cc70f2` → `3997458` (94 commits); native source advanced
+  `17f9993` → release-pinned `ece3c42` on its published tracking branch.
+  The seven local September-30 controlled files were preserved in an
+  allowlisted Git stash and checksum-backed overlay backup before pulling.
+  New root launcher link installed by the non-overwriting bootstrap.
+  Source identity/parity inspection passed. At that source-only checkpoint,
+  compiled runtime was unverified; the subsequent launcher result above
+  verifies the three package builds and startup only. Cases, image parity,
+  source-station dirty work, operator verdict and primary-writer cutover remain
+  unverified. Migration and the distinct case-exchange obligation remain open;
+  evidence and preservation paths are in the 2026-10-03 logbook.
+
 - **Priority:** Unprioritized.
 - **Operator request:** Keep script development in the repository while
   exchanging the saved Slicer case work needed by multiple workstations.
@@ -2515,3 +2537,20 @@ S6-P2-03 native source publication checkpoint (2October): reviewed5.10 async mot
 - **S6-TRUNCATION-WARNING contract:** when `drillingTruncation` is present, Plan Approach and Drill status use warning state, start with "WARNING: drilling shortened", and give reached/requested/remaining depth and blocking pair; the remainder stays highlighted and labelled in the viewport.
 - **Invariants:** no change to Plan Approach gate, policy 2b, guard, MoveIt scene, mouth barrier, joint limits or tolerances; no route or preview authority from diagnostics; simulation only.
 - **Acceptance:** host tests for check order, stop-at-first-failure, verdict mapping and warning state; headed run screenshots of the diagnosis table and warning/remainder; Tarun verdict.
+
+
+## 2026-10-03 — S6-P2-03 NVIDIA acceptance on destination workstation
+
+Operator requests noting pending NVIDIA GPU tests that can run here, launching
+Slicer and providing an approval/verification checklist. This destination's
+RTX4060 Laptop GPU (8188MiB, driver580.178.04), NVIDIA Docker runtime and X11
+desktop are verified. The earlier GPU-less source-station deferral remains
+historical; it does not describe this destination. Existing S6-P2-03 Priority1
+owns the test, overlapping PLAT-U-07 local acceptance.
+
+[NVIDIA acceptance checklist](diagnostics/NVIDIA_WORKSTATION_ACCEPTANCE_2026-10-03.md)
+uses existing matrix `runtime.ubuntu_nvidia_render_acceptance` and recorded
+50 host checks. Current Mesa Slicer is already open and preserved. Safe restart
+requires save/close confirmation; representative render probe requires a named
+approved case. NVIDIA OpenGL/FPS and operator Step6 verdict are NOT RUN. No
+claim of improvement, full migration, hardware or clinical acceptance.

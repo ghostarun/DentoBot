@@ -1739,3 +1739,20 @@ Native Ubuntu NVIDIA profile now implemented on the integration checkout. Explic
 Verification: pure.ubuntu_graphics_profiles,13host/mock tests passed in0.08s exit0; shell syntax, owned Python syntax, scoped whitespace and frame-probe --self-check passed. Tests cover MesaCPU/CUDA, NVIDIACPU/CUDA, WSL baseline selection, missing command/driver/runtime, container visibility, invalid mode, DRM reset/capabilities and source routing. Evidence /tmp/dentobot-verification/perf-increment3-20261001/{host.log,frame-selfcheck.log,summary.json,launcher-port.diff}. No actual GPU/Docker/container/Slicer/ROS runtime, image/native rebuild, case save or hardware action. Operator explicitly excludes GPU verification on this workstation; >=60FPS and renderer verification remain deferred to approved NVIDIA hardware.
 
 All three finite increments now have source implementations. Item1 paired watchdog overhead/identity evidence and item2 representative long-wait/cancel/normal-window responsiveness remain open under existing S6-P2-03; item3 hardware acceptance deferred. Backend MoveIt cleanup-11 remains S6-U-01. No new increment, no5.12 restart, no main merge/push/commit.
+
+
+## 2026-10-03 — S6-P2-03 NVIDIA acceptance on destination workstation
+
+Operator requests noting pending NVIDIA GPU tests that can run here, launching
+Slicer and providing an approval/verification checklist. This destination's
+RTX4060 Laptop GPU (8188MiB, driver580.178.04), NVIDIA Docker runtime and X11
+desktop are verified. The earlier GPU-less source-station deferral remains
+historical; it does not describe this destination. Existing S6-P2-03 Priority1
+owns the test, overlapping PLAT-U-07 local acceptance.
+
+[NVIDIA acceptance checklist](diagnostics/NVIDIA_WORKSTATION_ACCEPTANCE_2026-10-03.md)
+uses existing matrix `runtime.ubuntu_nvidia_render_acceptance` and recorded
+50 host checks. Current Mesa Slicer is already open and preserved. Safe restart
+requires save/close confirmation; representative render probe requires a named
+approved case. NVIDIA OpenGL/FPS and operator Step6 verdict are NOT RUN. No
+claim of improvement, full migration, hardware or clinical acceptance.

@@ -1,5 +1,21 @@
 # DENTOBOT agent context
 
+## Local source handoff — 3 October 2026
+
+This destination now uses `/home/tarun/dentobot/ros2_ws/src/DentoBot`,
+branch `main`, published checkpoint `3997458`; native SlicerROS2 source is
+`ece3c42`, matching `Workspace/LAB_RELEASE` (`lab/2026-10-03-4`).
+The operator explicitly requested the latest published progress as-is. This
+source handoff supersedes older checkout-selection instructions for this local
+station only. Retain the current upstream workflow contracts and open gates.
+Description, MoveIt and native packages were rebuilt; preflight and ordinary
+Mesa-mode Slicer startup passed. Case/image parity, shutdown and operator
+acceptance remain open. NVIDIA renderer/FPS testing is pending under
+`S6-P2-03`; use the [acceptance checklist](diagnostics/NVIDIA_WORKSTATION_ACCEPTANCE_2026-10-03.md).
+Local September-30 migration notes are preserved separately; see today's
+logbook and `PLAT-U-07`. No runtime continuation follows from this pull.
+
+
 ## Current Step 6 chat handoff — 1 October 2026
 
 Operator confirms the checkout is now `DentoBot-step6-5.10-integration` and asks

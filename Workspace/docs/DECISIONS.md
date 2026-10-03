@@ -1,5 +1,18 @@
 # Dentobot Technical Decisions
 
+## 2026-10-03 — Destination published-source handoff under PLAT-U-07
+
+**Operator direction:** “update local dentobot to latest progress, pull and
+ensure latest updates as is from other machine”. This authorizes the local
+source update previously excluded by the September-30 planning-only scope.
+Use current published `main` (`3997458`) and its native release pin
+(`ece3c42`), superseding the older renovation-tip recommendation for this
+bounded source handoff. Preserve local migration notes separately rather than
+merging stale controlled records over the incoming progress. No primary-writer
+cutover, runtime acceptance, data transfer or external publication is inferred.
+Today's logbook records identity inspection and preservation evidence.
+
+
 ## 2026-09-30 — Commit source checkpoints and integrate only accepted 5.10 changes
 
 Tarun explicitly approved implementing the integration plan: capture stable unfinished renovation source as regular commits, preserve dirty integration first, merge identified renovation commits, then port only accepted 5.10 source/test changes. Renovation supplies current five-DOF/guard/recording behavior; older equivalent repairs cannot replace it. Four GPT-6 Luna Max workers use disjoint scopes, with at most three concurrent beside the coordinator. Coordinator owns technical decisions, controlled records, Git, runtime and acceptance. Preserve 5.12 deferral and release gates; checkpoint/host verification is not full-cycle or operator acceptance.
@@ -7138,3 +7151,32 @@ Operator: "can depth peeling be an GUI option before starting planning alongside
    - The URDF mesh-load coordinate warning is hidden only during the load (`6f332a8`).
    - Expected housekeeping is logged as info, and the runner no longer uses the deprecated `lookFromViewAxis` (`1d30251`).
 4. **Boundary.** DentoBot step failures stay errors. MoveIt's per-candidate "MoveGroupInterface::plan() failed or timeout reached" and its octomap configuration messages remain in the log file as Info text. Diagnostic probes that rebuild trees on raw meshes may still log their own warning.
+
+
+## 2026-10-03 — S6-P2-03 NVIDIA acceptance on destination workstation
+
+Operator requests noting pending NVIDIA GPU tests that can run here, launching
+Slicer and providing an approval/verification checklist. This destination's
+RTX4060 Laptop GPU (8188MiB, driver580.178.04), NVIDIA Docker runtime and X11
+desktop are verified. The earlier GPU-less source-station deferral remains
+historical; it does not describe this destination. Existing S6-P2-03 Priority1
+owns the test, overlapping PLAT-U-07 local acceptance.
+
+[NVIDIA acceptance checklist](diagnostics/NVIDIA_WORKSTATION_ACCEPTANCE_2026-10-03.md)
+uses existing matrix `runtime.ubuntu_nvidia_render_acceptance` and recorded
+50 host checks. Current Mesa Slicer is already open and preserved. Safe restart
+requires save/close confirmation; representative render probe requires a named
+approved case. NVIDIA OpenGL/FPS and operator Step6 verdict are NOT RUN. No
+claim of improvement, full migration, hardware or clinical acceptance.
+
+
+## 2026-10-04 — Publish destination documentation to main and integration
+
+Operator explicitly requests “update docs and commit and push to main and
+integration”. Publish only the development-controlled destination handoff,
+launcher evidence and pending NVIDIA checklist. Target `main` and the existing
+`integration/step6-5.10-reviewed-20260927` branch; both fetched refs share
+`3997458` before publication. Non-force publication of the same documentation
+commit does not merge unrelated source, promote a lab tag, or accept pending
+NVIDIA/representative/operator gates. Engineer-owned records, local backup
+payloads, credentials and runtime artifacts are excluded.
