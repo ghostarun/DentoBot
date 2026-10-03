@@ -23,17 +23,21 @@ case data, model caches, or credentials through Git.
 
 ## Release status
 
-Current `Workspace/LAB_RELEASE` selects immutable tag `lab/2026-10-03`, native
+Current `Workspace/LAB_RELEASE` selects immutable tag `lab/2026-10-03-2`, native
 SlicerROS2 `ece3c42` (DentoBot fork), and GHCR image
 `ghcr.io/ghostarun/dentobot/slicerros2:jazzy-moveit-sim-20260909` (same
 published image identity; `Dockerfile.slicerros2` is unchanged since
-`lab/2026-09-10`). This pin advances the source freeze to the 3 October Step 6
-integration checkpoint on `main` (5.10 planner/session work, run options,
-error-log cleanup, SlicerROS2 shutdown fix). It is a **candidate**: Ubuntu
-evidence only (r26 transaction PASS); Windows/WSLg install and operator
-acceptance are pending. Lab and test machines must install or update to that
-pin (via `install-lab-wsl` / `Update Dentobot Lab.bat`), not follow `main` or a
-dirty development checkout. The previous pin was `lab/2026-09-10`.
+`lab/2026-09-10`). It is a **candidate**: Ubuntu evidence only; Windows/WSLg
+install and operator acceptance are pending. Simulation only, with no robot
+hardware or drilling. Release contents, evidence, safety notes and rollback are
+in `docs/changelog.md` (3 October 2026 entry). Lab and test machines must
+install or update to that pin (via `install-lab-wsl` / `Update Dentobot
+Lab.bat`), not follow `main` or a dirty development checkout. Previous pins:
+`lab/2026-10-03`, `lab/2026-09-10`.
+
+Windows note for this pin: the launcher refuses `DENTOBOT_GRAPHICS_MODE=nvidia`
+under WSL. Keep `wslg` (or `auto`); NVIDIA inference on WSL stays available
+through `DENTOBOT_BACKEND_DEVICE=cuda:0`.
 
 Do not describe a clone of `main` as a lab release. Machines on an integration
 revision must record their exact source SHA and remain test installations until

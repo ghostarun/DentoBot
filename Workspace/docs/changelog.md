@@ -1,5 +1,47 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-10-03 — Lab release candidate `lab/2026-10-03-2` (main `279ed83` + pin)
+
+- **Why:** Operator asked to bring `main` and the Windows lab release up to the
+  Step 6 integration progress, with safety logs and notes.
+- **Identity:** DentoBot tag `lab/2026-10-03-2` (`main`); native SlicerROS2
+  `ece3c42` (fork branch `dentobot/step6-5.10-native-20261003`); GHCR image
+  `jazzy-moveit-sim-20260909` (unchanged). Supersedes `lab/2026-10-03`
+  (`51be232`, same day) and `lab/2026-09-10` (`4d64ba4`).
+- **Contents since `lab/2026-09-10`:** Step 6 (5.10) session runtime, planner
+  speed-ups and watchdogs; 6.3 Run options (development fast mode off, depth
+  peeling on, chosen before planning); Slicer error log shows only real failures
+  (ROS console to stdout, Cartesian rejections at debug level, degenerate
+  obstacle triangles dropped, quiet robot STL load); SlicerROS2 shutdown fix
+  (release MoveIt resources before ROS shutdown); native Ubuntu NVIDIA graphics
+  profile (opt-in), refused under WSL; NVIDIA-mode container recreated only when
+  its GPU request is missing; `--render-probe` workstation graphics acceptance;
+  stale host tests updated to the five-DOF and extracted-probe source.
+- **Verification:** Ubuntu session-mode r26 (case load, Find Reachable Base,
+  Task Home, Plan Approach, two guarded cycles) transaction PASS, exit 0,
+  recording complete, 0 error-log errors; host suite 1085 passed; lab pin
+  parsed with `lab-release-lib.bash` from `origin/main`.
+- **Safety notes:**
+  - Simulation only. No robot hardware motion, drilling, or patient-facing use
+    is enabled or verified by this release.
+  - Candidate, not accepted: operator verdicts are pending for `S6-LIVE-01`
+    (Priority 0), runs r20–r26, the Run options and `S6-ERRLOG-01`.
+  - Not verified with this tag: Windows/WSLg install/update and launch
+    (`PLAT-U-04`); NVIDIA rendering on real hardware
+    (`runtime.ubuntu_nvidia_render_acceptance`); the operator launcher
+    `launch-dentoworkflow.bash` end to end after today's launcher changes
+    (host tests and an evaluated-script equivalence check only; r26 used the
+    session harness, not this launcher).
+  - Known test observation: `test_dentobot_slicer_handoff` timed out twice
+    under host load and passed otherwise.
+  - The updater keeps `.dentobot.env`, `slicer-home/` and `data/`, refuses
+    dirty checkouts, and recreates the container only if the image changed (it
+    did not).
+- **Rollback:** set `DENTOBOT_TAG` in `Workspace/LAB_RELEASE` on `main` back to
+  `lab/2026-10-03` or `lab/2026-09-10` (with that tag's `SLICERROS2_SHA`:
+  `ece3c42…` or `17f99931…`) and rerun `Update Dentobot Lab.bat`. Published
+  tags are not moved or deleted.
+
 ## 2026-09-18 — Freeze operator forehead-relative seating
 
 - **Why:** Operator rotated the unlocked base to the intended look and dumped
