@@ -1,5 +1,26 @@
 # DENTOBOT Low-Level Changelog
 
+## 2026-10-03 — Launcher builds the launched checkout's robot packages; `main` in the chooser (integration `51293e6`, not yet released)
+
+- **Why:** A `--choose-checkout` test launch showed the shared `ros2_ws`
+  build kept `dentobot_description` from the retired checkout (6-joint URDF)
+  and `dentobot_moveit_config` from the renovation checkout; CMake refused the
+  integration build and the launcher still opened Slicer. Operator also asked
+  that `main` always appear in the chooser.
+- **Change:** the launcher removes a package's `build/`/`install/` when its
+  CMake cache came from another checkout (also done by the chooser before an
+  older checkout's launcher); a failed colcon build stops the launch;
+  `--choose-checkout` fetches `origin main` and lists `main` first (worktree
+  `ros2_ws/src/DentoBot-main`, created on first choice, fast-forwarded when
+  clean).
+- **Verification:** launcher tests 12 passed; host suite 1087 passed;
+  relaunch rebuilt both packages from integration and the loaded robot has no
+  `Revolute-6`.
+- **Safety notes:** simulation only. All-items runs r2 and r4–r26 (2–3 Oct)
+  used the mixed packages; they need a rerun before counting as integration
+  evidence (`S6-LIVE-01`). Lab PCs have one checkout and were not affected.
+  Not in `main` or `lab/2026-10-03-3`.
+
 ## 2026-10-03 — Lab release candidate `lab/2026-10-03-3` (main `f41952e` + pin)
 
 - **Why:** Operator asked to push the launcher work since `lab/2026-10-03-2`
