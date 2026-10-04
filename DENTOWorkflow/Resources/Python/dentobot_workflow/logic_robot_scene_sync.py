@@ -1052,7 +1052,10 @@ class RobotSceneSyncLogicMixin:
         display.SetColor(0.20, 0.55, 1.0)
         display.SetEdgeVisibility(True)
         display.SetEdgeColor(0.35, 0.70, 1.0)
-        display.SetOpacity(min(1.0, max(0.0, float(opacity))))
+        opacity = min(1.0, max(0.0, float(opacity)))
+        # View presets restore this instead of their solid default (as for the barrier).
+        node.SetAttribute("DENTOBOT.DisplayOpacity", f"{opacity:.2f}")
+        display.SetOpacity(opacity)
         display.SetVisibility2D(False)
         display.SetVisibility(True)
 
@@ -1389,6 +1392,7 @@ class RobotSceneSyncLogicMixin:
             }
         )
         object_records: list[dict[str, object]] = []
+        published: dict[str, tuple] = {}  # outgoing ID -> (source ID, base-frame mesh)
         if progress:
             progress("Publishing collision scene", 0, len(sources))
         pause_render = getattr(slicer.app, "pauseRender", None)
@@ -1496,6 +1500,7 @@ class RobotSceneSyncLogicMixin:
                     )
                     raise RuntimeError(message)
                 record["publish_status"] = "PublishReturnedSuccess"
+                published[source_name] = (source_id, outgoing_evidence["surface"])
                 object_records.append(record)
                 if progress:
                     progress("Publishing collision scene", sourceIndex, len(sources))
@@ -1530,11 +1535,20 @@ class RobotSceneSyncLogicMixin:
                 "attribution_allowed": False,
             }
         else:
-            acknowledgement = acknowledge_moveit_collision_scene(
-                expected_objects=object_records,
-                current_joint_positions_si=current_joint_positions_si,
-                expected_policy_fingerprint=expected_policy_fingerprint,
-                require_correlated_readback=require_correlated_readback,
+            def acknowledge():
+                return acknowledge_moveit_collision_scene(
+                    expected_objects=object_records,
+                    current_joint_positions_si=current_joint_positions_si,
+                    expected_policy_fingerprint=expected_policy_fingerprint,
+                    require_correlated_readback=require_correlated_readback,
+                )
+
+            acknowledgement = redeliver_missing_collision_objects(
+                acknowledge(), published,
+                lambda object_id: sync_moveit_obstacle_polydata(
+                    source_id=published[object_id][0], source_name=object_id,
+                    polydata_base_mm=published[object_id][1]),
+                acknowledge,
             )
         audit = build_collision_scene_audit(
             status=(

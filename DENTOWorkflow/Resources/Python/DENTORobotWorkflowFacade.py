@@ -4242,6 +4242,7 @@ class DENTORobotWorkflowFacade:
             lock_result = failure
             self._manual_base_review = None
             self._manual_base_acceptance_uncertain = ""
+            self._manual_base_review_failure = None  # superseded by this acceptance
             return replace(
                 lock_result,
                 details={

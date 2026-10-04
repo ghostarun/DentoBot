@@ -435,7 +435,8 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 review_text += " Preserved Base acceptance failure evidence: " + str(failure)
             panel = getattr(self, "_robotSimulationPanel", None)
             if panel and hasattr(panel, "manualBaseReviewStatusLabel"):
-                panel.manualBaseReviewStatusLabel.text = review_text
+                note = getattr(self, "_basePlacementSearchNoteText", lambda: "")()
+                panel.manualBaseReviewStatusLabel.text = (note + " " if note else "") + review_text
                 panel.cancelManualBaseReviewButton.enabled = (
                     staged and not acceptance_unknown
                 )

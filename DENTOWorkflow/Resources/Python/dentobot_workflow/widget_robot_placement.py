@@ -100,17 +100,21 @@ class RobotPlacementWidgetMixin:
         self._nudgeRobotBase(translationAxis, rotationAxis, direction)
 
     def _bindManualBaseCandidateInteractionNode(self, node) -> None:
+        # Handle drags change the matrix, which fires TransformModifiedEvent
+        # only; observing ModifiedEvent left the staged candidate unchanged, so
+        # Accept Base committed the old pose (operator report 2026-10-04).
+        event = slicer.vtkMRMLTransformNode.TransformModifiedEvent
         current = getattr(self, "_manualBaseCandidateInteractionNode", None)
         if current is node:
             return
         if current is not None:
-            self.removeObserver(current, vtk.vtkCommand.ModifiedEvent,
+            self.removeObserver(current, event,
                                 self._onManualBaseCandidateInteractionModified)
         self._manualBaseCandidateInteractionNode = node
         if node is not None:
             self.addObserver(
                 node,
-                vtk.vtkCommand.ModifiedEvent,
+                event,
                 self._onManualBaseCandidateInteractionModified,
             )
 
@@ -146,7 +150,14 @@ class RobotPlacementWidgetMixin:
             self._updatingManualBaseCandidateFromViewport = False
         panel = getattr(self, "_robotSimulationPanel", None)
         if result is not None and result.success:
-            self._manualBaseCandidateGhostKey = None
+            # The dragged ghost already shows the new candidate; re-key its cache
+            # so the next refresh does not rebuild it under the active drag.
+            key = getattr(self, "_manualBaseCandidateGhostKey", None)
+            staged = (getattr(result, "details", {}) or {}).get("candidateMatrixWorldRasMm")
+            self._manualBaseCandidateGhostKey = (
+                (tuple(float(value) for value in staged),) + tuple(key[1:])
+                if key and staged else None
+            )
             if panel is not None:
                 panel.setBaseInteractionStatus(
                     "ok",
@@ -450,55 +461,322 @@ class RobotPlacementWidgetMixin:
             self.logic.setStep6ReachEnvelopeVisible(checked)
         self._syncCheckBox(getattr(self, "_showReachEnvelopeCheckBox", None), checked)
 
+    def _basePlacementSearchNoteText(self) -> str:
+        """Last Find Reachable Base result while lock state and Base pose are unchanged."""
+        note = getattr(self, "_basePlacementSearchNote", None)
+        if not note or not self._parameterNode or not self.logic:
+            return ""
+        message, locked, fingerprint = note
+        base = self._parameterNode.robotBaseTransform
+        current = str(self.logic.robotBasePoseFingerprint(base) or "") if base else ""
+        if bool(self._parameterNode.robotBaseMountLocked) != locked or current != fingerprint:
+            return ""
+        return message
+
+    def _showBasePlacementSearchNote(self, message: str, error: bool) -> None:
+        """Keep the search result visible: the Base review refresh rewrites the label."""
+        base = self._parameterNode.robotBaseTransform
+        self._basePlacementSearchNote = (
+            message,
+            bool(self._parameterNode.robotBaseMountLocked),
+            str(self.logic.robotBasePoseFingerprint(base) or "") if base else "",
+        )
+        self._robotSimulationPanel.manualBaseReviewStatusLabel.text = message
+        self._updateStep6PlanningUi(message, error=error)
+
     def _onStep6SearchBasePlacement(self) -> None:
         """Run the forehead-plane IK preflight and stage the best Base for review."""
         panel = self._robotSimulationPanel
         facade = self._robotWorkflowFacade
         if not panel or not facade or not self._parameterNode or not self.logic:
             return
-        if self._parameterNode.robotBaseMountLocked:
-            message = _("Unlock the Base before searching for a reachable placement.")
-            panel.manualBaseReviewStatusLabel.text = message
-            self._updateStep6PlanningUi(message, error=True)
+        locked_base = bool(self._parameterNode.robotBaseMountLocked)
+
+        def progress(done, total):
+            if done % 10 == 0:
+                panel.manualBaseReviewStatusLabel.text = _(
+                    "Find Reachable Base: %1 of up to %2 candidate Bases checked..."
+                ).replace("%1", str(done)).replace("%2", str(total))
+                slicer.app.processEvents()
+
+        def run(**options):
+            qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
+            try:
+                return self.logic.searchForeheadBasePlacement(
+                    self._parameterNode, progress=progress, **options)
+            except (OSError, RuntimeError, ValueError) as exc:
+                self._showBasePlacementSearchNote(
+                    _("Base placement search failed: %1").replace("%1", str(exc)), error=True)
+                return None
+            finally:
+                qt.QApplication.restoreOverrideCursor()
+
+        if locked_base:
+            self._showBasePlacementSearchNote(_(
+                "Find Reachable Base: the Base is locked. Unlock it to search and stage, or "
+                "open the level 4 ranking board to preview candidates without unlocking."
+            ), error=True)
+            if slicer.util.confirmYesNoDisplay(_(
+                "The accepted Base is locked.\n\nOpen the level 4 ranking board to preview "
+                "every valid Base as a display-only ghost (exhaustive search, about a "
+                "minute)? Using one later offers to unlock."
+            )):
+                report = run(reference="forehead_seat", deep=True, exhaustive=True)
+                if report is not None:
+                    self._openBaseCandidateBoard(report)
             return
-        qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
-        try:
-            report = self.logic.searchForeheadBasePlacement(self._parameterNode)
-        except (OSError, RuntimeError, ValueError) as exc:
-            message = _("Base placement search failed: %1").replace("%1", str(exc))
-            panel.manualBaseReviewStatusLabel.text = message
-            self._updateStep6PlanningUi(message, error=True)
+        panel.manualBaseReviewStatusLabel.text = _(
+            "Find Reachable Base (level 1): searching the forehead plane (IK preflight "
+            "+ mouth-barrier check)..."
+        )
+        slicer.app.processEvents()
+        report = run()
+        if report is None:
             return
-        finally:
-            qt.QApplication.restoreOverrideCursor()
         self._lastBasePlacementSearch = report
         best = report.get("best")
-        if best is None:
+        if best is not None and report.get("barrier_clear", True):
+            result = facade.stageManualBaseReview(tuple(best["matrix_world_ras_mm"]))
             message = _(
-                "IK preflight: no Base within +-30 mm of the forehead-plane centre "
-                "reaches the whole PreEntry-to-Target stroke (%1 checked; depth and "
-                "orientation locked). Base sliding cannot fix reach here."
-            ).replace("%1", str(report.get("evaluated")))
-            panel.manualBaseReviewStatusLabel.text = message
-            self._updateStep6PlanningUi(message, error=True)
+                "Level 1: %1 of %2 forehead-plane Bases reach the full stroke. Staged nearest "
+                "that clears the mouth barrier: u=%3 mm, v=%4 mm, depth %5 mm (minimum slider "
+                "margin %6 mm). Review and Accept; MoveIt checks anatomy and planning afterwards."
+            ).replace("%1", str(report["feasible_count"])).replace(
+                "%2", str(report["evaluated"])).replace("%3", f"{best['u_mm']:.1f}").replace(
+                "%4", f"{best['v_mm']:.1f}").replace("%5", f"{best.get('depth_mm', 0.0):.1f}").replace(
+                "%6", f"{best['minimum_slider_margin_mm']:.2f}")
+            self._showBasePlacementSearchNote(
+                str(result.message) if not result.success else message, error=not result.success)
             return
-        result = facade.stageManualBaseReview(tuple(best["matrix_world_ras_mm"]))
+        clearance = (best or {}).get("clearance") or {}
+        reason = (
+            _("%1 forehead-plane Bases reach the stroke, but none clears the mouth barrier "
+              "(nearest fails at %2: %3)").replace("%1", str(report["feasible_count"])).replace(
+                "%2", str(clearance.get("failed"))).replace("%3", ", ".join(clearance.get("contacts") or []))
+            if best is not None
+            else _("no forehead-plane Base reaches the stroke (%1 checked)").replace(
+                "%1", str(report.get("evaluated")))
+        )
+        self._showBasePlacementSearchNote(_("Level 1 failed: %1.").replace("%1", reason), error=True)
+        level = self._askBaseSearchLevel(reason)
+        if level == 2:
+            panel.manualBaseReviewStatusLabel.text = _("Find Reachable Base (level 2): deep search...")
+            slicer.app.processEvents()
+            report = run(reference="current", deep=True)
+            if report is None or self._stageAroundBaseResult(report, 2):
+                return
+            if not slicer.util.confirmYesNoDisplay(_(
+                "Level 2 found no Base near the current one that reaches the stroke and "
+                "clears the mouth barrier.\n\nRun level 3 (exhaustive: every valid Base "
+                "around the auto placement, ranked by least movement)? It can take minutes."
+            )):
+                return
+            level = 3
+        if level in (3, 4):
+            panel.manualBaseReviewStatusLabel.text = _(
+                "Find Reachable Base (level %1): exhaustive search around the auto placement "
+                "(about a minute)...").replace("%1", str(level))
+            slicer.app.processEvents()
+            report = run(reference="forehead_seat", deep=True, exhaustive=True)
+            if report is None:
+                return
+            if level == 4:
+                self._openBaseCandidateBoard(report)
+            elif self._stageAroundBaseResult(report, 3) and int(report.get("clear_count") or 0) > 1:
+                if slicer.util.confirmYesNoDisplay(_(
+                    "Level 3 staged the least-movement Base. Open the level 4 ranking board "
+                    "to compare all %1 valid Bases?").replace("%1", str(report["clear_count"]))):
+                    self._openBaseCandidateBoard(report)
+
+    def _askBaseSearchLevel(self, reason: str):
+        """Operator choice after level 1 fails: 2 (fast), 3 (exhaustive) or None."""
+        box = qt.QMessageBox(slicer.util.mainWindow())
+        box.setWindowTitle(_("Find Reachable Base"))
+        box.setText(_(
+            "Level 1 failed: %1.\n\nLevel 2 moves the current Base (+-30 mm in-plane, "
+            "+-20 mm depth, +-40 deg yaw) and stops at the smallest move that reaches the "
+            "stroke and clears the mouth barrier. Level 3 checks the whole range around "
+            "the virtual-forehead auto placement and stages the valid Base with the least "
+            "movement; level 4 opens a ranking board of every valid Base to preview and "
+            "choose (levels 3-4 take about a minute)."
+        ).replace("%1", reason))
+        level2 = box.addButton(_("Level 2 (nearest move)"), qt.QMessageBox.AcceptRole)
+        level3 = box.addButton(_("Level 3 (auto: least movement)"), qt.QMessageBox.ActionRole)
+        level4 = box.addButton(_("Level 4 (ranking board)"), qt.QMessageBox.ActionRole)
+        box.addButton(qt.QMessageBox.Cancel)
+        box.exec_()
+        clicked = box.clickedButton()
+        return {level2: 2, level3: 3, level4: 4}.get(clicked)
+
+    def _openBaseCandidateBoard(self, report) -> None:
+        """Level 4 (operator 2026-10-04): modeless ranking board of every valid Base.
+
+        Selecting a row shows that Base as the cyan ghost: staged when the Base is
+        unlocked, display-only when it is locked. Use keeps it staged (offering to
+        unlock first); Cancel/close restores the prior state. Nothing is accepted.
+        """
+        candidates = list(report.get("clear_all") or [])
+        facade = self._robotWorkflowFacade
+        if not candidates or facade is None:
+            self._showBasePlacementSearchNote(_("Level 4: no valid Base candidates to rank."), error=True)
+            return
+        self._lastBasePlacementSearch = report
+        previous = (facade.manualBaseReview().details or {}).get("candidateMatrixWorldRasMm")
+        old = getattr(self, "_baseCandidateBoard", None)
+        if old is not None:
+            old.close()
+        dialog = qt.QDialog(slicer.util.mainWindow())
+        dialog.objectName = "DENTOBOTBaseCandidateBoard"
+        dialog.setWindowTitle(_("Find Reachable Base — level 4 ranking board"))
+        dialog.setModal(False)
+        layout = qt.QVBoxLayout(dialog)
+        hint = qt.QLabel(_(
+            "%1 valid Bases (reach + mouth-barrier clearance), ranked by least movement from "
+            "the virtual-forehead auto placement (movement = mm/10 + yaw deg/10). Select a "
+            "row to preview it as the cyan ghost; rotate the 3D view freely."
+        ).replace("%1", str(len(candidates))), dialog)
+        hint.wordWrap = True
+        layout.addWidget(hint)
+        headers = [_("Rank"), _("Depth mm"), _("u mm"), _("v mm"), _("Yaw deg"), _("Movement"),
+                   _("Slider margin mm"), _("Revolute margin deg")]
+        table = qt.QTableWidget(len(candidates), len(headers), dialog)
+        table.setHorizontalHeaderLabels(headers)
+        table.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
+        table.setSelectionMode(qt.QAbstractItemView.SingleSelection)
+        table.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
+        table.verticalHeader().setVisible(False)  # the Rank column numbers rows
+        for row, record in enumerate(candidates):
+            values = (str(row + 1), *(f"{float(record[key]):+.0f}" for key in
+                                     ("depth_mm", "u_mm", "v_mm", "yaw_deg")),
+                      f"{float(record['cost']):.2f}", f"{float(record['minimum_slider_margin_mm']):.1f}",
+                      f"{float(record['minimum_revolute_margin_deg']):.1f}")
+            for column, text in enumerate(values):
+                table.setItem(row, column, qt.QTableWidgetItem(text))
+        table.resizeColumnsToContents()
+        layout.addWidget(table)
+        status = qt.QLabel("", dialog)
+        status.wordWrap = True
+        layout.addWidget(status)
+        buttons = qt.QHBoxLayout()
+        use_button = qt.QPushButton(_("Use selected Base"), dialog)
+        cancel_button = qt.QPushButton(_("Cancel"), dialog)
+        buttons.addWidget(use_button)
+        buttons.addWidget(cancel_button)
+        layout.addLayout(buttons)
+
+        def describe(row):
+            record = candidates[row]
+            return _("rank %1: depth %2 mm, u %3 / v %4 mm, yaw %5 deg").replace(
+                "%1", str(row + 1)).replace("%2", f"{record['depth_mm']:+.0f}").replace(
+                "%3", f"{record['u_mm']:+.0f}").replace("%4", f"{record['v_mm']:+.0f}").replace(
+                "%5", f"{record['yaw_deg']:+.0f}")
+
+        locked = lambda: bool(self._parameterNode and self._parameterNode.robotBaseMountLocked)
+        preview_only = {"shown": False}
+
+        def clear_preview():
+            if preview_only["shown"]:
+                self.logic.clearManualBaseCandidateGhost()
+                preview_only["shown"] = False
+
+        def preview():
+            row = table.currentRow()
+            if row < 0:
+                return
+            matrix = tuple(candidates[row]["matrix_world_ras_mm"])
+            if locked():
+                # Display-only ghost: the accepted Base stays locked and nothing is staged.
+                self._manualBaseCandidateGhostKey = None
+                shown, reason = self.logic.showManualBaseCandidateGhost(matrix)
+                preview_only["shown"] = bool(shown)
+                status.text = (_("Previewing %1 (cyan ghost, display only; the accepted Base "
+                                 "stays locked).").replace("%1", describe(row))
+                               if shown else str(reason))
+                return
+            result = facade.stageManualBaseReview(matrix)
+            status.text = (_("Previewing %1 (cyan ghost).").replace("%1", describe(row))
+                           if result.success else str(result.message))
+            self._updateStep6PlanningUi(status.text, error=not result.success)
+
+        def use():
+            row = table.currentRow()
+            if row < 0:
+                dialog.close()
+                return
+            if locked():
+                if not slicer.util.confirmYesNoDisplay(_(
+                    "Unlock the accepted Base and stage %1 for Review/Accept? Unlocking makes "
+                    "the current Task Home, workspace and task validation stale."
+                ).replace("%1", describe(row))):
+                    return
+                clear_preview()
+                self.onUnlockRobotBaseMount()
+                if locked():
+                    return
+                result = facade.stageManualBaseReview(tuple(candidates[row]["matrix_world_ras_mm"]))
+                self._updateStep6PlanningUi(str(result.message), error=not result.success)
+                if not result.success:
+                    status.text = str(result.message)
+                    return
+            self._showBasePlacementSearchNote(_(
+                "Level 4: staged %1 of %2 valid Bases. Review and Accept; MoveIt then "
+                "checks anatomy, template and planning."
+            ).replace("%1", describe(row)).replace("%2", str(len(candidates))), error=False)
+            dialog.close()
+
+        def cancel():
+            if preview_only["shown"]:
+                clear_preview()
+            elif previous:
+                facade.stageManualBaseReview(tuple(previous))
+            self._updateStep6PlanningUi(_("Level 4 ranking board cancelled; previous state restored."))
+            dialog.close()
+
+        table.itemSelectionChanged.connect(preview)
+        use_button.clicked.connect(lambda _checked=False: use())
+        cancel_button.clicked.connect(lambda _checked=False: cancel())
+        dialog.finished.connect(lambda _result=0: clear_preview())  # window X also removes it
+        self._baseCandidateBoard = dialog
+        dialog.resize(760, 420)
+        dialog.show()
+        table.selectRow(0)
+
+    def _stageAroundBaseResult(self, report, level: int) -> bool:
+        """Stage the best level 2/3 Base with a move description; False when none."""
+        self._lastBasePlacementSearch = report
+        best = report.get("best")
+        origin = _("the current Base") if level == 2 else _("the auto placement")
+        counts = _("%1 checked, %2 reachable, %3 clear").replace("%1", str(report.get("evaluated"))).replace(
+            "%2", str(report.get("feasible_count"))).replace("%3", str(report.get("clear_count")))
+        if best is None:
+            centre = (report.get("centre") or {}).get("clearance") or {}
+            self._showBasePlacementSearchNote(_(
+                "Level %1: no Base within +-30 mm in-plane, +-20 mm depth and +-40 deg yaw "
+                "of %2 both reaches the stroke and clears the mouth barrier (%3). Reference "
+                "Base: %4."
+            ).replace("%1", str(level)).replace("%2", origin).replace("%3", counts).replace(
+                "%4", (str(centre.get("failed")) + " " + ", ".join(centre.get("contacts") or []))
+                if centre else _("stroke not reachable")), error=True)
+            return False
+        move = lambda r: _("depth %1 mm, u %2 / v %3 mm, yaw %4 deg").replace(
+            "%1", f"{r['depth_mm']:+.0f}").replace("%2", f"{r['u_mm']:+.0f}").replace(
+            "%3", f"{r['v_mm']:+.0f}").replace("%4", f"{r['yaw_deg']:+.0f}")
+        result = self._robotWorkflowFacade.stageManualBaseReview(tuple(best["matrix_world_ras_mm"]))
         message = _(
-            "IK preflight: %1 of %2 forehead-plane Bases reach the full stroke. "
-            "Staged nearest: u=%3 mm, v=%4 mm (minimum slider margin %5 mm). "
-            "Review and Accept it; collision and planning are checked afterwards."
-        ).replace("%1", str(report["feasible_count"])).replace(
-            "%2", str(report["evaluated"])).replace(
-            "%3", f"{best['u_mm']:.1f}").replace("%4", f"{best['v_mm']:.1f}").replace(
-            "%5", f"{best['minimum_slider_margin_mm']:.2f}")
-        fallback = report.get("depth_fallback") or {}
-        if fallback.get("ran"):
-            message += _(" No in-plane Base worked, so depth was unlocked (+-10 mm): depth %1 mm.").replace(
-                "%1", f"{best['depth_mm']:.1f}")
-        if not result.success:
-            message = str(result.message)
-        panel.manualBaseReviewStatusLabel.text = message
-        self._updateStep6PlanningUi(message, error=not result.success)
+            "Level %1 staged: %2 from %3 (%4). Stroke reachable (slider margin %5 mm, "
+            "revolute %6 deg); start, Home and PreEntry poses and their straight paths "
+            "clear the mouth barrier. Review and Accept; MoveIt then checks anatomy, "
+            "template and planning."
+        ).replace("%1", str(level)).replace("%2", move(best)).replace("%3", origin).replace(
+            "%4", counts).replace("%5", f"{best['minimum_slider_margin_mm']:.1f}").replace(
+            "%6", f"{best['minimum_revolute_margin_deg']:.1f}")
+        if level == 3:
+            message += _(" Ranked by least movement: ") + "; ".join(
+                f"{index}) " + move(record) for index, record in
+                enumerate(report.get("ranked", [])[:5], start=1)) + "."
+        self._showBasePlacementSearchNote(
+            str(result.message) if not result.success else message, error=not result.success)
+        return True
 
     def _onRobotPlacementNodeModified(self, caller=None, event=None) -> None:
         del event

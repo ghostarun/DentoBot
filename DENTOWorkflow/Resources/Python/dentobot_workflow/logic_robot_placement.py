@@ -877,8 +877,13 @@ class RobotPlacementLogicMixin:
         reference_matrix=None,
         progress=None,
         path_preflight: bool = True,
+        deep: bool = False,
+        exhaustive: bool = False,
     ) -> dict[str, object]:
         """IK-reachability preflight over the virtual forehead plane (simulation only).
+
+        Level 1 also barrier-checks ranked Bases (``barrier_clear``); ``deep`` = level 2
+        (cheapest shift/depth/yaw clearing the barrier); ``exhaustive`` = level 3 (all).
 
         Iterates Base candidates outward from the forehead-plane centre (in-plane
         +-30 mm; depth and orientation locked, see base_placement_search) and
@@ -938,6 +943,24 @@ class RobotPlacementLogicMixin:
             np.asarray(target, dtype=float),
             home_q,
         )
+        if home_source == "default_joint_display":
+            # No saved Task Home: seed from one PreEntry solution at the reference
+            # Base so the all-zero seed does not report false negatives (2026-10-04).
+            from dentobot_workflow.base_placement_search import reference_pre_entry_seed
+
+            seeded = reference_pre_entry_seed(chain, reference_world, task)
+            if seeded is not None:
+                task.home_q, home_source = list(seeded), "reference_pre_entry_seed"
+        barrier_check = self._step6BarrierClearanceCheck(
+            parameterNode, chain, urdf_path, _package_root,
+            home_q if home_source == "saved_task_home" else None)
+        if deep:
+            from dentobot_workflow.base_placement_search import search_around_base
+
+            report = search_around_base(chain, frame, reference_world, task, barrier_check,
+                                        progress=progress, exhaustive=exhaustive)
+            report.update({"reference": reference, "home_seed_source": home_source})
+            return report
         # In-plane first; depth +-10 mm only if no in-plane Base is feasible.
         report = search_with_depth_fallback(
             chain, frame, reference_world, task, progress=progress
@@ -959,6 +982,13 @@ class RobotPlacementLogicMixin:
                 report = select_path_clear_candidate(report, check)
             except (OSError, RuntimeError, ValueError) as exc:
                 report["path_preflight"] = {"selected": "error", "reason": str(exc)}
+        if report.get("best") is not None:
+            for record in [report["best"], *report.get("ranked", [])]:
+                record["clearance"] = barrier_check(record)
+                if record["clearance"]["clear"]:
+                    report["best"] = record
+                    break
+            report["barrier_clear"] = bool(report["best"]["clearance"]["clear"])
         report.pop("ranked_all", None)
         report.update({
             "reference": reference,
@@ -967,6 +997,21 @@ class RobotPlacementLogicMixin:
             "reference_matrix_world_ras_mm": reference_world.reshape(-1).tolist(),
         })
         return report
+
+    def _step6BarrierClearanceCheck(self, parameterNode, chain, urdf_path, package_root, home_q=None):
+        """Mouth-barrier clearance callback: start (monitored, else zero), Home, PreEntry."""
+        from dentobot_workflow.path_clearance import ToolMeshSweep, pose_sequence_clearance
+        from DENTORobotPlacement import robot_link_mesh_poses_mm
+
+        monitored = monitored_joint_positions_si() or {}
+        start_q = [float(monitored.get(name, 0.0)) for name in chain.names]
+        links = tuple(pose.link_name for pose in robot_link_mesh_poses_mm(urdf_path, package_root, None))
+        try:
+            barrier = self.step6MouthBarrierPolydataWorld(parameterNode)
+        except (RuntimeError, ValueError):
+            barrier = []  # no barrier geometry for this case: reach-only evidence
+        sweep = ToolMeshSweep(urdf_path, package_root, barrier, tool_links=links)
+        return pose_sequence_clearance(sweep, chain.names, start_q, home_q)
 
     def step6CurrentBaseStrokeReachability(self, parameterNode) -> dict[str, object]:
         """Kinematic check that the accepted Base reaches the whole PreEntry->Target
@@ -1197,26 +1242,28 @@ class RobotPlacementLogicMixin:
                     **candidate,
                     "tcpSlideApplied": True,
                 }
-        # IK-reachability preflight (simulation only): when a trajectory already
-        # exists, slide the seated Base in the forehead plane to the nearest
-        # candidate whose whole drill stroke is kinematically reachable.
+        # One-click (operator 2026-10-04): level 1, then level 2 around the seat if no
+        # barrier-clear Base; level 1's kinematic Base stays the flagged fallback.
         placement_search = {"status": "skipped", "reason": "no valid trajectory yet"}
         try:
             if self.step6TrajectorySummary(parameterNode).get("isValid"):
-                report = self.searchForeheadBasePlacement(
-                    parameterNode, reference="matrix", reference_matrix=matrix
-                )
-                placement_search = {
-                    "status": report["verdict"],
-                    "evaluated": report["evaluated"],
-                    "feasibleCount": report["feasible_count"],
-                }
-                if report["best"] is not None:
-                    matrix = np.asarray(report["best"]["matrix_world_ras_mm"], dtype=float).reshape(4, 4)
+                search = lambda **o: self.searchForeheadBasePlacement(
+                    parameterNode, reference="matrix", reference_matrix=matrix, **o)
+                report, level = search(), 1
+                if report["best"] is None or not report.get("barrier_clear", True):
+                    deep = search(deep=True)
+                    report, level = (deep, 2) if deep["best"] is not None else (report, 1)
+                best = report["best"]
+                placement_search = {"status": report["verdict"], "level": level,
+                                    "evaluated": report["evaluated"],
+                                    "feasibleCount": report["feasible_count"]}
+                if best is not None:
+                    matrix = np.asarray(best["matrix_world_ras_mm"], dtype=float).reshape(4, 4)
                     placement_search.update({
-                        "slideUMm": report["best"]["u_mm"],
-                        "slideVMm": report["best"]["v_mm"],
-                        "minimumSliderMarginMm": report["best"]["minimum_slider_margin_mm"],
+                        "slideUMm": best["u_mm"], "slideVMm": best["v_mm"],
+                        "depthMm": best.get("depth_mm", 0.0), "yawDeg": best.get("yaw_deg", 0.0),
+                        "minimumSliderMarginMm": best["minimum_slider_margin_mm"],
+                        "barrierClear": bool((best.get("clearance") or {}).get("clear")),
                     })
         except (OSError, RuntimeError, ValueError) as exc:
             placement_search = {"status": "error", "reason": str(exc)}

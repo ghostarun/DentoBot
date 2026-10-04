@@ -293,10 +293,11 @@ class DENTORobotSimulationPanel:
             "Find Reachable Base", self.manualBaseReviewGroup
         )
         self.searchBasePlacementButton.toolTip = (
-            "IK preflight: search the virtual forehead plane (+-30 mm in-plane; depth "
-            "and orientation locked) for the nearest Base whose whole PreEntry-to-Target "
-            "stroke is reachable, then stage it for Review/Accept. Kinematic only; "
-            "collision and planning are checked after acceptance."
+            "Level 1: IK preflight over the virtual forehead plane (+-30 mm in-plane, "
+            "depth fallback +-10 mm, orientation locked) plus a mouth-barrier check; "
+            "stages the nearest clear Base for Review/Accept. If it fails, offers level 2: "
+            "a deep search moving the current Base (+-30 mm, +-20 mm depth, +-40 deg yaw). "
+            "MoveIt checks anatomy, template and planning after acceptance."
         )
         self.manualBaseReviewButtonsLayout.addWidget(self.beginManualBaseReviewButton)
         self.manualBaseReviewButtonsLayout.addWidget(self.searchBasePlacementButton)
@@ -370,6 +371,17 @@ class DENTORobotSimulationPanel:
                 lambda value=0, item=key: self._invoke_appearance(item)
             )
         display_layout.addLayout(appearance_grid)
+        # Planning-aid toggles mirrored from 6.3 Plan so they are reachable in
+        # 6.1/6.2 too (operator 2026-10-04); the 6.3 checkboxes stay the owners.
+        self.displayShowMouthBarrierCheckBox = qt.QCheckBox(
+            "Show mouth barrier (virtual lips/cheeks)", self._displayDialog
+        )
+        self.displayShowMouthBarrierCheckBox.checked = True
+        self.displayShowTaskSpaceBoxCheckBox = qt.QCheckBox(
+            "Show task-space box (incisor-centred)", self._displayDialog
+        )
+        display_layout.addWidget(self.displayShowMouthBarrierCheckBox)
+        display_layout.addWidget(self.displayShowTaskSpaceBoxCheckBox)
         close_display = qt.QPushButton("Close", self._displayDialog)
         close_display.clicked.connect(self._displayDialog.hide)
         display_layout.addWidget(close_display)
@@ -1783,6 +1795,15 @@ class DENTORobotSimulationPanel:
         self.showMouthBarrierCheckBox.toggled.connect(
             lambda checked: self._invoke("set_show_mouth_barrier", bool(checked))
         )
+        for owner, mirror in (
+            (self.showMouthBarrierCheckBox, self.displayShowMouthBarrierCheckBox),
+            (self.showTaskSpaceBoxCheckBox, self.displayShowTaskSpaceBoxCheckBox),
+        ):
+            mirror.toggled.connect(
+                lambda checked, owner=owner: setattr(owner, "checked", bool(checked))
+            )
+            owner.toggled.connect(lambda _checked: self.syncPlanningAidMirrors())
+        self.displayButton.clicked.connect(lambda _checked=False: self.syncPlanningAidMirrors())
         self.mouthBarrierEdgeModeComboBox.currentIndexChanged.connect(
             lambda index: self._invoke(
                 "set_mouth_barrier_edge_mode",
@@ -3944,6 +3965,17 @@ class DENTORobotSimulationPanel:
             float(self.taskSpaceBoxOpacitySlider.value) / 100.0,
         )
 
+    def syncPlanningAidMirrors(self) -> None:
+        """Mirror the 6.3 planning-aid checkboxes into the 6.1 Display dialog."""
+        for owner, mirror in (
+            (self.showMouthBarrierCheckBox, getattr(self, "displayShowMouthBarrierCheckBox", None)),
+            (self.showTaskSpaceBoxCheckBox, getattr(self, "displayShowTaskSpaceBoxCheckBox", None)),
+        ):
+            if mirror is not None and bool(mirror.checked) != bool(owner.checked):
+                was = mirror.blockSignals(True)
+                mirror.checked = bool(owner.checked)
+                mirror.blockSignals(was)
+
     def syncStep6OverlayControls(self, *, barrier_opacity: float, show_task_space_box: bool,
                                  task_space_box_side_mm: float, task_space_box_opacity: float) -> None:
         """Mirror persisted 6.3 overlay settings without re-emitting actions."""
@@ -3958,6 +3990,7 @@ class DENTORobotSimulationPanel:
                 was = widget.blockSignals(True)
                 setattr(widget, attribute, value)
                 widget.blockSignals(was)
+        self.syncPlanningAidMirrors()
 
     def syncStep6RunOptions(self, *, dev_fast_mode: bool, depth_peeling: bool) -> None:
         """Mirror the live run options (facade flag, 3D view state) without re-emitting."""

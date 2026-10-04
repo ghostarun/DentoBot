@@ -338,13 +338,6 @@ class ViewCompositionWidgetMixin:
                     visibleKeys.discard(entry["key"])
                 if not rosActive and category in {"robot_ros", "robot_goal"}:
                     visibleKeys.discard(entry["key"])
-            # 6.3 display toggles for the planning aids.
-            if not bool(getattr(self._parameterNode, "step6ShowMouthBarrier", True)):
-                visibleKeys.discard("nodes:step6MouthBarrier")
-            if not bool(getattr(self._parameterNode, "step6ShowReachEnvelope", True)):
-                visibleKeys.discard("nodes:step6ReachEnvelope")
-            if not bool(getattr(self._parameterNode, "step6ShowTaskSpaceBox", False)):
-                visibleKeys.discard("nodes:step6TaskSpaceBox")
         if (
             self._parameterNode
             and self.logic
@@ -363,6 +356,19 @@ class ViewCompositionWidgetMixin:
                     }:
                         visibleKeys.add(entry["key"])
         return visibleKeys
+
+    def _discardHiddenStep6PlanningAids(self, visibleKeys: set[str]) -> None:
+        """Planning-aid display toggles win over every preset, stage and the
+        6.1/3B robot-mount re-add (operator report 2026-10-04: barrier and box
+        reappeared after Base acceptance and other 6.1/6.2 refreshes)."""
+        node = self._parameterNode
+        for key, attribute, default in (
+            ("nodes:step6MouthBarrier", "step6ShowMouthBarrier", True),
+            ("nodes:step6ReachEnvelope", "step6ShowReachEnvelope", True),
+            ("nodes:step6TaskSpaceBox", "step6ShowTaskSpaceBox", False),
+        ):
+            if not bool(getattr(node, attribute, default)):
+                visibleKeys.discard(key)
 
     def _setWorkflowCbctSlices(self, enabled: bool) -> None:
         volume = self._parameterNode.inputVolume if self._parameterNode else None

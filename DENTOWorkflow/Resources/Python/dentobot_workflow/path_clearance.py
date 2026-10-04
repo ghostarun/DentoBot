@@ -151,3 +151,28 @@ class ToolMeshSweep:
                         "samples_checked": index + 1, "steps": steps,
                         "contacts": [f"{a}<->{b}" for a, b in hits]}
         return {"clear": True, "samples_checked": steps + 1, "steps": steps, "contacts": []}
+
+
+def pose_sequence_clearance(sweep: ToolMeshSweep, joint_names: list[str], start_q: list[float],
+                            home_q: list[float] | None = None):
+    """Clearance callback for the around-Base search (operator 2026-10-04).
+
+    Checks the start (connect/monitored) pose, the saved Home when present, the
+    candidate's PreEntry solution, then straight joint-space paths start->Home->
+    PreEntry (start->PreEntry without Home). Stops at the first contact.
+    """
+    def check(record) -> dict:
+        base = np.asarray(record["matrix_world_ras_mm"], dtype=float).reshape(4, 4)
+        poses = [("start", start_q)] + ([("home", home_q)] if home_q is not None else [])
+        poses.append(("pre_entry", record["pre_entry_q"]))
+        for label, q in poses:
+            hits = sweep.contacts(base, dict(zip(joint_names, q)))
+            if hits:
+                return {"clear": False, "failed": label, "contacts": [f"{a}<->{b}" for a, b in hits]}
+        for (label_a, q_a), (label_b, q_b) in zip(poses, poses[1:]):
+            path = sweep.straight_path(base, joint_names, q_a, q_b)
+            if not path["clear"]:
+                return {"clear": False, "failed": f"{label_a}_to_{label_b}", "contacts": path["contacts"]}
+        return {"clear": True, "failed": None, "contacts": []}
+
+    return check

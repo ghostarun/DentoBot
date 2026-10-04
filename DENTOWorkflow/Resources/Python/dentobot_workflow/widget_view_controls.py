@@ -630,6 +630,7 @@ class ViewControlsWidgetMixin:
     ) -> None:
         if not self._parameterNode or not self.logic:
             return
+        self._discardHiddenStep6PlanningAids(visibleKeys)
         self._ensureWorkflowViewSnapshot()
         entries = list(self._workflowViewEntriesByKey.values())
         managedNodes = self._workflowManagedDisplayNodes()

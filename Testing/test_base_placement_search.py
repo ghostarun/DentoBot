@@ -224,3 +224,87 @@ def test_zero_area_triangles_are_dropped_before_collision_trees():
     assert (bounds[0], bounds[1], bounds[2], bounds[3]) == (0.0, 1.0, 0.0, 1.0)
     clean = drop_zero_area_triangles(cleaned)
     assert clean is cleaned  # no copy when nothing is degenerate
+
+
+def test_reference_seed_recovers_flipped_elbow_pre_entry_the_zero_seed_misses():
+    """Oct4 FDI 14 (2026-10-04): with no saved Task Home the all-zero seed stalled at
+    83 deg axis error although PreEntry is reachable at J3 ~3.08 rad."""
+    chain = search.Chain.from_urdf(URDF)
+    q_true = np.array([-0.2, 0.027, 3.07, 0.034, -0.04])
+    tip, _jac = chain.jacobian(q_true)
+    axis = tip[:3, 2] / np.linalg.norm(tip[:3, 2])
+    pre = tip[:3, 3] * 1000.0
+    task = search.PlacementTask(pre, pre + 2.0 * axis, pre + 10.0 * axis, [0.0] * 5)
+    stalled = search.solve(chain, [0.0] * 5, pre / 1000.0, axis)
+    assert stalled["termination"] != "converged"
+    seeded = search.reference_pre_entry_seed(chain, np.eye(4), task)
+    assert seeded is not None
+    result = search.solve(chain, seeded, pre / 1000.0, axis)
+    assert result["termination"] == "converged"
+
+
+def test_around_base_search_returns_cheapest_clear_move_and_stops_after_its_tier():
+    """Operator 2026-10-04: Find Reachable Base iterates moves of the current Base
+    (shift/depth/yaw), cheapest first, and requires the clearance callback."""
+    chain = search.Chain.from_urdf(URDF)
+    q_true = np.array([-0.2, 0.027, 3.07, 0.034, -0.04])
+    tip, _jac = chain.jacobian(q_true)
+    axis = tip[:3, 2] / np.linalg.norm(tip[:3, 2])
+    pre = tip[:3, 3] * 1000.0
+    task = search.PlacementTask(pre, pre + 2.0 * axis, pre + 4.0 * axis, list(q_true))
+    calls = []
+
+    def clearance(record):
+        calls.append(record["cost"])
+        return {"clear": record["depth_mm"] >= 5.0}  # stand-in barrier: needs +5 mm depth
+
+    config = search.AroundBaseSearchConfig(in_plane_range_mm=10.0, depth_range_mm=(-10.0, 10.0, 5.0),
+                                           yaw_range_deg=(-10.0, 10.0, 10.0))
+    report = search.search_around_base(chain, np.eye(4), np.eye(4), task, clearance, config)
+    best = report["best"]
+    assert (best["u_mm"], best["v_mm"], best["depth_mm"], best["yaw_deg"]) == (0.0, 0.0, 5.0, 0.0)
+    assert report["centre"]["clearance"] == {"clear": False}
+    assert max(calls) <= best["cost"]  # nothing beyond the first clear tier was checked
+    assert report["evaluated"] < report["candidate_budget"]
+    moved = search.candidate_around_base(np.eye(4), np.eye(4), 0.0, 0.0, 15.0, 90.0)
+    assert np.allclose(moved[:3, 3], [0.0, 0.0, 15.0]) and np.allclose(moved[:3, 0], [0.0, 1.0, 0.0])
+
+
+def test_pose_sequence_clearance_checks_poses_then_straight_paths():
+    from dentobot_workflow.path_clearance import pose_sequence_clearance
+
+    class Sweep:
+        def __init__(self, bad_pose=None, bad_path=False):
+            self.bad_pose, self.bad_path, self.paths = bad_pose, bad_path, []
+        def contacts(self, base, joints):
+            return [("spindle", "lip")] if joints["j"] == self.bad_pose else []
+        def straight_path(self, base, names, a, b):
+            self.paths.append((a[0], b[0]))
+            return {"clear": not self.bad_path, "contacts": ["spindle<->lip"] if self.bad_path else []}
+
+    record = {"matrix_world_ras_mm": list(np.eye(4).reshape(-1)), "pre_entry_q": [3.0]}
+    assert pose_sequence_clearance(Sweep(bad_pose=0.0), ["j"], [0.0])(record)["failed"] == "start"
+    sweep = Sweep()
+    assert pose_sequence_clearance(sweep, ["j"], [0.0], [1.0])(record)["clear"] is True
+    assert sweep.paths == [(0.0, 1.0), (1.0, 3.0)]  # start->Home->PreEntry
+    result = pose_sequence_clearance(Sweep(bad_path=True), ["j"], [0.0])(record)
+    assert result["failed"] == "start_to_pre_entry" and not result["clear"]
+
+
+def test_exhaustive_around_base_search_ranks_every_clear_base_by_movement():
+    chain = search.Chain.from_urdf(URDF)
+    q_true = np.array([-0.2, 0.027, 3.07, 0.034, -0.04])
+    tip, _jac = chain.jacobian(q_true)
+    axis = tip[:3, 2] / np.linalg.norm(tip[:3, 2])
+    pre = tip[:3, 3] * 1000.0
+    task = search.PlacementTask(pre, pre + 2.0 * axis, pre + 4.0 * axis, list(q_true))
+    config = search.AroundBaseSearchConfig(in_plane_range_mm=10.0, depth_range_mm=(-10.0, 10.0, 5.0),
+                                           yaw_range_deg=(-10.0, 10.0, 10.0))
+    clear = lambda record: {"clear": record["depth_mm"] >= 5.0}
+    quick = search.search_around_base(chain, np.eye(4), np.eye(4), task, clear, config)
+    full = search.search_around_base(chain, np.eye(4), np.eye(4), task, clear, config, exhaustive=True)
+    assert full["evaluated"] == full["candidate_budget"] > quick["evaluated"]
+    assert full["clear_count"] > quick["clear_count"] and full["exhaustive"] is True
+    costs = [r["cost"] for r in full["clear_all"]]
+    assert costs == sorted(costs) and full["best"]["cost"] == quick["best"]["cost"]
+    assert all(r["depth_mm"] >= 5.0 for r in full["clear_all"])

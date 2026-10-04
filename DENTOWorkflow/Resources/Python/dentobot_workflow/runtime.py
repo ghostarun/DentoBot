@@ -203,6 +203,7 @@ from DENTOStep6State import (
     base_placement_source_issue,
     build_assisted_limit_proposal,
     build_collision_scene_audit,
+    redeliver_missing_collision_objects,
     build_robot_environment_snapshot,
     build_motion_diagnostic_session,
     build_planner_comparison,

@@ -162,6 +162,18 @@ be built or scoped; explicitly held items require new direction.
   reachability preflight, ±30 mm in-plane, depth/orientation locked (logic present,
   disabled); "Find Reachable Base" stages for Review/Accept; Stage 2 connected
   confirmation classifies placement/collision/planner. See DECISIONS 2 October.
+  4 Oct: search feedback, ghost-drag Accept snap-back and planning-aid visibility fixed
+  (logbook 4 Oct); Oct4 FDI 14 search finds 0/845 (PreEntry axis error 83°), so the
+  operator must rotate the Base. Next: operator verdict on rotated-Base edit, ROS-connected
+  ghost drag and the 6.1 Display barrier/box toggles after restart.
+  4 Oct later: the 0/845 was an all-zero IK seed artefact (seed fixed); the real blocker is
+  the zero start pose in the lip slab. Find Reachable Base is now two-level (DECISIONS
+  4 Oct): level 1 plus barrier check, then an operator-confirmed level 2 search over
+  shift/depth/yaw around the current Base. Source-complete, hot-loaded, live logic run (L1
+  fails 6 s, L2 2.4 s). Later: levels 3 (exhaustive, auto rank 1) and 4 (ranking board),
+  plus one-click Propose level 1→2 fallback (DECISIONS 4 Oct, later). Open: operator GUI run
+  of the button/level prompt and the board with the Base unlocked; Propose re-run;
+  6.2 Home from the accepted +15 mm Base; collision redelivery after Slicer restart.
   Superseded text: failure-triggered detached Base translation up
   to ±20 mm on two reviewed oblique anatomical-plane axes. Await plane
   origin/orthonormal basis and sample budget; root↔crown direction alone does
