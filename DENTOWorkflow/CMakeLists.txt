@@ -87,6 +87,7 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/base_placement_search.py
   Resources/Python/dentobot_workflow/mouth_portal.py
   Resources/Python/dentobot_workflow/path_clearance.py
+  Resources/Python/dentobot_workflow/task_home_gate.py
   Resources/Python/dentobot_workflow/reach_envelope.py
   Resources/Python/dentobot_workflow/base_diagnosis.py
   Resources/Python/dentobot_workflow/virtual_forehead_mount.py

@@ -934,6 +934,20 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             return False
 
     def confirmStep6Task(self, parameterNode):
+        tool_frame = str(parameterNode.step6ToolFrame).strip()
+        if tool_frame == "dentobot_drill_tip_provisional":
+            # Saved cases may retain the historical name. Migrate only on
+            # explicit confirmation and only if this description proves the
+            # fixed frames equivalent; this does not change TCP geometry.
+            from DENTORobotPlacement import link_transforms_base_m
+            urdf, package = self.robotDescriptionPaths()
+            frames = link_transforms_base_m(urdf, package, None)
+            if not np.allclose(frames[tool_frame], frames["dentobot_drill_tcp"],
+                               rtol=0.0, atol=1e-12):
+                raise ValueError("Historical TCP is not pose-equivalent to the canonical drill TCP.")
+            tool_frame = "dentobot_drill_tcp"
+        if tool_frame != "dentobot_drill_tcp":
+            raise ValueError("Step 6 requires the canonical dentobot_drill_tcp frame.")
         base_issues = self.step6BasePlacementFreshnessIssues(parameterNode)
         if base_issues:
             raise ValueError(" ".join(base_issues))
@@ -978,10 +992,11 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
             home_fingerprint=fingerprint(home.to_dict()),
             limits_fingerprint=self.step6TaskLimitsFingerprint(parameterNode),
             robot_profile_fingerprint=self.robotProfileFingerprint(),
-            tool_frame=str(parameterNode.step6ToolFrame),
+            tool_frame=tool_frame,
             tool_provenance=SIMULATION_TOOL_PROVENANCE,
             corridor_radius_mm=float(parameterNode.step6TrajectoryCorridorRadiusMm),
         )
+        parameterNode.step6ToolFrame = tool_frame
         parameterNode.step6ConfirmedTaskJson = canonical_json(record.to_dict())
         return record
 

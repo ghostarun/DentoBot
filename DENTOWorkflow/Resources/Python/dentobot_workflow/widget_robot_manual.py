@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from math import isfinite
 
 from .runtime import *
+from .task_home_gate import format_blockers, task_home_action_blockers
 from .workflow_progress import WorkflowProgress
 
 from DENTOROS2Bridge import (
@@ -18,7 +19,10 @@ from DENTOStep6State import JOINT_NAMES, parse_manual_simulation_record
 
 
 class RobotManualWidgetMixin:
-    def _updateTaskHomeDraftApplyUi(self, live_scene, anatomy_ready, controls, capabilities, review_result):
+    def _updateTaskHomeDraftApplyUi(
+        self, live_scene, anatomy_ready, controls, capabilities, review_result,
+        gate_context=None,
+    ):
         panel = self._robotSimulationPanel
         facade = self._robotWorkflowFacade
         unresolved = bool(
@@ -46,6 +50,97 @@ class RobotManualWidgetMixin:
         if unresolved:
             panel.reviewTaskHomeButton.enabled = False
             panel.acceptTaskHomeButton.enabled = False
+        try:
+            self._explainTaskHomeActionBlockers(
+                gate_context or {}, anatomy_ready, capabilities, review_result, unresolved
+            )
+        except Exception as exc:  # the explanation must never break the refresh
+            panel.setTaskHomeActionBlockers(
+                {}, f"Could not determine why Home actions are unavailable: {exc}"
+            )
+
+    def _explainDisabledPlannerButtons(self):
+        """Put the 6.3 prerequisite text in the tooltip of every disabled planner action."""
+
+        panel = self._robotSimulationPanel
+        reason = str(panel.confirmationStatusLabel.text or "").strip()
+        for name in (
+            "confirmTaskButton", "planApproachButton", "checkPreEntryIKButton",
+            "checkPlanningP1Button", "checkPlanningP2Button", "checkPlanningP3Button",
+            "comparePlannersButton",
+        ):
+            button = getattr(panel, name, None)
+            if button is None:
+                continue
+            tips = panel.__dict__.setdefault("_plannerButtonBaseTips", {})
+            if "Unavailable:" not in str(button.toolTip):
+                tips[name] = str(button.toolTip)  # refresh unless it is our own suffix
+            base = tips.get(name, "")
+            if button.enabled:
+                button.toolTip = base
+            else:
+                why = reason or "A planning prerequisite is not met; see the status line above."
+                button.toolTip = (base + "\n\n" if base else "") + "Unavailable: " + why
+
+    def _explainTaskHomeActionBlockers(
+        self, gate_context, anatomy_ready, capabilities, review_result, unresolved
+    ):
+        """Tell the operator why a visible 6.2 action is disabled (never silent)."""
+
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        details = getattr(review_result, "details", {}) or {}
+        if not isinstance(details, Mapping):
+            details = {}
+        staged = details.get("staged") is True
+        accepted, candidate = (
+            details.get("acceptedJointPositionsSi"),
+            details.get("candidateJointPositionsSi"),
+        )
+        try:
+            matches = bool(
+                isinstance(accepted, Mapping) and isinstance(candidate, Mapping)
+                and all(
+                    abs(float(accepted[j]) - float(candidate[j])) <= 1.0e-12
+                    for j in JOINT_NAMES
+                )
+            )
+        except (KeyError, TypeError, ValueError, OverflowError):
+            matches = False
+        context = dict(
+            gate_context,
+            anatomy_ready=bool(anatomy_ready),
+            scene_synchronized=bool(
+                capabilities and capabilities.planning_scene_synchronized
+            ),
+            action_busy=bool(getattr(self, "_workflowActionBusy", False)),
+            preview_running=bool(getattr(self, "_step6MotionPreviewTimer", None)),
+            unresolved_jog=bool(unresolved),
+            candidate_matches_accepted=matches,
+            candidate_matches_draft=bool(
+                candidate == panel.manualJogJointPositionsSi()
+            ),
+            draft_within_limits=bool(panel._manualJogDraftWithinCommandLimits),
+            draft_limit_note=str(panel.manualJogDraftLimitLabel.text),
+            offline_edit_ready=bool(
+                panel._manualJogAvailable
+                and details.get("setupMode") == "offline"
+                and details.get("identityStatus") == "current"
+            ),
+        )
+        enabled = {
+            "review": staged or bool(panel.reviewTaskHomeButton.enabled),
+            "accept": not staged or bool(panel.acceptTaskHomeButton.enabled),
+            "apply": bool(panel.applyTaskHomeButton.enabled),
+        }
+        blockers = task_home_action_blockers(
+            context, details, bool(getattr(review_result, "success", False)),
+            str(getattr(review_result, "message", "") or ""), enabled,
+        )
+        panel.setTaskHomeActionBlockers(blockers, format_blockers(blockers, {
+            "review": "Review Draft", "accept": "Accept / Save Home",
+            "apply": "Plan + Apply Home Draft",
+        }))
 
 
     def _onShellSetTcpDragEnabled(self, enabled: bool) -> bool:

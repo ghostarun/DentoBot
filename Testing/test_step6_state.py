@@ -698,6 +698,68 @@ def test_simulation_target_preserves_exact_requested_depth_and_rejects_invalid_i
             validate_simulation_target(bad_entry, bad_target)
 
 
+def _confirmation_frame_probe(frame, urdf=None):
+    import math
+    import numpy as np
+    source_path = ROOT / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_robot.py"
+    method = next(n for n in ast.walk(ast.parse(source_path.read_text()))
+                  if isinstance(n, ast.FunctionDef) and n.name == "confirmStep6Task")
+    namespace = {"math": math, "np": np, "_": lambda x: x,
+                 "build_task_snapshot": build_task_snapshot,
+                 "validate_simulation_target": validate_simulation_target,
+                 "SIMULATION_TOOL_PROVENANCE": SIMULATION_TOOL_PROVENANCE,
+                 "fingerprint": fingerprint, "canonical_json": canonical_json}
+    exec(compile(ast.Module([method], type_ignores=[]), str(source_path), "exec"), namespace)
+    home = SimpleNamespace(joint_positions_si=(0., .03, 3., .03, 0.), to_dict=lambda: {"revision": 1})
+    limit = SimpleNamespace(minimum=-1000., maximum=1000., unit="test")
+    probe = SimpleNamespace(
+        step6BasePlacementFreshnessIssues=lambda _: (), taskHomeFreshnessIssues=lambda _: (),
+        taskHomeRecord=lambda _: home,
+        getTaskJointLimits=lambda _: SimpleNamespace(**{f"joint_{i}": limit for i in range(1, 6)}),
+        step6PlanningContextFreshnessIssues=lambda _: (),
+        step6TrajectorySummary=lambda _: {"entryRas": (0., 0., 0.), "targetRas": (0., 0., 5.)},
+        step6TrajectoryRevision=lambda _: "trajectory", robotBaseFingerprint=lambda _: "base",
+        step6TaskLimitsFingerprint=lambda _: "limits", robotProfileFingerprint=lambda: "profile",
+        robotDescriptionPaths=lambda: (urdf or ROOT / "dentobot_description/urdf/dentobot.urdf",
+                                      ROOT / "dentobot_description"),
+    )
+    node = SimpleNamespace(step6ToolFrame=frame, targetToothSegmentId="FDI14",
+                           step6TrajectoryCorridorRadiusMm=.75, step6ConfirmedTaskJson="unchanged")
+    return namespace["confirmStep6Task"], probe, node
+
+
+def test_confirmation_migrates_only_pose_equivalent_historical_tcp_name():
+    confirm, probe, node = _confirmation_frame_probe("dentobot_drill_tip_provisional")
+    record = confirm(probe, node)
+    assert record.tool_frame == node.step6ToolFrame == "dentobot_drill_tcp"
+    assert json.loads(node.step6ConfirmedTaskJson)["tool_frame"] == "dentobot_drill_tcp"
+
+
+def test_confirmation_rejects_unknown_tcp_without_mutating_confirmation():
+    confirm, probe, node = _confirmation_frame_probe("unknown_tool")
+    with pytest.raises(ValueError, match="canonical"):
+        confirm(probe, node)
+    assert node.step6ToolFrame == "unknown_tool" and node.step6ConfirmedTaskJson == "unchanged"
+
+
+def test_confirmation_rejects_non_equivalent_legacy_tcp_without_mutation(tmp_path):
+    urdf = tmp_path / "moved-tip.urdf"
+    text = (ROOT / "dentobot_description/urdf/dentobot.urdf").read_text()
+    text = text.replace('xyz="0.0 0.0 0.007"', 'xyz="0.0 0.0 0.008"')
+    urdf.write_text(text)
+    confirm, probe, node = _confirmation_frame_probe("dentobot_drill_tip_provisional", urdf)
+    with pytest.raises(ValueError, match="equivalent"):
+        confirm(probe, node)
+    assert node.step6ToolFrame == "dentobot_drill_tip_provisional"
+    assert node.step6ConfirmedTaskJson == "unchanged"
+
+
+def test_confirmation_canonical_tcp_needs_no_legacy_description_lookup():
+    confirm, probe, node = _confirmation_frame_probe("dentobot_drill_tcp")
+    probe.robotDescriptionPaths = lambda: (_ for _ in ()).throw(AssertionError("unexpected legacy lookup"))
+    assert confirm(probe, node).tool_frame == "dentobot_drill_tcp"
+
+
 def test_confirmed_task_freshness_rejects_legacy_tool_policy():
     legacy = snapshot()
     source_path = (

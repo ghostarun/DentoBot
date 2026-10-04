@@ -7222,3 +7222,36 @@ remaining open. See the 4October logbook.
 **4 October 2026 — Find Reachable Base becomes two-level (`S6-LIVE-01` P3; operator supersession):** Tarun asked to implement, inside Find Reachable Base, the iterative Base placement that passed the offline check, then directed: keep it two-level. Level 1 stays the existing forehead-plane IK preflight (±30 mm in-plane, ±10 mm depth fallback, orientation locked). It now seeds from one reference PreEntry solution when no Task Home is saved, and it is mouth-barrier checked: the start pose (monitored, else zero), the saved Home if any, PreEntry, and their straight joint paths, all robot links against the barrier mesh. Level 1 failure means no reachable Base, or none of its ranked Bases clears the barrier. On failure the operator is asked (Yes/No) whether to run level 2. Level 2 is a cheapest-first search moving the current Base: ±30 mm in-plane at 10 mm, ±20 mm depth along the forehead normal at 5 mm, ±40° yaw about the Base z at 10°. It requires reach plus the same barrier clearance and stops after the first clear cost tier. It supersedes the 2 October "orientation locked" rule for level 2 only. Both levels are kinematic plus barrier-mesh evidence, staged for explicit Review/Accept only; MoveIt anatomy/template collision, Home validation and planning remain authoritative. No automatic acceptance.
 
 **4 October 2026 (later) — Find Reachable Base levels 3–4 and one-click Propose (`S6-LIVE-01` P3; operator direction):** Level 3 extends level 2: an exhaustive search over the same grid, centred on the virtual-forehead auto placement (TCP slide is off by default, so this equals the forehead seat). It keeps every Base that reaches the stroke and clears the barrier, ranks them by least movement (mm/10 + yaw deg/10, ties by larger margins) and auto-stages rank 1. Level 4 is a modeless ranking board of every level 3 Base: selecting a row stages it as the cyan ghost for 3D inspection; Use keeps it staged; Cancel restores the prior candidate. After level 1 fails, the operator chooses level 2, 3 or 4; an empty level 2 offers level 3; level 3 offers the board when more than one Base is valid. Propose Virtual Forehead + Auto Base now runs level 1 with the barrier check and, if no barrier-clear Base exists, level 2 around the seat automatically ("one click"); level 1's kinematic Base stays the flagged fallback. Levels 3–4 stay manual because of their cost. Staging only, never acceptance; MoveIt remains authoritative.
+
+
+## 4 October 2026 (later) — Step 6 GUI state fixes are patches, not verification (`S6-LIVE-01`)
+
+Operator direction: record that the small button-behaviour fixes made on
+4 October are case-specific patchwork, not verified, and that many similar
+unexplained greyed controls and other Step 6 issues await severe repeatable
+testing; headed/headless testing so far neither hit nor flagged them.
+Decision: (1) the fixes stay as demonstrated corrections only; no GUI
+acceptance, repeatability or "fixed permanently" claim is recorded; (2) the
+audit, harness-gap and Home-repeat work is queued in backlog.md under the
+existing `S6-LIVE-01` owner as `S6-GUI-STATE-AUDIT`, `S6-GUI-HARNESS-GAP` and
+`S6-HOME-REPEAT` (Unprioritized; no priority invented); (3) a never-silent
+rule for new/changed controls: a visible disabled control carries a named
+reason, and an option that invalidates validation or confirmation says so.
+No geometry, Base, Home, planner, guard-policy or tolerance change follows;
+the 2e-4 Home-draft snap bound is a sanity limit only, with the strict guard
+still validating the snapped waypoint. See Follow-ups 6–10 in the logbook.
+
+
+## 4 October — S6-LIVE-01 live-resolution scope, frame identity and reverse travel
+
+Latest operator prompt authorizes same-session simulation GUI testing through results without per-result verdict; final Tarun verdict PENDING. Solo supersedes older mandatory workers for this run. Retry/safety/approval/case boundaries remain. No Base/geometry/guard/tolerance change or restart inferred.
+
+Scene decision: guard/local acknowledgement alone cannot certify remote MoveGroup scene equality. Raw readback found exactlyFDI31 stale19.435258mm; unchanged proxy redelivery corrected it and original PreEntry passed. Durable verification of all consumers remains S6-LIVE-01 pending. Do not tune geometry around this demonstrated scene divergence.
+
+Frame decision: explicit task confirmation normalizes known historical provisional TCP name only when loaded URDF fixed poses match within1e-12 matrix representation. Unknown or changed frames reject; canonical confirmation needs no legacy lookup. No physical TCP/acceptance tolerance change. Host tests and real confirmation passed; source case not overwritten.
+
+Corridor decision: reverse translation does not reverse the physical drill axis. Add explicit default-off reverse_travel to pose/Cartesian generation and both continuation resampling paths; corridor back-out alone opts in. Wrong/sideways axes remain rejected at unchanged tolerance, and independent composed-chain guarding remains required. Failing-first3FAIL, final affected503PASS. Bridge is ROS-stateful and never hot-reloaded; fix remains source-only pending fresh-session approval. No native build or automatic retry. [Evidence](logbook/2026-10-04.md), `/home/tarun/dentobot/data/dentobot-runs/planner-resolution-20261004T015000Z`.
+
+
+### 2026-10-04 — S6-LIVE-01 separate checkpoint/fresh-session continuation approved
+Operator approved the separate checkpoint after the bridge deployment gate, requested local commit label `codex planner debug - oct 4`, and continued testing. Preserve the original Oct4 case; restore the separate runtime-free checkpoint into a fresh simulation session to load the tested reverse-travel correction. No push, hardware, geometry/policy change or acceptance is authorized by this checkpoint. Prior P1 attempt counter carries across sessions. Tarun verdict PENDING.

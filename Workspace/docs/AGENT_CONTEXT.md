@@ -1,5 +1,19 @@
 # DENTOBOT agent context
 
+## Current 4 October live planner stop (`S6-LIVE-01`, P0)
+
+Current prompt supersedes older no-runtime/per-result verdict stops for existing PID2071 only. Exact remote FDI31 redelivery corrected stale MoveGroup geometry; equivalent historical TCP name migrated through real confirmation; PreEntry IK passed. Real Plan then failed P1. Reverse-travel corridor fix host503PASS remains NOT loaded: DENTOROS2Bridge owns ROS state and requires fresh-session/checkpoint approval. Leave existing scene/session open; do not hot-reload bridge or restart without approval. Base/Home/options unchanged; final Tarun verdict PENDING; neitherA norB proven. Read TASKStop/latest DECISIONS/today logbook and planner-resolution-20261004T015000Z evidence.
+
+## Step 6 GUI reliability — patches only (4 October, `S6-LIVE-01`)
+
+Operator: the recent button/state fixes (6.2 Home actions, Plan + Apply Home
+Draft endpoint/no-op, 6.3 planner frozen after the spindle-contact toggle) are
+case-specific patchwork, not verified; many similar greyed controls, errors and
+ordering issues remain and prior headed/headless runs did not surface them.
+Do not call Step 6 GUI behaviour verified from one passing run. Pending work:
+`S6-GUI-STATE-AUDIT`, `S6-GUI-HARNESS-GAP`, `S6-HOME-REPEAT` (backlog, TASKS top
+section, DECISIONS 4 Oct later). Apply the never-silent rule to any control touched.
+
 ## Later 4 October steering — new Home draft application (`S6-LIVE-01`)
 
 Operator reports “cannot plan and apply new home”. The 6.2 action now plans and

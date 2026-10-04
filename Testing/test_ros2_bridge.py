@@ -54,6 +54,39 @@ from DENTOROS2Bridge import (  # noqa: E402
 import DENTOROS2Bridge as bridge_module  # noqa: E402
 
 
+def test_reverse_cartesian_travel_preserves_forward_drill_axis():
+    import numpy as np
+    poses = bridge_module.tool_pose_matrices_world_mm(
+        (0., 0., 0.), (0., 0., -12.), 3,
+        fixed_rotation_ras=np.eye(3), reverse_travel=True,
+    )
+    assert [p.GetElement(2, 3) for p in poses] == [0., -6., -12.]
+    for pose in poses:
+        assert [pose.GetElement(i, 2) for i in range(3)] == [0., 0., 1.]
+    generated = bridge_module.tool_pose_matrices_world_mm(
+        (0., 0., 0.), (0., 0., -12.), 3, reverse_travel=True,
+    )
+    assert [generated[-1].GetElement(i, 2) for i in range(3)] == [0., 0., 1.]
+
+
+def test_reverse_cartesian_travel_does_not_admit_sideways_or_wrong_axis():
+    import numpy as np
+    with pytest.raises(ValueError, match="does not match"):
+        bridge_module.tool_pose_matrices_world_mm(
+            (0., 0., 0.), (0., 0., -12.), 3, fixed_rotation_ras=np.eye(3),
+        )
+    with pytest.raises(ValueError, match="does not match"):
+        bridge_module.tool_pose_matrices_world_mm(
+            (0., 0., 0.), (12., 0., 0.), 3,
+            fixed_rotation_ras=np.eye(3), reverse_travel=True,
+        )
+    with pytest.raises(ValueError, match="does not match"):
+        bridge_module.tool_pose_matrices_world_mm(
+            (0., 0., 0.), (0., 0., 12.), 3,
+            fixed_rotation_ras=np.eye(3), reverse_travel=True,
+        )
+
+
 def status_payload(**overrides) -> str:
     data = {
         "schema": ROS2_SIMULATION_STATUS_SCHEMA,

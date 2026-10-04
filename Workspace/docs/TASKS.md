@@ -1,5 +1,54 @@
 # DENTOBOT Tasks
 
+## 4 October — S6-LIVE-01 current live planner resolution contract
+
+Current operator scope authorizes serialized real GUI simulation chains/repeat in PID2071, continuing through individual results. It supersedes older no-runtime/per-result verdict stops for this run; final Tarun verdict PENDING. A requires two fresh guarded Complete cycles and endpoints; B requires every section6 certificate. Preserve Base/geometry/guard/tolerance/case/history and explicit restart/native-build approvals. Solo coordinator; no new task or queue.
+
+Runtime: remote MoveGroup FDI31 mesh was stale19.435258mm despite guard acknowledgement; exact existing-proxy redelivery restored all34bounds and made the previously invalid PreEntry endpoint valid. Canonical-frame alias correction host/reload/realConfirm verified, Home2 preserved. CheckPreEntryIK passed. Corrected real Plan then failedP1: lip_slab/housing contact0.133527mm at30/43 of straight joint line, RRTConnect empty trajectory. Neither planner failure nor finite IK sampling proves physical infeasibility.
+
+Source: confirmation migrates only URDF-equivalent historical TCP alias; reverse-travel corridor correction preserves drill axis and existing guards. Failing-first regressions retained; final affected host503PASS. Reverse-travel correction touches ROS-stateful bridge and is NOT loaded: execution stopped for fresh-session/checkpoint approval. No preview cycle complete. Durable multi-consumer scene acknowledgement, native corridor/full-chain/repeat and operator verdict remain open under this owner. Graph refresh unavailable. [Evidence](logbook/2026-10-04.md), `/home/tarun/dentobot/data/dentobot-runs/planner-resolution-20261004T015000Z`.
+
+## 4 October (later) — S6-LIVE-01 Step 6 GUI state reliability: patches only, severe testing pending
+
+**Operator statement:** the small button behaviours fixed on 4 October are
+case-specific patchwork that cannot be verified until tested extensively over
+repeatable behaviour without such errors. Many similar unexplained greyed
+controls, error dialogs and other Step 6 issues remain pending severe testing
+and verification; headed/headless testing so far did not face or point out
+these GUI errors. Agent finding: the headed runner has no modal-dialog watchdog
+and asserts selected controls along one order, which is consistent with, but
+not proof of, the miss.
+
+**Patches made (not acceptance):** (1) 6.2 Review/Accept/Plan + Apply show named
+blockers (`dentobot_workflow/task_home_gate.py`, panel
+`setTaskHomeActionBlockers`), Home group no longer disabled as a whole;
+(2) `applyTaskHomeDraft` snaps MoveIt's tolerance-level end (≤2e-4) onto the
+exact draft through the strict guard and treats an already-applied draft as a
+no-op; (3) `taskHomeValidationGap` and planner-button tooltips explain why 6.3
+is blocked (guard-policy change from the spindle-contact option invalidated Home
+validation and the confirmed snapshot). Host: 269 tests pass; live: real
+handlers in PID2071. Tarun's verdict and repeatability are not recorded.
+
+**Pending contracts (backlog rows, all `S6-LIVE-01`, Unprioritized):**
+- `S6-GUI-STATE-AUDIT` — outcome: every Step 6 control explains why it is
+  disabled/hidden; state-invalidating options say so; expected refusals are
+  inline, not modal. Owned files: `dentobot_workflow/widget_robot*.py`,
+  `DENTORobotSimulationPanel.py`, `task_home_gate.py`, facade readers.
+  Invariants: no change to Base/Home/planner/guard policy, tolerances or
+  geometry. Acceptance: state-combination host tests that fail on any
+  disabled-without-reason visible control, plus a headed pass.
+- `S6-GUI-HARNESS-GAP` — outcome: automated headed/headless checks that
+  detect these defect classes (modal watchdog, disabled-without-reason,
+  unexplained status, order/revisit permutations). Acceptance: the checks fail
+  on the 4 October defects when the patches are reverted in a scratch copy,
+  and pass on current source.
+- `S6-HOME-REPEAT` — outcome: repeatable 6.2 plan/apply/accept. Acceptance:
+  consecutive clean real-button cycles with all dialogs/greys recorded; the
+  ~5 minute apply duration decided separately. Needs explicit operator
+  go-ahead; restore the exact original Home afterwards.
+Stopping condition: do not call Step 6 GUI behaviour verified from a single
+passing run or from these patches.
+
 ## 4 October — S6-LIVE-01 cancelled collision-rejection recovery
 
 **Bounded contract:** Repair the reported inability to re-review Task Home
@@ -2605,3 +2654,7 @@ dentobot_mouth_barrier_lip_slab / pneumatic_spindle-Copy. No waypoint applied;
 original draft, Home, case and accepted state unchanged. Source/host/button
 routing are verified; positive route/application and operator verdict remain
 OPEN under the existing backlog row. Evidence: logbook/2026-10-04.md.
+
+
+### S6-LIVE-01 checkpoint continuation — 2026-10-04 UTC02:36
+Separate checkpoint/fresh-session continuation approved by current operator message; local commit label `codex planner debug - oct 4`. Saved checkpoint verified original byte-identical; evidence `data/dentobot-runs/planner-resolution-20261004T023621Z`. Same guarded-chain/two-cycle acceptance contract and retry counters persist. Runtime bridge deployment and acceptance remain pending at commit time; no release claim.

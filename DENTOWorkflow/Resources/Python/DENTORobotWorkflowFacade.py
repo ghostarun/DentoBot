@@ -86,6 +86,9 @@ STEP6_APPROACH_CORRIDOR_MM = 12.0  # operator 2026-10-02: axis-aligned final app
 GOAL1_DIRECT_PLANNING_TIME_SEC = 10.0  # operator 2026-10-02: robustness for marginal P1
 GOAL1_CLEARANCE_PLANNING_TIME_SEC = 4.0
 STEP6_JOINT_PLANNER_ID = "RRTConnectkConfigDefault"
+# Sanity bound (2x MoveIt's default 1e-4 joint-goal tolerance) for snapping a
+# planned Home-draft end onto the exact draft; the strict guard still validates it.
+HOME_DRAFT_SNAP_TOLERANCE_SI = 2.0e-4
 STEP6_JOINT_PLANNER_ALGORITHM = "geometric::RRTConnect"
 STEP6_JOINT_PLANNER_ALGORITHMS = {
     STEP6_JOINT_PLANNER_ID: STEP6_JOINT_PLANNER_ALGORITHM,
@@ -1637,6 +1640,47 @@ class DENTORobotWorkflowFacade:
                 parameter_node.robotBaseTransform
             )
         )
+
+    def taskHomeValidationGap(self, parameter_node=None) -> str:
+        """Say why Task Home is not runtime-validated ('' when it is).
+
+        Mirrors the clauses of ``taskHomeRuntimeValidated`` so the UI can name the
+        exact cause instead of a generic "validate Home" prompt.
+        """
+
+        parameter_node = parameter_node or self._parameter_node()
+        if parameter_node is None or self._logic is None:
+            return "No Step 6 context is available."
+        try:
+            freshness = self._logic.taskHomeFreshnessIssues(parameter_node)
+            record = self._logic.taskHomeRecord(parameter_node)
+            audit = self._logic.collisionSceneAuditRecord(parameter_node)
+        except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+            return f"Task Home state could not be read: {exc}"
+        if freshness:
+            return "Task Home is stale: " + " ".join(str(i) for i in freshness)
+        if record is None:
+            return "Save a case/base-specific Task Home in 6.2 (Review Draft, then Accept and Validate)."
+        if not self._logic.isRos2MotionControlActive(parameter_node.robotBaseTransform):
+            return "Connect ROS + MoveIt in 6.1; Task Home validation needs the live runtime."
+        if str(getattr(record, "runtime_validation_status", "Unreviewed")) != "Validated":
+            return "Task Home is saved but not live-validated: use Accept and Validate in 6.2."
+        if str(getattr(record, "collision_audit_fingerprint", "")) != (
+            str(audit.audit_fingerprint) if audit is not None else ""
+        ):
+            return (
+                "The collision scene changed since Task Home was validated. "
+                "Re-validate it in 6.2 (Review Draft, then Accept and Validate)."
+            )
+        if str(getattr(record, "guard_policy_fingerprint", "")) != self._strict_guard_policy_fingerprint():
+            return (
+                "Task Home was validated under a different guard policy (for example the "
+                "spindle-housing contact option was changed). Re-validate it in 6.2 "
+                "(Review Draft, then Accept and Validate), or restore the option."
+            )
+        if self._runtime_validated_task_home_key != self._task_home_runtime_key(record):
+            return "Task Home validation was cleared by a later robot action; re-validate it in 6.2."
+        return ""
 
     def workspaceRoiMatchesSavedEvidence(
         self,
@@ -6957,21 +7001,44 @@ class DENTORobotWorkflowFacade:
                 raise ValueError("Accepted, monitored and displayed robot state must agree before Home-draft planning.")
             details.update(requestedJointPositionsSi=dict(goal), monitoredStartJointPositionsSi=dict(start))
             self._manual_jog_in_progress = True
-            plan = self._bridge.plan_moveit_joint_goal(
-                start_joint_positions_si=start, goal_joint_positions_si=goal,
-                planner_id=STEP6_JOINT_PLANNER_ID,
-                planner_context="monitored_current_to_task_home_draft",
-            )
-            if not plan.success or not plan.waypoint_joint_vectors_si:
-                return finish(False, "task_home_draft_moveit_plan_failed",
-                              "MoveIt could not plan from the monitored state to the Home draft. " + plan.message)
-            waypoints = tuple(plan.waypoint_joint_vectors_si)
-            for waypoint in waypoints:
-                if (not isinstance(waypoint, Mapping) or set(waypoint) != set(JOINT_NAMES)
-                        or any(isinstance(v, bool) or not isfinite(float(v)) for v in waypoint.values())):
-                    raise ValueError("MoveIt returned an incomplete or nonfinite Home-draft waypoint.")
-            if any(abs(float(waypoints[-1][name]) - goal[name]) > 1.0e-12 for name in JOINT_NAMES):
-                raise ValueError("MoveIt did not reach the exact requested Home draft; nothing was applied.")
+            # Already at the draft (e.g. it was applied, then Plan + Apply pressed
+            # again): MoveIt rightly rejects an equal start/goal, so re-apply only
+            # the exact draft as one guarded waypoint, as applyTaskHome does.
+            already_at_draft = self._joint_positions_match(goal, start)[0]
+            if already_at_draft and all(abs(start[name] - goal[name]) <= 1.0e-12 for name in JOINT_NAMES):
+                details["alreadyAtDraft"] = True  # exact: no motion, validation state untouched
+                return finish(True, "task_home_draft_applied",
+                              "The robot is already exactly at the Home draft; nothing was planned "
+                              "or applied. Review and Accept & Validate to save it as Task Home.")
+            if already_at_draft:
+                details["alreadyAtDraft"] = True
+                waypoints = (dict(goal),)
+            else:
+                plan = self._bridge.plan_moveit_joint_goal(
+                    start_joint_positions_si=start, goal_joint_positions_si=goal,
+                    planner_id=STEP6_JOINT_PLANNER_ID,
+                    planner_context="monitored_current_to_task_home_draft",
+                )
+                if not plan.success or not plan.waypoint_joint_vectors_si:
+                    return finish(False, "task_home_draft_moveit_plan_failed",
+                                  "MoveIt could not plan from the monitored state to the Home draft. " + plan.message)
+                waypoints = tuple(plan.waypoint_joint_vectors_si)
+                for waypoint in waypoints:
+                    if (not isinstance(waypoint, Mapping) or set(waypoint) != set(JOINT_NAMES)
+                            or any(isinstance(v, bool) or not isfinite(float(v)) for v in waypoint.values())):
+                        raise ValueError("MoveIt returned an incomplete or nonfinite Home-draft waypoint.")
+                # MoveIt ends inside its joint-goal tolerance (~1e-4), never exactly on
+                # the goal, yet Accept needs the accepted state to equal the draft.
+                # Snap with one extra final waypoint; it is guarded like all others.
+                final_error = max(abs(float(waypoints[-1][name]) - goal[name]) for name in JOINT_NAMES)
+                if final_error > HOME_DRAFT_SNAP_TOLERANCE_SI:
+                    raise ValueError(
+                        f"MoveIt ended {final_error:.3g} (SI units) from the requested Home "
+                        "draft, beyond the goal tolerance; nothing was applied."
+                    )
+                if final_error > 1.0e-12:
+                    waypoints += (dict(goal),)
+                    details["finalSnapSi"] = final_error
             details["plannedWaypointCount"] = len(waypoints)
             for index, waypoint in enumerate(waypoints):
                 if self._manual_jog_current_identity(parameter_node, for_task_home_review=True) != identity:
@@ -7012,8 +7079,12 @@ class DENTORobotWorkflowFacade:
             details.update(acceptedJointPositionsSi=dict(accepted),
                            monitoredJointPositionsSi=dict(monitored), maximumJointError=error)
             return finish(True, "task_home_draft_applied",
-                          "MoveIt planned the Home draft, every waypoint passed the strict guard, "
-                          "and the monitored robot matches it. Review and Accept & Validate to save it as Task Home.")
+                          ("The robot was already at the Home draft; the exact draft passed the "
+                           "strict guard and the monitored robot matches it."
+                           if already_at_draft else
+                           "MoveIt planned the Home draft, every waypoint passed the strict guard, "
+                           "and the monitored robot matches it.")
+                          + " Review and Accept & Validate to save it as Task Home.")
         except (AttributeError, RuntimeError, ValueError, TypeError, OverflowError, OSError, KeyError) as exc:
             return finish(False, "task_home_draft_failed", str(exc))
         finally:
@@ -9393,6 +9464,7 @@ class DENTORobotWorkflowFacade:
             axial_roll_end_deg=float(roll_deg),
             fixed_rotation_ras=fixed_rotation_ras,
             position_axis_only=True,
+            reverse_travel=True,
         )
         back = tuple(dict(point) for point in (back_out.waypoint_joint_vectors_si or ()))
         if not back_out.success or len(back) < 2:

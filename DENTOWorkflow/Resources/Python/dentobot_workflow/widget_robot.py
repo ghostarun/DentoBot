@@ -790,11 +790,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             task_home_controls = self._manualTaskHomeReviewControlState(
                 task_home_live_scene, task_home_review_result
             )
-            panel.homeGroup.enabled = bool(
-                task_home_controls["group"]
-                or scene_prepared
-                or task_home_controls["cancel"]
-            )
+            panel.homeGroup.enabled = True  # buttons gate themselves and explain why
             panel.reviewTaskHomeButton.enabled = bool(
                 task_home_controls["review"] and not self._workflowActionBusy
             )
@@ -991,7 +987,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             if not ros2_active:
                 confirmation_prerequisites.append(_("Connect ROS + MoveIt in 6.1."))
             if not home_runtime_validated:
-                confirmation_prerequisites.append(_("Apply and live-validate Task Home in 6.2."))
+                confirmation_prerequisites.append(self._robotWorkflowFacade.taskHomeValidationGap(self._parameterNode) or _("Apply and live-validate Task Home in 6.2."))
             if not facade_capabilities or not facade_capabilities.planning_scene_synchronized:
                 confirmation_prerequisites.append(_("Complete the authoritative planning-scene audit in 6.1."))
             planning_prerequisites = list(confirmation_prerequisites)
@@ -1043,6 +1039,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             self._updateTaskHomeDraftApplyUi(
                 task_home_live_scene, planning_anatomy_ready,
                 task_home_controls, facade_capabilities, task_home_review_result,
+                dict(scene_prepared=scene_prepared, scene_issues=case_placement_issues,
+                     anatomy_issues=case_jaw_issues, robot_present=robot_present,
+                     base_locked=locked, ros2_active=ros2_active,
+                     preview_active=preview_active, away_from_home=away_from_home),
             )
             phase_planning_ready = bool(
                 planning_anatomy_ready
@@ -1138,6 +1138,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 )
             else:
                 panel.planApproachButton.toolTip = ""
+            self._explainDisabledPlannerButtons()
             drilling_preflight_ready = bool(
                 self._robotWorkflowFacade
                 and self._robotWorkflowFacade.drillingPreflightReady

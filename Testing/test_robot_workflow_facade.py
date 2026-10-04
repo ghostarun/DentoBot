@@ -4729,6 +4729,107 @@ def test_home_draft_plan_apply_without_saved_home_preserves_separate_acceptance(
     assert facade.stageManualTaskHomeReview(goal).success
 
 
+def test_home_draft_snaps_a_moveit_endpoint_within_goal_tolerance_through_the_guard(monkeypatch):
+    """Live 2026-10-04: MoveIt ended 8.4e-5 from the draft and the 1e-12 check refused it."""
+    facade, _node, _logic, bridge, start, goal = _home_draft_apply_probe(monkeypatch)
+    near = {name: value + 8.4e-5 for name, value in goal.items()}
+    bridge.plan_moveit_joint_goal = lambda **_kwargs: SimpleNamespace(
+        success=True, message="planned", waypoint_joint_vectors_si=(start, near)
+    )
+    result = facade.applyTaskHomeDraft(goal)
+    assert result.success and result.code == "task_home_draft_applied", result.message
+    assert bridge.applied == [start, near, goal]  # the exact draft is its own guarded waypoint
+    assert bridge.accepted == goal
+    assert 8.0e-5 < result.details["finalSnapSi"] < 9.0e-5
+    assert result.details["appliedWaypointCount"] == 3
+
+    # A guard rejection of the snap waypoint is still a latched, reported failure.
+    facade, _node, _logic, bridge, start, goal = _home_draft_apply_probe(monkeypatch)
+    near = {name: value + 8.4e-5 for name, value in goal.items()}
+    bridge.plan_moveit_joint_goal = lambda **_kwargs: SimpleNamespace(
+        success=True, message="planned", waypoint_joint_vectors_si=(start, near)
+    )
+    accept = bridge.apply_joint_positions_si_to_motion_control
+    bridge.apply_joint_positions_si_to_motion_control = (
+        lambda positions: (False, "collision") if positions == goal else accept(positions)
+    )
+    result = facade.applyTaskHomeDraft(goal)
+    assert not result.success and result.code == "task_home_draft_guard_rejected"
+    assert facade._manual_jog_reconciliation_required
+
+
+def test_home_draft_already_applied_is_a_noop_success_not_an_error(monkeypatch):
+    """Live 2026-10-04: Plan + Apply after the draft was applied raised MoveIt's equal start/goal error."""
+    facade, _node, _logic, bridge, _start, goal = _home_draft_apply_probe(monkeypatch)
+    bridge.accepted = dict(goal)
+    facade.currentRobotState = lambda: SimpleNamespace(joint_positions_si=dict(bridge.accepted))
+    result = facade.applyTaskHomeDraft(goal)
+    assert result.success and result.code == "task_home_draft_applied", result.message
+    assert result.details["alreadyAtDraft"] is True
+    assert bridge.home_plans == [] and bridge.applied == []
+    assert not facade._manual_jog_reconciliation_required and not facade._manual_jog_in_progress
+
+    # Within the monitored tolerance but not exact: no MoveIt, one guarded exact waypoint.
+    facade, _node, _logic, bridge, _start, goal = _home_draft_apply_probe(monkeypatch)
+    near = {name: value + 5.0e-5 for name, value in goal.items()}
+    bridge.accepted = dict(near)
+    facade.currentRobotState = lambda: SimpleNamespace(joint_positions_si=dict(bridge.accepted))
+    result = facade.applyTaskHomeDraft(goal)
+    assert result.success, result.message
+    assert bridge.home_plans == [] and bridge.applied == [goal] and bridge.accepted == goal
+
+
+def test_task_home_validation_gap_names_the_exact_clause():
+    """Live 2026-10-04: enabling spindle contact silently un-validated Home and froze the 6.3 planner."""
+    gap = workflow_facade_module.DENTORobotWorkflowFacade.taskHomeValidationGap
+    record = SimpleNamespace(
+        runtime_validation_status="Validated", collision_audit_fingerprint="audit-1",
+        guard_policy_fingerprint="policy-default",
+    )
+
+    def make(**changes):
+        state = dict(freshness=(), record=record, ros=True, audit="audit-1",
+                     policy="policy-default", key="k", live_key="k")
+        state.update(changes)
+        node = SimpleNamespace(robotBaseTransform=object())
+        logic = SimpleNamespace(
+            taskHomeFreshnessIssues=lambda _n: state["freshness"],
+            taskHomeRecord=lambda _n: state["record"],
+            collisionSceneAuditRecord=lambda _n: SimpleNamespace(audit_fingerprint=state["audit"]),
+            isRos2MotionControlActive=lambda _b: state["ros"],
+        )
+        fake = SimpleNamespace(
+            _parameter_node=lambda: node, _logic=logic,
+            _strict_guard_policy_fingerprint=lambda: state["policy"],
+            _task_home_runtime_key=lambda _r: state["live_key"],
+            _runtime_validated_task_home_key=state["key"],
+        )
+        return gap(fake, node)
+
+    assert make() == ""
+    assert "stale" in make(freshness=("Task Home belongs to a different base pose.",))
+    assert "Save a case/base-specific Task Home" in make(record=None)
+    assert "Connect ROS" in make(ros=False)
+    assert "not live-validated" in make(record=SimpleNamespace(
+        runtime_validation_status="Unreviewed", collision_audit_fingerprint="audit-1",
+        guard_policy_fingerprint="policy-default"))
+    assert "collision scene changed" in make(audit="audit-2")
+    policy = make(policy="policy-contact")
+    assert "different guard policy" in policy and "spindle-housing contact option" in policy
+    assert "cleared by a later robot action" in make(live_key="other")
+
+
+def test_home_draft_endpoint_beyond_goal_tolerance_is_still_refused(monkeypatch):
+    facade, _node, _logic, bridge, start, goal = _home_draft_apply_probe(monkeypatch)
+    far = {name: value + 5.0e-4 for name, value in goal.items()}
+    bridge.plan_moveit_joint_goal = lambda **_kwargs: SimpleNamespace(
+        success=True, message="planned", waypoint_joint_vectors_si=(start, far)
+    )
+    result = facade.applyTaskHomeDraft(goal)
+    assert not result.success and "beyond the goal tolerance" in result.message
+    assert bridge.applied == [] and bridge.accepted == start
+
+
 def test_home_draft_plan_failure_or_wrong_endpoint_applies_nothing(monkeypatch):
     for success, endpoint in ((False, None), (True, "wrong"), (True, "nan")):
         facade, node, logic, bridge, start, goal = _home_draft_apply_probe(monkeypatch)
@@ -6846,6 +6947,7 @@ def test_approach_corridor_composes_free_space_then_straight_descent_and_falls_b
     calls = []
 
     def cartesian(**kwargs):
+        assert kwargs["reverse_travel"] is True
         calls.append(("cartesian", kwargs["entry_ras_mm"], kwargs["target_ras_mm"]))
         return MoveItCartesianResult(True, "line", 1.0, (q(5), q(6), q(7)), (0.0, 0.1, 0.2))
 

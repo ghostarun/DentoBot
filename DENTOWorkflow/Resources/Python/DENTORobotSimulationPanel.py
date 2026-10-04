@@ -3112,6 +3112,7 @@ class DENTORobotSimulationPanel:
                 )
         elif setup_mode == "unknown":
             status += " Setup mode is unknown; live state was not mirrored."
+        self._taskHomeStatusBase = status
         self.taskHomeReviewStatusLabel.text = status
         self.taskHomeReviewStatusLabel.setProperty(
             "dentobotState",
@@ -3144,6 +3145,30 @@ class DENTORobotSimulationPanel:
             if button is not None:
                 button.visible = visible
         self._updateManualJogJointPresentation()
+
+    def setTaskHomeActionBlockers(self, blockers, summary: str) -> None:
+        """Show why Review / Accept / Plan + Apply are unavailable.
+
+        ``blockers`` maps action -> tuple of reasons (empty when enabled);
+        reasons go into each button's tooltip and ``summary`` under the status.
+        """
+
+        buttons = {
+            "review": self.reviewTaskHomeButton,
+            "accept": self.acceptTaskHomeButton,
+            "apply": self.applyTaskHomeButton,
+        }
+        base_tips = self.__dict__.setdefault("_taskHomeButtonBaseTips", {})
+        for action, button in buttons.items():
+            base_tips.setdefault(action, str(button.toolTip))
+            reasons = blockers.get(action) or ()
+            button.toolTip = base_tips[action] + (
+                "\n\nUnavailable: " + " ".join(reasons) if reasons else ""
+            )
+        base = getattr(self, "_taskHomeStatusBase", None)
+        if base is None:
+            base = str(self.taskHomeReviewStatusLabel.text)
+        self.taskHomeReviewStatusLabel.text = base + ("\n" + summary if summary else "")
 
     def setManualJogAvailability(
         self, draft_available: bool, jog_available: bool

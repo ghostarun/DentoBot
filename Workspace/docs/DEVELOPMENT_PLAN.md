@@ -1781,3 +1781,8 @@ then fails on the current all-zero start's mouth-barrier/spindle collision.
 No waypoint applies. Successful route/application and Tarun's verdict remain
 in the existing backlog owner; no geometry/policy exception is an acceptance
 path. Source/host/routing evidence is in the 4October logbook.
+
+
+## 4 October — S6-LIVE-01 live-resolution evidence and deployment gate
+
+Current operator authorizes real GUI complete guarded chain twice in existingPID2071, continuing through individual results; final Tarun verdict remains pending. Corrected stale remote FDI31 scene and equivalent frame-name identity permit PreEntry IK. P1 still fails; source reverse-travel corridor fix passes503 affected host checks but needs a fresh ROS-stateful bridge session. Approval for checkpoint/restart precedes deployment. After deployment, re-establish exact current scene/Base/Home/task and validate Complete chain, approach endpoint, prepared Drill/effective Target warning depth, guarded withdrawal/Home and fresh repeat. Finite multistart/planner failures do not accept infeasibility; no minimum physical change established. Existing backlog retains all pending gates; see today's logbook/TASKStop. No new milestone or queue.

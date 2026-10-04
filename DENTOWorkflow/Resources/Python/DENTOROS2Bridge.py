@@ -3819,6 +3819,7 @@ def _position_axis_continuity_fallback(
     axial_roll_end_deg,
     fixed_rotation_ras,
     continuity_seed_positions_si=None,
+    reverse_travel=False,
 ):
     """Recover a collision-off line using only the five-DOF task constraints.
 
@@ -3854,6 +3855,7 @@ def _position_axis_continuity_fallback(
                 axial_roll_start_deg=axial_roll_start_deg,
                 axial_roll_end_deg=axial_roll_end_deg,
                 fixed_rotation_ras=fixed_rotation_ras,
+                reverse_travel=reverse_travel,
             )
             continuation_poses = _pose_matrices_world_to_base_mm(
                 continuation_world_poses,
@@ -4186,8 +4188,13 @@ def tool_pose_matrices_world_mm(
     axial_roll_start_deg: float = 0.0,
     axial_roll_end_deg: float = 0.0,
     fixed_rotation_ras: Optional[Sequence[Sequence[float]]] = None,
+    reverse_travel: bool = False,
 ):
-    """Create right-handed poses whose +Z axis follows Entry-to-Target."""
+    """Create poses along the line, keeping +Z opposite explicitly reverse travel.
+
+    Reverse travel translates backwards along the unchanged forward drill axis.
+    It does not admit sideways travel or relax the axis-match tolerance.
+    """
     import numpy as np
     import vtk
 
@@ -4199,7 +4206,7 @@ def tool_pose_matrices_world_mm(
     length = float(np.linalg.norm(direction))
     if length <= 1e-6:
         raise ValueError("Entry and Target must define a non-zero trajectory.")
-    z_axis = direction / length
+    z_axis = (-1.0 if reverse_travel else 1.0) * direction / length
     fixed_rotation = None
     if fixed_rotation_ras is not None:
         fixed_rotation = np.asarray(fixed_rotation_ras, dtype=float)
@@ -4272,6 +4279,7 @@ def plan_moveit_cartesian_path(
     fixed_rotation_ras: Optional[Sequence[Sequence[float]]] = None,
     position_axis_only: bool = False,
     continuity_seed_positions_si: Optional[Sequence[Mapping[str, float]]] = None,
+    reverse_travel: bool = False,
 ) -> MoveItCartesianResult:
     """Plan a Cartesian TCP path and convert it for Step 6 preview.
 
@@ -4305,6 +4313,7 @@ def plan_moveit_cartesian_path(
             axial_roll_start_deg=axial_roll_start_deg,
             axial_roll_end_deg=axial_roll_end_deg,
             fixed_rotation_ras=fixed_rotation_ras,
+            reverse_travel=reverse_travel,
         )
         poses = _pose_matrices_world_to_base_mm(world_poses, base_transform)
         start_names = None
@@ -4435,6 +4444,7 @@ def plan_moveit_cartesian_path(
                 axial_roll_end_deg=axial_roll_end_deg,
                 fixed_rotation_ras=fixed_rotation_ras,
                 continuity_seed_positions_si=continuity_seed_positions_si,
+                reverse_travel=reverse_travel,
             )
             if recovery.get("failure_index", -1) >= 0:
                 failure_index = int(recovery["failure_index"])
@@ -4606,6 +4616,7 @@ def plan_moveit_cartesian_path(
                     axial_roll_start_deg=axial_roll_start_deg,
                     axial_roll_end_deg=axial_roll_end_deg,
                     fixed_rotation_ras=fixed_rotation_ras,
+                    reverse_travel=reverse_travel,
                 )
                 continuation_poses = _pose_matrices_world_to_base_mm(
                     continuation_world_poses,
