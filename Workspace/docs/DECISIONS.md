@@ -7417,3 +7417,16 @@ post-stop organization. This supersedes the undecided agent-saving guidance,
 not historical date attribution. No producer implementation or runtime launch
 is included. AGENT_CONTEXT owns the shared scheme; both entrypoints link it,
 and the canonical verification protocol reconciles scratch vs durable output.
+
+## RUN-ARCHIVE-01 — fix compatibility links (6 October follow-up)
+
+Operator requests correction. Both old aliases still have live users, so removal
+requires a safe end to that session; permission requested before stopping it.
+Bounded source delta authorized by this correction: shared handoff watchdog
+output uses the frozen UTC start date and a run-local override, bypassing the
+legacy alias for new sessions. Existing session/robot/ROS policy is unchanged.
+
+**Closure:** Tarun authorized ending the session and host stub checks. Both
+legacy aliases retired with dated data intact; no recreation for new runs.
+Defer editing executing shell scripts until their session stops. Four host stub
+tests pass; cleanup completion does not certify clean Slicer shutdown.

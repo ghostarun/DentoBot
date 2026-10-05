@@ -2796,3 +2796,28 @@ artifacts and scratch archiving; aligned the canonical verification protocol.
 Documentation-only acceptance: readback/path parity and scoped Git diff checks.
 Automatic producer source changes are outside this turn. The existing live-alias
 cleanup remains pending in backlog; this does not authorize closing runtimes.
+
+### RUN-ARCHIVE-01 — compatibility correction scope
+
+Operator requests fixing compatibility-link issues. Both aliases are actively
+used; do not unlink them or stop the operator session without explicit approval.
+Scoped source owner: Workspace/scripts/dentobot-simulation-slicer-handoff.bash;
+existing host stub tests: Testing/test_dentobot_slicer_handoff.py. New sessions
+must bypass root ui-watchdog and preserve final HANDOFF_EXIT in the chosen
+folder; explicit DENTOBOT_WATCHDOG_LOG_DIR supports run-local evidence. No ROS,
+GUI, geometry or guard change. Smallest meaningful check: existing handoff stub
+suite from pure.performance_watchdog, gated by operator approval. Alias cleanup
+remains tracked until the active-session boundary is released and verified.
+
+### RUN-ARCHIVE-01 — completed compatibility cleanup
+
+Both aliases removed after operator-authorized Slicer/session shutdown; all
+owned processes absent, dated data preserved and all 88 manifest destinations
+exist. Updated handoff bypasses the retired alias for new watchdog sessions.
+Approved existing host stub suite: 4 passed in 20.96 s, exit 0, including legacy
+alias isolation, final HANDOFF_EXIT and run-local override. Removed backlog row.
+Evidence: logbook/2026-10-06.md; durable
+`data/dentobot-runs/2026-10-05/RUN-ARCHIVE-01-20261005T213640Z/`.
+Shutdown status 127 / Slicer exit 1 is retained as a separate outcome, not clean
+shutdown acceptance. The recorded shell-error hypothesis remains an open
+reasoning thread; all requested alias cleanup and routing work is complete.

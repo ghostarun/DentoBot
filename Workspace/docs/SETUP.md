@@ -2143,3 +2143,11 @@ future flat output is not automatically organized by this one-time migration.
 **Future agent-run output (6 October follow-up):** select the dated durable run
 path via existing output options before execution, using UTC run-start date;
 see AGENT_CONTEXT.md. Producer defaults have not been automatically rewritten.
+
+## RUN-ARCHIVE-01 — watchdog compatibility correction (6 October)
+
+The simulation handoff now routes shared watchdog output directly under
+`${DENTOBOT_RUN_ARTIFACT_ROOT}/YYYY-MM-DD/ui-watchdog` (UTC start date frozen once).
+Set `DENTOBOT_WATCHDOG_LOG_DIR` to an explicit run-local directory to override it.
+New handoffs bypass the old root alias; already running shells retain their old
+paths until stopped. No container/mount or dependency change.

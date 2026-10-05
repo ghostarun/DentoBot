@@ -284,9 +284,3 @@ Git evidence: integration a795f89 already contains renovation e7cd29f; no renova
 Owned worker scopes: robot-shell/manual method reconciliation; headed runner/source/planning tests; new case inventory ownership adapter/test; DentoCase catalog fixture correction. Coordinator owns remaining DentoCase persistence/projection/bootstrap/lifecycle/semantic inventory changes, verification matrix, source review, runtime and controlled records. No worker executes Slicer/ROS/build/runtime or edits controlled records. Current pending states remain under DCP-09..10, S6-REUSABLE-CASE-SETUP, S6-P2-01, S6-LIVE-01 and S6-P2-03. Source consolidation does not close native or operator acceptance.
 
 **Integration-specific retained boundary:** accepted bounded Step5B numeric/visual result and module-size/API/install closure remain accepted at their recorded scope. Synthetic assisted-root fixture setup remains deferred under S4A-PULP-ENDPOINT. Mixed upgrade-branch retirement still requires retain/equivalent/defer/reject dispositions for graphics/WSLg/NVIDIA launcher changes137a56e/02eeb13, legacy jaw exception806256d, source-only probes/profiler and held5.12/resource-retriever54ef87c/e784cc2. Source stays recoverable; no wholesale promotion.
-
-## Local run archive housekeeping
-
-| ID | Priority | State | Outcome / remaining action | Boundary / evidence |
-|---|---|---|---|---|
-| `RUN-ARCHIVE-01` | Unprioritized | Existing artifacts organized; future agent output guidance recorded; live-path cleanup pending | After the active GUI/watchdog handoff ends, confirm no live users and remove only the two old-path compatibility symlinks. | Six date folders; 88 moves / 3,795 entries retain inode identity. No application/runtime or producer change. TASKS contract; diagnostics/RUN_ARCHIVE_LAYOUT_2026-10-06.md; logbook 6 Oct. |

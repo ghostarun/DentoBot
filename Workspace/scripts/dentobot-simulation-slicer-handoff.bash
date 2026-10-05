@@ -85,8 +85,12 @@ fi
 handoff_reason=not_started
 stack_pid=
 watchdog_pid=
-watchdog_log_dir="${DENTOBOT_RUN_ARTIFACT_ROOT:-/workspace/data/dentobot-runs}/ui-watchdog"
-watchdog_log_path="${watchdog_log_dir}/resources-$(date -u +%Y%m%d-%H%M%S)-$$.jsonl"
+# Freeze the UTC start date once: old root compatibility links must never
+# redirect a new session into a historical day's watchdog folder.
+watchdog_start_stamp="$(date -u +%Y%m%d-%H%M%S)"
+watchdog_start_day="${watchdog_start_stamp:0:4}-${watchdog_start_stamp:4:2}-${watchdog_start_stamp:6:2}"
+watchdog_log_dir="${DENTOBOT_WATCHDOG_LOG_DIR:-${DENTOBOT_RUN_ARTIFACT_ROOT:-/workspace/data/dentobot-runs}/${watchdog_start_day}/ui-watchdog}"
+watchdog_log_path="${watchdog_log_dir}/resources-${watchdog_start_stamp}-$$.jsonl"
 watchdog_metadata_pair="$(
   python3 "${resource_watchdog_script}" --metadata-fallback \
     --source-root "${source_checkout_root}"

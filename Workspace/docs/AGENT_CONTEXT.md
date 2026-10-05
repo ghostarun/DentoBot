@@ -21,7 +21,11 @@ cannot be configured, record the exception and move completed output only after
 its writers/session have stopped. No live-session moves or alias reuse for new
 runs. A shared watchdog output, when required by existing tooling, belongs at
 `YYYY-MM-DD/ui-watchdog/` with unique timestamp/PID filenames using the same
-UTC start date. Prefer run-local watchdog evidence when configurable.
+UTC start date. The simulation handoff now does this directly; set
+`DENTOBOT_WATCHDOG_LOG_DIR` for run-local watchdog evidence. The two historical root
+compatibility aliases have been retired; do not recreate them. Never rewrite a
+shell script while an active session is executing that script; defer the source
+edit until it stops or prepare it separately.
 
 Runtime approvals, privacy rules and acceptance gates remain unchanged. Keep
 payloads outside Git; commit only appropriate controlled records/manifests.

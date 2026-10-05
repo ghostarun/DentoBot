@@ -3,10 +3,6 @@
   "root": "/home/tarun/dentobot/data/dentobot-runs",
   "date": "2026-10-06",
   "verification": "same-filesystem rename; device/inode/type identity of every moved entry unchanged",
-  "compatibility_links": {
-    "gui-step4a-20261006T204848Z": "2026-10-06/gui-step4a-20261006T204848Z",
-    "ui-watchdog": "2026-10-05/ui-watchdog"
-  },
   "moves": [
     {
       "old": "4135fcf2afaf4dcda5323b29ab4680af",
@@ -536,5 +532,11 @@
       "date_basis": "name date (preserved, no timezone reinterpretation)",
       "entries_verified": 28
     }
-  ]
+  ],
+  "retired_compatibility_links": {
+    "gui-step4a-20261006T204848Z": "2026-10-06/gui-step4a-20261006T204848Z",
+    "ui-watchdog": "2026-10-05/ui-watchdog"
+  },
+  "compatibility_links": {},
+  "compatibility_retirement": "2026-10-06: operator-authorized session stop; owned Slicer/launcher/watchdog PIDs absent; both symlinks unlinked, dated data preserved"
 }

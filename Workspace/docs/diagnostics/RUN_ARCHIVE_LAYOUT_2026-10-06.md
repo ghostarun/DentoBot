@@ -15,17 +15,15 @@ path. Historical log/script/JSON path strings remain original evidence; use the
 manifest to locate moved artifacts. This is a filesystem organization change,
 not a change to prior run results or acceptance.
 
-Two root compatibility symlinks preserve the currently active handoff:
+Both temporary root compatibility symlinks were retired on 6 October after
+Tarun explicitly authorized stopping the active session. The dated GUI and
+watchdog data directories remain intact; the manifest retains the former aliases
+as retired mappings. The root now contains only date folders.
 
-- `gui-step4a-20261006T204848Z` → `2026-10-06/gui-step4a-20261006T204848Z`
-- `ui-watchdog` → `2026-10-05/ui-watchdog`
-
-The active watchdog writes through already open file descriptors. The GUI
-session polls its original absolute path, so its alias must remain while active.
-Retiring these aliases is pending under `RUN-ARCHIVE-01` in backlog.md. Existing
-producer defaults are unchanged; future agents must select dated output paths
-following AGENT_CONTEXT.md, or record a tool exception and organize after stop. Do not reuse the
-watchdog alias for a new session on a different date without updating routing.
+New simulation handoffs write shared watchdog output directly under the UTC
+start-date folder; `DENTOBOT_WATCHDOG_LOG_DIR` selects run-local output. Other
+producer defaults are unchanged: agents must configure the paths in
+AGENT_CONTEXT.md or record an exception and archive after the writer stops.
 
 Verification: 88 rename operations; device/inode/type identity unchanged for
 all 3,795 moved filesystem entries. No payload rewrites or deletions. The local

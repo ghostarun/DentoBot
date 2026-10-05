@@ -1,6 +1,7 @@
 """Local-stub tests for the simulation-to-diagnostic handoff wrapper."""
 
 import os
+from datetime import datetime, timezone
 import signal
 import stat
 import subprocess
@@ -144,7 +145,19 @@ def _stdout_lines(result: subprocess.CompletedProcess[str]) -> list[str]:
 
 
 def test_ready_status_reaches_slicer_and_cleans_own_stack(tmp_path):
+    artifacts = tmp_path / "artifacts"
+    legacy = artifacts / "2000-01-01" / "ui-watchdog"
+    legacy.mkdir(parents=True)
+    (artifacts / "ui-watchdog").symlink_to(legacy, target_is_directory=True)
+    start_day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     result = _run_handoff(tmp_path)
+    end_day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    assert not list(legacy.iterdir()), "new run followed the legacy watchdog alias"
+    resource_logs = list(artifacts.glob("????-??-??/ui-watchdog/resources-*.jsonl"))
+    assert len(resource_logs) == 1
+    assert resource_logs[0].parent.parent.name in {start_day, end_day}
+    assert '"event":"HANDOFF_EXIT"' in resource_logs[0].read_text()
 
     assert result.returncode == 0, result.stderr
     lines = _stdout_lines(result)
@@ -184,8 +197,11 @@ def test_housing_off_mode_reaches_simulation_launch(tmp_path):
     result = _run_handoff(
         tmp_path,
         DENTOBOT_DIAGNOSTIC_NO_SPINDLE_COLLISION="true",
+        DENTOBOT_WATCHDOG_LOG_DIR=str(tmp_path / "run-evidence" / "watchdog"),
     )
 
+    assert len(list((tmp_path / "run-evidence" / "watchdog").glob("resources-*.jsonl"))) == 1
+    assert not (tmp_path / "artifacts").exists()
     assert result.returncode == 0, result.stderr
     assert (
         "stack_started diagnostic_no_spindle_collision:=true"
