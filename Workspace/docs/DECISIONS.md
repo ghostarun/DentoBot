@@ -7379,3 +7379,12 @@ Operator: "yes to both questions, we need to extensively diagnose, test, and con
 2. **Root cause of stale MoveIt/guard objects (FDI31 4 Oct; 1–7 teeth after Base changes 6 Oct):** MoveIt's `/collision_object` subscriber keeps 10 messages; a burst of changed meshes overflows it while large meshes are digested. Changed obstacles are now **paced** (0.25 s + 4 µs per point). The publisher history is raised to 1000 as defence in depth.
 3. `Testing/step6_frame_audit.py` is the reference frame audit: independent scene derivation, three-way FK (URDF/KDL/MoveIt), task/axis residuals, and independent collision agreement at the drilling boundary. Acceptance thresholds: bounds ≤ 0.05 mm, FK ≤ 0.01 mm / 0.01°, task ≤ 0.25 mm / 0.5°, collision-boundary agreement at every state.
 4. **(later, 6 Oct)** Changed obstacles go to MoveGroup through the synchronous `/apply_planning_scene` service (acknowledged per object); the `/collision_object` topic still feeds the collision guard (with its readback acknowledgement). Pacing applies only when the native service is unavailable. Test runtime rule: one Slicer instance normally, two at most, with verified shutdown.
+
+## 6 October 2026 — Per-case acceptance: 3 runs (6 cycles); multi-target testing next (`S6-LIVE-01`, `S6-MULTI-TARGET-01`)
+
+Operator: "running full 20 cycles is overdoing testing for single target tooth and trajectory ... we will rather be testing with multiple target teeth and upto 3 trajectories per each tooth ... with accumulative compiled diagnostics data ... we only need 3 iterations to pass for one case ... 3 iterations, 6 cycles of planning is sufficient, unless we have failure cases which we can deal with later".
+
+- **Per case/trajectory acceptance in simulation: 3 consecutive real-button runs = 6 cycles** (each cycle Plan → approach preview → Prepare Drill → drill preview → Guarded Return Home), plus the standard check (Diagnose rows 0–6, frame audit, evidence package). This supersedes the 10/10 series requirement of 5 Oct for routine per-case testing; within each run, every cycle must still pass.
+- Failures are recorded with their diagnostics and dealt with later; they do not stop the multi-target campaign.
+- Scale is breadth: many target teeth, up to 3 trajectories per tooth, with compiled diagnostics across cases as the evidence of where the stack works or fails.
+- FDI14 (10/10 runs) and FDI11 (6/6 runs, stopped early under this rule) exceed the bar.

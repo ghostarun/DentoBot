@@ -2748,3 +2748,15 @@ for acceptance, geometry or policy changes without Tarun's disposition. Exact
 copy PIDs4442/4466 ignored SIGINT and stopped after SIGTERM; live domain73
 MoveGroup3022 and Slicer3122 remained running. No further runtime is authorized
 by this result. Existing `S6-LIVE-01`/`S6-BASE-DIAGNOSE` stay open.
+
+## 6 October — SIM-DYN-01: controller and physics simulation (planning contract)
+
+**Operator:** add a plan to the backlog to simulate real robot movement when actuators/components are added to the URDF; start planning the week of 12 Oct.
+**Today:** "Preview" is guarded kinematic playback. Each waypoint is accepted by the collision guard and broadcast by `slicer_joint_state_publisher`; there is no ros2_control or controller_manager, MoveIt has `allow_trajectory_execution: False`, and URDF transmission/actuator/mass/inertia data are unused. New links with collision meshes do already affect planning and the frame audit.
+**Proposed stages (each its own approval):**
+1. **Inventory:** current URDF joint limits (position/velocity/effort), the actuator/transmission data the engineer will add, the target controller types, and how the guard must observe commanded vs actual state.
+2. **ros2_control with mock hardware:** `<ros2_control>` block (mock_components/GenericSystem), controller_manager, joint_trajectory_controller + joint_state_broadcaster; MoveIt `moveit_simple_controller_manager`; time-parameterised trajectories are tracked by the controller in simulation (no physics yet).
+3. **Physics:** Gazebo (gz_ros2_control) or Isaac Sim with mass/inertia, actuator limits and gravity; compare tracked vs planned paths (tracking error, timing, limit hits).
+4. **Execution semantics and safety:** enable trajectory execution in simulation only; the guard validates controller commands and actual states; keep "EXECUTE DISABLED" for hardware; GUI shows simulated execution distinctly from preview.
+5. **Acceptance:** existing frame audit plus tracking-error thresholds per phase; 3-run series per case under execution.
+**Boundaries:** simulation only; no hardware command path; any change to guard/execute semantics needs explicit operator approval and its own decision record.
