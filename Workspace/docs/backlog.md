@@ -289,4 +289,4 @@ Owned worker scopes: robot-shell/manual method reconciliation; headed runner/sou
 
 | ID | Priority | State | Outcome / remaining action | Boundary / evidence |
 |---|---|---|---|---|
-| `RUN-ARCHIVE-01` | Unprioritized | Existing artifacts organized; live-path cleanup pending | After the active GUI/watchdog handoff ends, confirm no live users and remove only the two old-path compatibility symlinks. | Six date folders; 88 moves / 3,795 entries retain inode identity. No application/runtime or producer change. TASKS contract; diagnostics/RUN_ARCHIVE_LAYOUT_2026-10-06.md; logbook 6 Oct. |
+| `RUN-ARCHIVE-01` | Unprioritized | Existing artifacts organized; future agent output guidance recorded; live-path cleanup pending | After the active GUI/watchdog handoff ends, confirm no live users and remove only the two old-path compatibility symlinks. | Six date folders; 88 moves / 3,795 entries retain inode identity. No application/runtime or producer change. TASKS contract; diagnostics/RUN_ARCHIVE_LAYOUT_2026-10-06.md; logbook 6 Oct. |

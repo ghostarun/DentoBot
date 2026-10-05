@@ -7404,3 +7404,16 @@ and watchdog paths; no process restart or runtime acceptance is inferred.
 Operator: "adjusting base yaw is one of the last preferred adjustments in our robot design."
 - Feasibility Advisor and Diagnose lever lists put Base yaw last for every cause class (after planning reliability, corridor margin, mouth opening and Base translation).
 - Neither accepted case used yaw: FDI14 used the saved Base (yaw 0); FDI11 used Find Reachable Base level 1, a forehead-plane translation (u = 0, v = −3 mm) with locked orientation, measured yaw 0.000° relative to the saved Base.
+
+## 6 October 2026 — RUN-ARCHIVE-01 future agent output convention
+
+Operator explicitly requests the future testing saving scheme in Claude and
+Codex context and authorizes a commit. Adopt UTC run-start date folders with a
+unique task/timestamp run directory, fixed across midnight, containing all run
+artifacts. Verification scratch may remain at the matrix path, with completed
+evidence copied into the durable dated archive. Existing output overrides are
+selected before running; incompatible producers need a recorded exception and
+post-stop organization. This supersedes the undecided agent-saving guidance,
+not historical date attribution. No producer implementation or runtime launch
+is included. AGENT_CONTEXT owns the shared scheme; both entrypoints link it,
+and the canonical verification protocol reconciles scratch vs durable output.

@@ -1,5 +1,35 @@
 # DENTOBOT agent context
 
+## Testing output storage — 6 October 2026 (`RUN-ARCHIVE-01`)
+
+For every future agent-run test/diagnostic campaign, save durable output under
+`data/dentobot-runs/YYYY-MM-DD/<task-id>-<UTC-start-timestamp>/` in the Ubuntu
+overlay, not the source checkout. Use the **UTC run-start date** and timestamp
+(e.g. `2026-10-06/S6-LIVE-01-20261006T213000Z`); keep that directory for the whole
+run even across midnight. Container path: `/workspace/data/dentobot-runs/...`;
+this station's host root: `/home/tarun/dentobot/data/dentobot-runs`.
+
+Keep scripts, logs, screenshots, videos, JSON/results, reports and session
+inbox/outbox beneath that run; use subfolders for attempts/cases. Never overwrite
+another run or create a new flat top-level run folder. If a tool requires a
+scratch path (including `/tmp/dentobot-verification/<run-id>/`), retain its full
+logs/result.json there and copy the completed evidence into the dated durable
+run folder before reporting completion; record both paths. Set the existing
+output-directory option/environment override before execution and verify the
+resolved path. Do not silently assume a producer follows this scheme; if it
+cannot be configured, record the exception and move completed output only after
+its writers/session have stopped. No live-session moves or alias reuse for new
+runs. A shared watchdog output, when required by existing tooling, belongs at
+`YYYY-MM-DD/ui-watchdog/` with unique timestamp/PID filenames using the same
+UTC start date. Prefer run-local watchdog evidence when configurable.
+
+Runtime approvals, privacy rules and acceptance gates remain unchanged. Keep
+payloads outside Git; commit only appropriate controlled records/manifests.
+Historical dates/path strings stay as recorded; the
+[archive layout](diagnostics/RUN_ARCHIVE_LAYOUT_2026-10-06.md) and move manifest
+locate older evidence. This policy directs agent output selection; it does not
+claim all existing producers have been changed automatically.
+
 ## Current 4 October 30-second isolated planner result (`S6-LIVE-01`, P0)
 
 The explicitly approved one-factor domain-74 copy request is complete. With

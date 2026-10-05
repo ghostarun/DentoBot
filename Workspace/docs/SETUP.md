@@ -2139,3 +2139,7 @@ Existing `/home/tarun/dentobot/data/dentobot-runs` content is grouped under
 See [layout and live compatibility paths](diagnostics/RUN_ARCHIVE_LAYOUT_2026-10-06.md)
 and its move manifest. Producer defaults and container mounts are unchanged;
 future flat output is not automatically organized by this one-time migration.
+
+**Future agent-run output (6 October follow-up):** select the dated durable run
+path via existing output options before execution, using UTC run-start date;
+see AGENT_CONTEXT.md. Producer defaults have not been automatically rewritten.

@@ -23,7 +23,8 @@ Two root compatibility symlinks preserve the currently active handoff:
 The active watchdog writes through already open file descriptors. The GUI
 session polls its original absolute path, so its alias must remain while active.
 Retiring these aliases is pending under `RUN-ARCHIVE-01` in backlog.md. Existing
-producers are unchanged; new runs may still use the flat root. Do not reuse the
+producer defaults are unchanged; future agents must select dated output paths
+following AGENT_CONTEXT.md, or record a tool exception and organize after stop. Do not reuse the
 watchdog alias for a new session on a different date without updating routing.
 
 Verification: 88 rename operations; device/inode/type identity unchanged for

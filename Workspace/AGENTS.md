@@ -255,3 +255,13 @@ Rules:
 Current container/DENTOBOT performance diagnosis, watchdog improvements and acceptance target **native Ubuntu** on the consolidated integration checkout. Attribute host RAM, swap, disk/I/O, CPU and graphics measurements to that Ubuntu workstation and record its hardware/runtime identity. Do not generalize native Ubuntu results to Windows/WSL/WSLg.
 
 Windows/WSL performance verification is a separate later environment-specific campaign under existing platform owners. Adapt collection and checks to Windows host resources, WSL VM memory/swap limits, filesystem boundaries and WSLg/GPU presentation; retain separate baselines and acceptance evidence. Cross-platform support remains intended, but it does not expand the current Ubuntu investigation. Reuse existing tasks and monitoring infrastructure; no new queue, runtime authorization or change to the indefinite 5.12 hold.
+
+## Future testing output storage — 6 October 2026
+
+Follow the **Testing output storage** convention in `docs/AGENT_CONTEXT.md` for
+all future tests/diagnostics: durable artifacts under the Ubuntu overlay's
+`data/dentobot-runs/YYYY-MM-DD/<task-id>-<UTC-start-timestamp>/`, using the UTC
+run-start date. Configure existing output overrides before execution, keep all
+run evidence/session files together, and archive completed verification scratch
+there. Do not create flat root run folders, overwrite runs, or move live writers.
+The canonical verification protocol retains execution/acceptance authority.

@@ -302,9 +302,16 @@ abort evidence remains visible.
 
 ## Evidence and token budget
 
-Use `/tmp/dentobot-verification/<run-id>/`. Each check writes its complete log
-there and a compact `result.json`. Do not paste full logs into agent chat or
-controlled documents.
+Use `/tmp/dentobot-verification/<run-id>/` for verification scratch when required
+by the matrix. Each check writes its complete log and compact `result.json`.
+Durable output follows **Testing output storage** in `AGENT_CONTEXT.md`:
+`data/dentobot-runs/YYYY-MM-DD/<task-id>-<UTC-start-timestamp>/`, using the UTC
+run-start date, fixed throughout the run. Configure output paths before starting;
+copy completed scratch evidence into this dated directory and record both paths.
+Keep all run artifacts/session files underneath it; never overwrite prior runs
+or relocate active writers. Tool exceptions must be recorded and their output
+organized after shutdown. Do not paste full logs into agent chat or controlled
+documents.
 
 Each worker returns at most 12 lines containing:
 

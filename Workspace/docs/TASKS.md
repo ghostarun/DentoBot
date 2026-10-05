@@ -2786,3 +2786,13 @@ needed for this path-only migration. Evidence: logbook/2026-10-06.md and
 the old paths, then retire only the two compatibility symlinks. Keep this task
 in backlog until that bounded cleanup is recorded. Future automatic date routing
 is a separate undecided option, not authorized implementation.
+
+### RUN-ARCHIVE-01 follow-up — future output instructions and commit
+
+Operator extends this same task to shared agent context plus Claude/Codex
+entrypoints and explicitly authorizes commit. Added UTC run-start date/unique
+run-directory guidance, output overrides, cross-midnight continuity, grouped
+artifacts and scratch archiving; aligned the canonical verification protocol.
+Documentation-only acceptance: readback/path parity and scoped Git diff checks.
+Automatic producer source changes are outside this turn. The existing live-alias
+cleanup remains pending in backlog; this does not authorize closing runtimes.
