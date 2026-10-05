@@ -95,3 +95,73 @@ def test_failure_after_pass_marks_later_checks_not_run():
     result = bd.summarize(rows)
     assert result["cause"] == "entry_collision"
     assert [row["status"] for row in result["rows"]] == [bd.PASS, bd.PASS, bd.PASS, bd.FAIL, bd.NOT_RUN]
+
+
+def test_pair_classification_names_obstacle_class_and_tool_part():
+    canine = "dentobot_tooth_2.25.86807283465178072659419388615512220786_23e609d0"
+    assert bd.classify_pair([canine, "pneumatic_spindle-Copy"]) == {
+        "bodies": [canine, "pneumatic_spindle-Copy"],
+        "cause_class": "anatomy_neighbour",
+        "tool_part": "spindle_housing",
+    }
+    assert bd.classify_pair(["dentobot_mouth_barrier_lip_slab", "pneumatic_spindle-Copy"])["cause_class"] == "barrier"
+    template = bd.classify_pair(["[Step 5C] DENTO Final Printable Template", "burr"])
+    assert template["cause_class"] == "template" and template["tool_part"] == "burr"
+    assert bd.classify_pair(["dentobot_target_tooth_2.25.1", "burr"])["cause_class"] == "target_tooth"
+    assert bd.classify_pair("not a pair") == {}
+
+
+def test_blocked_corridor_message_names_pair_class_and_levers():
+    """S6-LIVE-01 2026-10-04: corridor blocked by the lower canine at 40 mm opening."""
+    reason = (
+        "Approach corridor unavailable (axial corridor blocked 0.00 mm behind PreEntry: MoveIt rejected "
+        "the explicit static joint state; contacts=dentobot_tooth_2.25.868_23e609d0<->pneumatic_spindle-Copy); "
+        "direct plan: The planner returned an empty trajectory."
+    )
+    rows = [
+        bd.stroke_row({"reachable": True}),
+        bd.preentry_row("EndpointChecksPassed"),
+        bd.stage_row("P1", _stage("failed", reason=reason)),
+    ]
+    result = bd.summarize(rows)
+    assert result["status"] == bd.FAIL and result["cause_class"] == "anatomy_neighbour"
+    assert result["blocking_pairs"][0]["tool_part"] == "spindle_housing"
+    assert result["suggested_levers"][0].startswith("Mouth opening")
+    assert "Neighbouring anatomy" in result["verdict"] and "spindle housing" in result["verdict"]
+
+
+def test_empty_plan_without_contacts_is_a_narrow_passage():
+    reason = (
+        "Approach corridor unavailable (Home to approach point failed: MoveIt joint-goal planning failed "
+        "after 5 stable-scene attempt(s): The planner returned an empty trajectory. code=99999 (FAILURE))"
+    )
+    row = bd.stage_row("P1", _stage("failed", reason=reason))
+    assert row["cause"] == "planner_corridor" and row["cause_class"] == "narrow_passage"
+    result = bd.summarize([bd.stroke_row({"reachable": True}), bd.preentry_row("EndpointChecksPassed"), row])
+    assert result["suggested_levers"][0] == "Planning attempts/time"
+
+
+def test_route_pair_from_plan_and_reach_class_and_no_levers_on_pass():
+    row = bd.stage_row("P1", _stage("failed", plan={"first_invalid_collision_pairs": [
+        ["[Step 5C] DENTO Final Printable Template", "burr"]]}))
+    assert row["cause"] == "route_collision" and row["cause_class"] == "template"
+    assert bd.stroke_row({"reachable": False})["cause_class"] == "reach"
+    passed = bd.summarize([bd.stroke_row({"reachable": True}), bd.preentry_row("EndpointChecksPassed"),
+                           bd.stage_row("P1", _stage("passed")), bd.stage_row("P2", _stage("passed")),
+                           bd.stage_row("P3", _stage("passed"))])
+    assert passed["status"] == bd.PASS and passed["suggested_levers"] == [] and passed["cause_class"] == ""
+
+
+def test_unknown_stage_names_guard_reason_and_truncation_warning_is_template_class():
+    unknown = _stage("unknown", reason="Approach corridor: planned.")
+    unknown["endpoint_evidence"]["phase_guard"] = {
+        "status": "unknown", "named_pair": None,
+        "reason": "Task guard rejected approach sequence 1: Command guard session does not match the active preview session.",
+    }
+    row = bd.stage_row("P1", unknown)
+    assert row["cause_class"] == "unknown" and "Guard evidence unavailable: Task guard rejected" in row["detail"]
+    truncated = bd.stage_row("P3", _stage("passed", plan={"drilling_truncation": {
+        "blocking_pair": ["[Step 5C] DENTO Final Printable Template", "pneumatic_spindle-Copy"],
+        "completed_depth_mm": 3.64, "requested_depth_mm": 8.25, "remaining_depth_mm": 4.61}}))
+    assert truncated["status"] == bd.WARNING and truncated["cause_class"] == "template"
+    assert truncated["blocking_pairs"][0]["tool_part"] == "spindle_housing"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from DENTOLayoutFit import NarrowFitController
 from .ui_scroll_support import installScrollAreaComboBoxWheelGuards
 
 
@@ -778,6 +779,16 @@ class ApplicationWidgetMixin:
         self._workflowContentScrollArea = scrollArea
         self._workflowContentWidget = contentWidget
         self._workflowContentLayout = contentLayout
+        self._narrowFit = NarrowFitController(contentWidget)
+
+    def _applyNarrowFit(self, installResizeReflow: bool = False) -> None:
+        """Fit newly built widgets to the narrow dock; idempotent, see DENTOLayoutFit."""
+        controller = getattr(self, "_narrowFit", None)
+        if controller is None:
+            return
+        controller.apply()
+        if installResizeReflow:
+            controller.installResizeReflow()
 
     def _syncWorkflowMoreMenu(self) -> None:
         self._workflowFrameViewAction.enabled = bool(

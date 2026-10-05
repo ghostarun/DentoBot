@@ -6971,6 +6971,57 @@ def test_approach_corridor_composes_free_space_then_straight_descent_and_falls_b
     assert "corridor unavailable" in fallback.message
 
 
+def test_approach_corridor_shortens_to_collision_free_prefix_or_reports_block():
+    """S6-LIVE-01 2026-10-04: A was inside FDI43/lip slab; keep the clear prefix."""
+    from DENTOROS2Bridge import MoveItCartesianResult
+
+    facade, parameter_node, _logic, bridge = make_facade()
+    parameter_node.robotMotionPlanSampleCount = 5
+    q = lambda v: {name: float(v) for name in ROS2_JOINT_SI_ORDER}
+    goals = []
+    back = tuple(q(v) for v in (5, 6, 7, 8, 9))  # PreEntry .. 12 mm out, 3 mm apart
+    bridge.plan_moveit_cartesian_path = lambda **k: MoveItCartesianResult(
+        True, "line", 1.0, back, (0.0, 0.1, 0.2, 0.3, 0.4))
+
+    def joint(**kwargs):
+        goals.append(kwargs["goal_joint_positions_si"]["link-1_Revolute-1"])
+        return MoveItCartesianResult(True, "free", 1.0, (q(0), q(kwargs["goal_joint_positions_si"]["link-1_Revolute-1"])), (0.0, 1.0))
+
+    bridge.plan_moveit_joint_goal = joint
+    blocked_from = {"value": 8.0}
+    bridge.check_moveit_static_joint_state = lambda state: (
+        (state["link-1_Revolute-1"] < blocked_from["value"]), "lip_slab <-> spindle", True)
+    args = dict(pre_entry=(0.0, 0.0, -2.0), entry=(0.0, 0.0, 0.0), target=(0.0, 0.0, 10.0),
+                fixed_rotation_ras=None, roll_deg=0.0, planner_context="t")
+    plan = facade._plan_home_to_preentry_with_corridor(parameter_node, q(0), q(5), **args)
+    assert goals[-1] == 7.0  # shortened approach point: last valid back-out state
+    assert [p["link-1_Revolute-1"] for p in plan.waypoint_joint_vectors_si] == [0, 7, 6, 5]
+    assert "6.00 mm out along the drill axis" in plan.message
+    facade._approach_corridor_margin_samples = 1
+    margin = facade._plan_home_to_preentry_with_corridor(parameter_node, q(0), q(5), **args)
+    assert goals[-1] == 6.0 and "3.00 mm out along the drill axis" in margin.message
+    facade._approach_corridor_margin_samples = 0
+    blocked_from["value"] = 6.0
+    fallback = facade._plan_home_to_preentry_with_corridor(parameter_node, q(0), q(5), **args)
+    assert "axial corridor blocked 0.00 mm behind PreEntry: lip_slab <-> spindle" in fallback.message
+
+
+def test_free_space_leg_is_replanned_independently_when_the_planner_returns_no_route():
+    """S6-LIVE-01 2026-10-05: a single sampling call misses an existing route ~1 in 30."""
+    import DENTORobotWorkflowFacade as module
+    from DENTOROS2Bridge import MoveItCartesianResult
+
+    facade, parameter_node, _logic, bridge = make_facade()
+    q = lambda v: {name: float(v) for name in ROS2_JOINT_SI_ORDER}
+    replies = [MoveItCartesianResult(False, "empty"), MoveItCartesianResult(True, "free", 1.0, (q(0), q(7)), (0.0, 1.0))]
+    bridge.plan_moveit_joint_goal = lambda **k: replies.pop(0)
+    plan = facade._plan_joint_goal_with_retries(start_joint_positions_si=q(0), goal_joint_positions_si=q(7))
+    assert plan.success and "re-plan 2 of 8" in plan.message
+    bridge.plan_moveit_joint_goal = lambda **k: MoveItCartesianResult(False, "empty")
+    failed = facade._plan_joint_goal_with_retries(start_joint_positions_si=q(0), goal_joint_positions_si=q(7))
+    assert not failed.success and f"no route in {module.STEP6_JOINT_PLAN_RETRIES} independent re-plans" in failed.message
+
+
 def test_spindle_guide_contact_option_reaches_guard_and_policy_fingerprint_only_when_on():
     import DENTOROS2Bridge as real_bridge
 

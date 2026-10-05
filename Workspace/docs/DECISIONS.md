@@ -7255,3 +7255,110 @@ Corridor decision: reverse translation does not reverse the physical drill axis.
 
 ### 2026-10-04 — S6-LIVE-01 separate checkpoint/fresh-session continuation approved
 Operator approved the separate checkpoint after the bridge deployment gate, requested local commit label `codex planner debug - oct 4`, and continued testing. Preserve the original Oct4 case; restore the separate runtime-free checkpoint into a fresh simulation session to load the tested reverse-travel correction. No push, hardware, geometry/policy change or acceptance is authorized by this checkpoint. Prior P1 attempt counter carries across sessions. Tarun verdict PENDING.
+
+
+### 2026-10-04 — S6-LIVE-01 P1 retry ceiling / evidence boundary
+Approved separate checkpoint and local commit efd36b50f7b523b2105726189e1f20f0ef066641 (`codex planner debug - oct 4`); original case byte-identical. Tested bridge loaded in fresh simulation PID3122. Home3 revalidates identical Home2 joints, current snapshot; all34 MoveGroup object bounds match audit. Attempts109/121/124 reached P1 retry ceiling: original RRTConnect axis rejection, corrected RRTConnect corridor invalid goal/direct native ValidateSolution burr/template rejection, RRTstar5s timeout. No motion or downstream button, noA/B, no minimum physical-change certificate. Original planner/options/Base restored or preserved. Session now served from planner-resolution-20261004T023621Z/session. Compact blocker escalation required before more P1 retries. Tarun verdict PENDING.
+Native path-validation failure distinguishes a postprocessing/clearance investigation from pure reach infeasibility. No tolerance, collision resolution, dimensions or geometry relaxed. One-factor RRTstar trial restored to baseline. Use compact blocker escalation per verification protocol, preserving incomplete section6 certificates explicitly; continuation needs a new bounded operator decision.
+
+
+2026-10-04 UTC02:58 S6-LIVE-01: operator explicitly approves bounded plan-only native postprocessing investigation after retry ceiling. Failure history persists; unchanged guards/geometry/Home/Base; no fullGUIretry inference. One rawservice trajectory-retention check first; newrequest requires newdiagnostic hypothesis. VerdictPENDING.
+
+
+### 2026-10-04 — native invalid-path evidence / isolated sampling proposal
+Bounded native plan-only investigation approved by “Yes proceed” is complete: one rawservice request retains112points despite99999; authoritativechecks reproduceburr/template invalid104–108, dense41/51invalid peak0.286936408mm. Full34-objectscenegeometry/ACMunchanged, Home/PreEntryvalid, no motion/GUIplan/routeauthoritychange. Originalpre-TOTGverticesunknown; samplingversuspostprocessingnotproven. Proposed isolatedSIMULATION-ONLYOMPLfraction0.005→0.0005trial notloaded; collision-policy approvalneeded peroperatorsection3. Evidenceplanner-resolution-20261004T025825Z; prior109/121/124historyretained; neitherA/B, physicalminimumunknown, TarunverdictPENDING.
+Keep nativeValidateSolution and independentguard fail-closed; do not reinterpret invalidtrajectory as previewauthority. Nativebadtrajectory data is diagnostic only. No software-resolution versusTOTGexclusivecausation proof or physicalredesignclaim. Offlineproposedconfiguration isreviewable; any collision-check discretization trial usesexplicitoperatorapproval.
+
+
+### S6-LIVE-01 isolated sampling trial approved — UTC07:02
+**Operator:** “approved”, answering the isolatedSIMULATION-ONLY0.005→0.0005proposal.
+**Interpretation:** onlydomain74copyoneplan-onlyrequest; originaldomain73case/policy/guards/jointsunchanged. Priorfailurehistoryretained; noGUIfullchain/deploymentapprovalinferred. Newcontract/evidence /home/tarun/dentobot/data/dentobot-runs/planner-resolution-20261004T070243Z. Sessionidlelimitexpired; existingbootstrapreattachedsamePID3122withfocusedconsole, norestart.
+
+
+### 4 October UTC07:11 — S6-LIVE-01 approved isolated sampling trial result
+Operator “approved” authorized one domain74 SIMULATION-ONLY request at OMPL fraction0.0005 (original0.005), stop first valid result. Corrected geometry-verified copy TIMED_OUT5s, error99999/zero points; original scene unchanged and final PID3122/Home3/Base/snapshot/options unchanged, no motion. Earlier missing-overlay copy result134 excluded; known burr/template collision canary0.286936408427mm matched original. Copy stopped/domain74 empty (SIGINT cleanup crash139 retained). Evidence planner-resolution-20261004T070243Z,135/136 and logbook. NeitherA/B nor physical minimum certified. Next reviewable hypothesis is one30s plan-only copy request with all other settings identical; not executed or deployed. Original109/121/124 ceiling persists. Tarun verdict PENDING.
+
+
+### S6-LIVE-01 30s copy trial approved — UTC07:14
+**Operator:** “give better progress updates explaining what task you are working on, and previous output, reasoning for next attempt... approved trial”. **Interpretation:** specific proposal one30s copyrequest replaces prior5s budget only; finer sampling/config/scene unchanged, no live deployment/motion/GUI retry. Progress updates will name active blocker, prior result and discriminating hypothesis. Contract/evidence planner-resolution-20261004T071413Z; stop first result. Prior failure history preserved.
+
+## 4 October 2026 — Whole-module narrow-fit width contract (`UI-P3-01`)
+
+**Decision.** DENTOWorkflow adopts a width contract instead of per-widget
+minimum-width patches: pages reflow from 340 logical px, never scroll
+horizontally, and the task dock is sized from the current screen. Mechanism:
+`DENTOLayoutFit` caps hint-driven minimum widths with a small floor (Qt only
+shrinks below a size hint when an explicit positive minimum or an Ignored policy
+exists), applies wrap-long-rows to form layouts, and stacks horizontal rows
+vertically while their natural width does not fit (hysteresis; stretches
+neutralised and restored). It is idempotent and re-applied after setup and each
+stage change, so lazily built panels are covered. `DENTOBOT_NARROW_FIT=0`
+disables it for a live session.
+
+**Why.** Operator: lateral scrolling at varying monitor resolutions spoils UX;
+the previous fix pattern (Ignored policy and zero minimum per label) did not
+generalise and the inner scroll area's horizontal AlwaysOff only clipped.
+
+**Boundaries.** Explicit minimums wider than the dock (intentional per-panel
+sizes), long checkbox/radio captions and grid layouts are not changed by the
+generic pass; they are listed by `findWidthOffenders` and fixed per panel after
+the runtime audit. No control is removed; Step 6 gates and policy are unchanged.
+Supersedes the `UI-P3-01` deferral for this slice only.
+
+
+### 4 October UTC07:16 — S6-LIVE-01 30-second copy result and stop
+
+The specifically approved domain74 plan-only request at OMPL fraction0.0005
+used one RRTConnect attempt and a30s budget. It returned error99999/zero points
+after30.003s while copied/original34-object geometry, ACM, padding, scale,
+transform and the0.286936408427mm collision canary matched; original scene
+hashes remained unchanged. Decision: extra time alone is not accepted as the
+missing cause, and this result does not establish infeasibility, a physical
+minimum or route authority. Preserve guards and geometry; no automatic retry.
+
+The later `planner-resolution-20261004T080424Z` branch/planner/Base/scale
+artifacts have no matching expanded approval in the controlled task record.
+They remain unaccepted diagnostic material until Tarun explicitly decides
+whether they may be admitted. Their results do not authorize Base, spindle,
+URDF, collision-policy or tolerance changes. Stop further planner/geometry
+execution and retain the existing P1 failure history.
+
+## 4 October 2026 (later) — Narrow-fit refinements from the runtime audit (`UI-P3-01`)
+
+Measured on the unmodified module (no case): 12 of 15 pages needed more than the
+377 px viewport and the shell chrome alone needed 414 px. Decisions: (1) long
+checkbox/radio captions wrap by inserting line breaks, not by restructuring
+layouts (original text kept in a dynamic property; re-wrapped when other code
+sets a new caption); (2) chrome opts out of the generic pass with
+`dentobotNoFit` / `dentobotNoReflow` where stacking or wrapping would cost
+pinned height; (3) the shell header shows one label per row so the complete
+"SIMULATION / RESEARCH ONLY" wording is never shortened or wrapped; (4) the
+shell view/theme/mode controls sit on a second row beneath the substep selector;
+(5) a numeric "fits" result is not acceptance — screenshots are inspected, as a
+48 px minimum only proves widgets may shrink. Audit runs must back up and
+restore `Slicer.ini`.
+
+## 4 October 2026 (evening) — S6-LIVE-01: adaptive approach corridor, 50 mm opening trial, tool/axis out of scope
+
+Operator: "Perform 1 and 2" (open the mouth further; check the lip-slab placement); "Distance of corridor adjustment to make it work also good"; "3 is out of current scope, but note that in docs" (option 3 = change the drill axis or the tool/contra-angle head); spindle housing (the part holding the drill) must never be allowed to contact the lip barrier; the stem may be split off and allowed later.
+
+1. **Adaptive approach corridor (implemented).** `_plan_home_to_preentry_with_corridor` keeps the 12 mm axial corridor as the maximum, but checks each straight back-out state with `check_moveit_static_joint_state` and moves the approach point A to the last collision-free state. If less than `STEP6_APPROACH_CORRIDOR_MIN_MM` (1.0 mm) is clear, it falls back to the direct plan and names the blocking pair in the message. Collision rules, guard and barrier are unchanged; only the length of the axis-aligned final approach adapts. Unit-tested (`test_approach_corridor_shortens_to_collision_free_prefix_or_reports_block`).
+2. **Mouth opening 40 → 50 mm (SIMULATION-ONLY case-copy trial).** Applied to the run-local copy of the Oct4 checkpoint case only; the original case is unchanged. The articulator reached 49.98 mm at a 25.4° hinge (model cap 42°). No clinical justification for 50 mm is claimed; the patient's real maximum opening is unknown.
+3. **Lip slab placement (checked, unchanged).** It is built per design: lip-line plane = most labial anterior tooth + 2 mm, slab 8 mm thick outward, `gum_line` edges (the widest opening mode), portal enlarged by 5 mm, and it is rebuilt from the opened jaw. No defect found. The thickness and margin constants are clinical guesses with no GUI control (see OPEN-QUESTION lines in the 4 October logbook).
+4. **Drill axis/tool change: out of current scope** (operator). Recorded as a future lever: a smaller contra-angle head or a different implant axis would clear the FDI43/lip contacts without changing the opening.
+5. **Stem/head split: not applied.** On the retained contact, the lip-slab contact maps to the head (radius ~8.5 mm, around the burr mount), not the ~3.4 mm stem. A future software or hardware split remains an option only for stem contacts.
+
+## 5 October 2026 — Mouth-opening upper limit for this case: 46 mm (`S6-LIVE-01`)
+
+Operator: "46mm is the upper limit, forgot to mention earlier, note for future testing".
+
+- The incisor-gap opening for the FDI14 Oct4 case must not exceed **46 mm** in any planning search, trial or acceptance. `feasibility_advisor.Limits.max_opening_mm` now defaults to 46.0.
+- Earlier results above 46 mm are **out of limit**: the 49.98 mm two-cycle pass (4 Oct, 037) and advisor candidates at 48/50 mm (5 Oct). They remain diagnostic evidence only and must not be presented as a viable configuration.
+- Results at ≤ 46 mm remain within scope, including the 40.52 mm two-cycle pass (4 Oct, 046).
+
+## 5 October 2026 — Planning success criterion and shortened drilling (`S6-LIVE-01`)
+
+Operator: "10/10 is the only success since we deal with medical image guided intervention. Drilling length shortened is fine, not a dealbreaker and passes as success but with a warning and highlighted diagnostics on missed trajectory length, and possible diagnostic feedback on why it can't drill further and what needs to be changed to make it drill any further length possible. So yes treat this as clinically useful."
+
+1. **Reliability bar:** a configuration counts as planning-successful only if it passes 10 out of 10 repeated planning trials. Fewer than 10/10 is a failure, however close. Applies to the Feasibility Advisor and all acceptance claims.
+2. **Shortened drilling (2 Oct rule 2b) is a success with a WARNING**, clinically useful. Required with it: highlighted missed length (existing magenta remainder and depths), the blocking pair (existing), and **new:** feedback on why drilling cannot continue and what would have to change to drill further (e.g. template sleeve height/relief at the blocking contact, tool/head size). Recorded as pending work.

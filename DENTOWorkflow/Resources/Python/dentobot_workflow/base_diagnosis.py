@@ -16,6 +16,7 @@ results here. Diagnostics carry no route or preview authority.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 
 CHECK_ORDER = ("stroke_reach", "preentry_endpoint", "p1_route", "p2_entry", "p3_drilling")
@@ -40,9 +41,82 @@ CAUSE_TITLES = {
 }
 PASS, FAIL, WARNING, NOT_RUN = "PASS", "FAIL", "WARNING", "NOT RUN"
 
+# Cause classes (operator 2026-10-05, Feasibility Advisor step 1): what kind of
+# thing blocks the plan, independent of which check found it.
+CAUSE_CLASS_TITLES = {
+    "reach": "Reach / joint limits",
+    "anatomy_neighbour": "Neighbouring anatomy",
+    "target_tooth": "Target tooth",
+    "barrier": "Mouth barrier (lip slab / cheek)",
+    "template": "Final printable template",
+    "narrow_passage": "Narrow passage (endpoints valid, planner found no route)",
+    "solver": "IK solver",
+    "unknown": "Unknown",
+}
+# Least invasive first. Advisory only: nothing here is applied automatically, and
+# contact allowances, guard tolerances and tool/axis changes are never suggested.
+CAUSE_CLASS_LEVERS = {
+    "reach": ("Find Reachable Base (6.1)", "Base translation"),
+    "anatomy_neighbour": ("Mouth opening (+0.5 mm steps, within the patient maximum)", "Base yaw (±5° steps)"),
+    "target_tooth": ("Review the PreEntry standoff and drill axis (operator)",),
+    "barrier": ("Base yaw (±5° steps)", "Base translation", "Mouth opening"),
+    "template": ("Base yaw (±5° steps)", "Template sleeve/relief review (operator, not automatic)"),
+    "narrow_passage": ("Planning attempts/time", "Approach-corridor margin", "Base yaw (±5° steps)"),
+    "solver": ("PreEntry IK seeds/budget",),
+    "unknown": (),
+}
+_CONTACTS = re.compile(r"contacts=(.+?)<->([^\s;,)]+)")
+_EMPTY_PLAN = ("empty trajectory", "code=99999")
 
-def _row(check: str, status: str, detail: str, cause: str = "") -> dict:
+
+def classify_body(name) -> str:
+    text = str(name or "")
+    lower = text.lower()
+    if lower.startswith("dentobot_mouth_barrier"):
+        return "barrier"
+    if lower.startswith("dentobot_target_tooth"):
+        return "target_tooth"
+    if lower.startswith(("dentobot_tooth", "dentobot_jaw")):
+        return "anatomy_neighbour"
+    if any(word in text for word in ("Template", "Docking", "Support", "Guide")):
+        return "template"
+    if lower == "burr":
+        return "burr"
+    if lower.startswith("pneumatic_spindle"):
+        return "spindle_housing"
+    if lower.startswith("link-") or lower == "base_link":
+        return "arm_link"
+    return "unknown"
+
+
+def classify_pair(pair) -> dict:
+    """Name the obstacle class and the robot/tool part of one contact pair."""
+    if not (isinstance(pair, Sequence) and not isinstance(pair, str) and len(pair) >= 2):
+        return {}
+    kinds = [classify_body(pair[0]), classify_body(pair[1])]
+    tool = [k for k in kinds if k in ("burr", "spindle_housing", "arm_link")]
+    obstacle = [k for k in kinds if k not in ("burr", "spindle_housing", "arm_link")]
     return {
+        "bodies": [str(pair[0]), str(pair[1])],
+        "cause_class": obstacle[0] if obstacle else "unknown",
+        "tool_part": tool[0] if tool else "unknown",
+    }
+
+
+def contact_pairs_from_text(text) -> list:
+    """Pairs named as ``contacts=A<->B`` in planner/validity messages."""
+    return [[a.strip(), b.strip()] for a, b in _CONTACTS.findall(str(text or ""))]
+
+
+def _row(check: str, status: str, detail: str, cause: str = "", *,
+         cause_class: str = "", pairs=()) -> dict:
+    classified = [c for c in (classify_pair(p) for p in pairs) if c]
+    if not cause_class and classified:
+        cause_class = classified[0]["cause_class"]
+    return {
+        "cause_class": cause_class,
+        "cause_class_title": CAUSE_CLASS_TITLES.get(cause_class, "") if cause_class else "",
+        "blocking_pairs": classified,
         "check": check,
         "title": CHECK_TITLES[check],
         "status": status,
@@ -70,6 +144,7 @@ def stroke_row(stroke: Mapping | None) -> dict:
         f"The accepted Base cannot reach {station} inside the joint limits. "
         "Use Find Reachable Base in 6.1.",
         "base_placement",
+        cause_class="reach",
     )
 
 
@@ -77,6 +152,7 @@ def preentry_row(diagnostic_status: str, candidate_records: Sequence[Mapping] = 
     if diagnostic_status == "EndpointChecksPassed":
         return _row("preentry_endpoint", PASS, "At least one collision-checked PreEntry state exists.")
     pairs = []
+    raw_pairs = []
     collision = False
     for record in candidate_records or ():
         classification = str(record.get("failure_classification") or "")
@@ -86,6 +162,7 @@ def preentry_row(diagnostic_status: str, candidate_records: Sequence[Mapping] = 
             text = _pair_text(pair)
             if text and text not in pairs:
                 pairs.append(text)
+                raw_pairs.append(pair)
     if collision or pairs:
         named = f" ({'; '.join(pairs[:3])})" if pairs else ""
         return _row(
@@ -93,6 +170,7 @@ def preentry_row(diagnostic_status: str, candidate_records: Sequence[Mapping] = 
             FAIL,
             f"The arm reaches PreEntry, but every candidate state collides{named}.",
             "endpoint_collision",
+            pairs=raw_pairs,
         )
     return _row(
         "preentry_endpoint",
@@ -100,6 +178,7 @@ def preentry_row(diagnostic_status: str, candidate_records: Sequence[Mapping] = 
         f"PreEntry IK found no state ({diagnostic_status or 'no result'}) although the stroke "
         "check passed; the solver budget or seeds are the suspect.",
         "solver",
+        cause_class="solver",
     )
 
 
@@ -123,25 +202,32 @@ def stage_row(phase_id: str, outcome: Mapping | None) -> dict:
                 f"{float(truncation.get('remaining_depth_mm', 0.0)):.2f} mm not completed"
                 + (f" ({pair})" if pair else "") + ".",
                 "tool_geometry",
+                pairs=[truncation.get("blocking_pair")] if pair else (),
             )
         return _row(check, PASS, str(outcome.get("reason") or "Passed."))
     reason = str(outcome.get("reason") or "Stage checks did not pass.")
     gate = evidence.get("mouth_portal_gate")
     if phase_id == "P1" and isinstance(gate, Mapping) and gate.get("status") not in (None, "passed", "skipped"):
-        return _row(check, FAIL, reason, "mouth_barrier")
-    pair = _pair_text(guard.get("named_pair"))
-    if not pair:
-        for candidate in plan.get("first_invalid_collision_pairs") or ():
-            pair = _pair_text(candidate)
-            if pair:
-                break
-    if pair:
+        return _row(check, FAIL, reason, "mouth_barrier", cause_class="barrier")
+    raw = []
+    for candidate in (guard.get("named_pair"), *(plan.get("first_invalid_collision_pairs") or ())):
+        if _pair_text(candidate) and list(candidate[:2]) not in raw:
+            raw.append(list(candidate[:2]))
+    # A blocked approach corridor names its pair only in the message text.
+    for candidate in contact_pairs_from_text(reason) + contact_pairs_from_text(plan.get("message")):
+        if candidate not in raw:
+            raw.append(candidate)
+    if raw:
         cause = {"P1": "route_collision", "P2": "entry_collision", "P3": "drilling_collision"}[phase_id]
-        return _row(check, FAIL, f"{reason} Blocking pair: {pair}.", cause)
+        return _row(check, FAIL, f"{reason} Blocking pair: {_pair_text(raw[0])}.", cause, pairs=raw)
     if status == "unknown":
-        return _row(check, FAIL, reason, "unknown")
+        # Never silent: name the evidence that could not be established.
+        why = str(guard.get("reason") or "") if guard.get("status") == "unknown" else ""
+        detail = f"{reason} Guard evidence unavailable: {why}" if why else reason
+        return _row(check, FAIL, detail, "unknown", cause_class="unknown")
     cause = {"P1": "planner_corridor", "P2": "entry_collision", "P3": "drilling_collision"}[phase_id]
-    return _row(check, FAIL, reason, cause)
+    empty = any(marker in reason for marker in _EMPTY_PLAN)
+    return _row(check, FAIL, reason, cause, cause_class="narrow_passage" if empty else "unknown")
 
 
 def summarize(rows: Sequence[Mapping]) -> dict:
@@ -175,4 +261,22 @@ def summarize(rows: Sequence[Mapping]) -> dict:
     verdict = (
         f"{CAUSE_TITLES.get(cause, cause)}: {detail}" if cause else detail
     )
-    return {"status": status, "cause": cause, "verdict": verdict, "rows": table}
+    source = verdict_row if verdict_row is not None else warning_row
+    cause_class = str((source or {}).get("cause_class") or "")
+    levers = list(CAUSE_CLASS_LEVERS.get(cause_class, ())) if status == FAIL else []
+    if status == FAIL and cause_class:
+        verdict += f" Cause class: {CAUSE_CLASS_TITLES.get(cause_class, cause_class)}."
+        parts = sorted({p["tool_part"] for p in (source or {}).get("blocking_pairs") or () if p.get("tool_part") != "unknown"})
+        if parts:
+            verdict += " Tool part: " + ", ".join(part.replace("_", " ") for part in parts) + "."
+        if levers:
+            verdict += " Suggested levers (advisory, least invasive first): " + "; ".join(levers) + "."
+    return {
+        "status": status,
+        "cause": cause,
+        "cause_class": cause_class,
+        "blocking_pairs": list((source or {}).get("blocking_pairs") or ()),
+        "suggested_levers": levers,
+        "verdict": verdict,
+        "rows": table,
+    }

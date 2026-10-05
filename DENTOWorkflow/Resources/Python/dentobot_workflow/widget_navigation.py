@@ -656,6 +656,7 @@ class WorkflowNavigationWidgetMixin:
                     self._configureStep3Substep(self._recommendedStep3SubstepIndex())
                 else:
                     self._configureStep3Substep(self._step3SubstepIndex)
+        self._applyNarrowFit()
         self._syncOfflinePlacementHost()
         self._updateWorkflowNavigationRecommendation()
         if self._applicationShell and self._applicationShell.active:

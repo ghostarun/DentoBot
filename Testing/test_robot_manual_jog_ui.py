@@ -6023,9 +6023,10 @@ def test_display_toggles_for_mouth_barrier_and_reach_envelope_are_wired():
     shown = []
     barrier_box, envelope_box = Box(), Box()
     host = SimpleNamespace(
-        _parameterNode=SimpleNamespace(step6ShowMouthBarrier=True, step6ShowReachEnvelope=True),
+        _parameterNode=SimpleNamespace(step6ShowMouthBarrier=True, step6ShowMouthBarrierSurface=False,
+                                       step6ShowReachEnvelope=True),
         logic=SimpleNamespace(
-            setStep6MouthBarrierVisible=lambda value: shown.append(("barrier", value)),
+            setStep6MouthBarrierVisible=lambda value, surface=False: shown.append(("barrier", value, surface)),
             setStep6ReachEnvelopeVisible=lambda value: shown.append(("envelope", value)),
         ),
         _robotSimulationPanel=SimpleNamespace(showMouthBarrierCheckBox=barrier_box),
@@ -6034,7 +6035,7 @@ def test_display_toggles_for_mouth_barrier_and_reach_envelope_are_wired():
     )
     methods["_onSetShowMouthBarrier"](host, False)
     methods["_onSetShowReachEnvelope"](host, False)
-    assert shown == [("barrier", False), ("envelope", False)]
+    assert shown == [("barrier", False, False), ("envelope", False)]
     assert host._parameterNode.step6ShowMouthBarrier is False and barrier_box.checked is False
     assert host._parameterNode.step6ShowReachEnvelope is False and envelope_box.checked is False
 
@@ -6077,6 +6078,7 @@ def test_task_space_box_is_optional_off_by_default_with_side_and_opacity_control
     panel = (PYTHON / "DENTORobotSimulationPanel.py").read_text()
     shell = (PYTHON / "dentobot_workflow/widget_robot_shell.py").read_text()
     logic = (PYTHON / "dentobot_workflow/logic_robot_scene_sync.py").read_text()
+    overlays = (PYTHON / "dentobot_workflow/logic_robot_overlays.py").read_text()
     state = (PYTHON / "dentobot_workflow/parameter_state.py").read_text()
     assert "self.showTaskSpaceBoxCheckBox.checked = False" in panel
     assert "self.taskSpaceBoxSideSpinBox.value = 200.0" in panel
@@ -6086,7 +6088,7 @@ def test_task_space_box_is_optional_off_by_default_with_side_and_opacity_control
     assert "step6MouthBarrierOpacity: float = 0.12" in state
     assert '"set_task_space_box": self._onSetTaskSpaceBox' in shell
     assert "self.logic.setStep6ViewFrameBoxVisible(False)" in shell
-    assert "display.SetColor(0.20, 0.55, 1.0)" in logic  # box: cool blue
+    assert "display.SetColor(0.20, 0.55, 1.0)" in overlays  # box: cool blue
     assert "display.SetColor(0.95, 0.45, 0.60)" in logic  # barrier: rose
     assert 'SetAttribute("DENTOBOT.DisplayOpacity", "0.35")' not in logic
     methods = _methods(
@@ -6100,6 +6102,7 @@ def test_task_space_box_is_optional_off_by_default_with_side_and_opacity_control
         _parameterNode=SimpleNamespace(step6ShowTaskSpaceBox=False, step6TaskSpaceBoxSideMm=200.0,
                                        step6TaskSpaceBoxOpacity=0.1, step6MouthBarrierOpacity=0.12),
         logic=SimpleNamespace(
+            TASK_SPACE_BOX_MAX_OPACITY=0.30,
             updateStep6TaskSpaceBox=lambda *args: boxes.append(args),
             setStep6MouthBarrierOpacity=opacities.append,
         ),
@@ -6120,12 +6123,79 @@ def test_task_space_box_is_optional_off_by_default_with_side_and_opacity_control
     assert opacities == [1.0] and host._parameterNode.step6MouthBarrierOpacity == 1.0
 
 
+def test_mouth_barrier_display_is_a_thick_black_outline_plus_optional_full_surface():
+    """Operator 2026-10-04: the solid lip slab/cheek walls hid the relevant anatomy.
+    The viewport shows a strong black entry outline; the old full barrier is an
+    optional extra (off by default) drawn together with it. MoveIt always gets every part."""
+    logic = (PYTHON / "dentobot_workflow/logic_robot_scene_sync.py").read_text()
+    poly = logic[logic.index("    def step6MouthBarrierPolydataWorld("):logic.index("    def _step6MouthBarrierModels(")]
+    assert "self._showStep6MouthBarrier(parts, barrier.opening.vertices_mm," in poly
+    assert "return parts" in poly  # MoveIt/preflight still get every barrier part
+    show = logic[logic.index("    def _showStep6MouthBarrier("):logic.index("    def checkStep6MouthPortalGate(")]
+    assert "vtk.vtkTubeFilter()" in show and "SetLines(" in show
+    assert "display.SetColor(0.0, 0.0, 0.0)" in show  # outline: black
+    assert "MOUTH_ENTRY_OUTLINE_RADIUS_MM = 1.5" in logic
+    assert "vtkAppendPolyData" in show and "display.SetColor(0.95, 0.45, 0.60)" in show  # optional surface
+    state = (PYTHON / "dentobot_workflow/parameter_state.py").read_text()
+    panel = (PYTHON / "DENTORobotSimulationPanel.py").read_text()
+    assert "step6ShowMouthBarrierSurface: bool = False" in state
+    assert "self.showMouthBarrierSurfaceCheckBox.checked = False" in panel
+    methods = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_placement.py",
+        "RobotPlacementWidgetMixin",
+        {"_onSetShowMouthBarrierSurface", "_syncCheckBox"},
+        {"_": lambda text: text},
+    )
+    shown = []
+    host = SimpleNamespace(
+        _parameterNode=SimpleNamespace(step6ShowMouthBarrier=True, step6ShowMouthBarrierSurface=False),
+        logic=SimpleNamespace(setStep6MouthBarrierVisible=lambda *args: shown.append(args)),
+        _robotSimulationPanel=None, _syncCheckBox=methods["_syncCheckBox"],
+    )
+    methods["_onSetShowMouthBarrierSurface"](host, True)
+    assert shown == [(True, True)] and host._parameterNode.step6ShowMouthBarrierSurface is True
+    composition = (PYTHON / "dentobot_workflow/widget_view_composition.py").read_text()
+    assert '("nodes:step6MouthBarrierSurface", "step6ShowMouthBarrierSurface", False)' in composition
+
+
+def test_task_space_box_opacity_is_capped_at_30_percent_and_hidden_box_is_not_reshown():
+    """Operator 2026-10-04: the box has no use above 30 % opacity, and it popped up
+    at random points in Step 6 because every status refresh re-showed it."""
+    panel = (PYTHON / "DENTORobotSimulationPanel.py").read_text()
+    logic = (PYTHON / "dentobot_workflow/logic_robot_overlays.py").read_text()
+    placement = (PYTHON / "dentobot_workflow/widget_robot_placement.py").read_text()
+    assert "self.taskSpaceBoxOpacitySlider.minimum, self.taskSpaceBoxOpacitySlider.maximum = 0, 30" in panel
+    assert "TASK_SPACE_BOX_MAX_OPACITY = 0.30" in logic
+    box = logic[logic.index("    def updateStep6TaskSpaceBox("):logic.index("    def step6TaskSpaceBoxExists(")]
+    assert "min(self.TASK_SPACE_BOX_MAX_OPACITY," in box
+    status = placement[placement.index("    def _updateRobotPlacementStatus("):]
+    assert "not self.logic.step6TaskSpaceBoxExists()" in status
+    assert "step6TaskSpaceBoxShown()" not in status
+    methods = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_placement.py",
+        "RobotPlacementWidgetMixin",
+        {"_onSetTaskSpaceBox"},
+        {"_": lambda text: text},
+    )
+    boxes = []
+    host = SimpleNamespace(
+        _parameterNode=SimpleNamespace(step6ShowTaskSpaceBox=False, step6TaskSpaceBoxSideMm=200.0,
+                                       step6TaskSpaceBoxOpacity=0.1),
+        logic=SimpleNamespace(TASK_SPACE_BOX_MAX_OPACITY=0.30,
+                              updateStep6TaskSpaceBox=lambda *args: boxes.append(args)),
+        _robotSimulationPanel=None,
+        _step6TaskSpaceBoxCenter=lambda: (1.0, 2.0, 3.0),
+    )
+    methods["_onSetTaskSpaceBox"](host, True, 200.0, 0.9)
+    assert boxes[-1][2] == 0.30 and host._parameterNode.step6TaskSpaceBoxOpacity == 0.30
+
+
 def test_run_options_offer_dev_fast_mode_and_depth_peeling_before_planning():
     """Operator 2026-10-03: depth peeling as a GUI option before planning, alongside
     the development fast mode. Both display/run options; fast mode stays off."""
     panel = (PYTHON / "DENTORobotSimulationPanel.py").read_text()
     shell = (PYTHON / "dentobot_workflow/widget_robot_shell.py").read_text()
-    logic = (PYTHON / "dentobot_workflow/logic_robot_scene_sync.py").read_text()
+    logic = (PYTHON / "dentobot_workflow/logic_robot_overlays.py").read_text()
     assert "self.devFastModeCheckBox.checked = False" in panel
     assert "self.depthPeelingCheckBox.checked = True" in panel
     group = panel.index("self.planningRunOptionsGroup = qt.QGroupBox(")
@@ -6359,7 +6429,7 @@ def test_planning_aid_toggles_win_over_every_view_preset_and_keep_low_opacity():
     controls = (PYTHON / "dentobot_workflow/widget_view_controls.py").read_text()
     sink = controls[controls.index("    def _applyWorkflowViewKeys("):]
     assert "self._discardHiddenStep6PlanningAids(visibleKeys)" in sink[:sink.index("managedNodes")]
-    logic = (PYTHON / "dentobot_workflow/logic_robot_scene_sync.py").read_text()
+    logic = (PYTHON / "dentobot_workflow/logic_robot_overlays.py").read_text()
     box = logic[logic.index("    def updateStep6TaskSpaceBox("):logic.index("    def step6TaskSpaceBoxShown(")]
     assert 'node.SetAttribute("DENTOBOT.DisplayOpacity", f"{opacity:.2f}")' in box
     panel = (PYTHON / "DENTORobotSimulationPanel.py").read_text()

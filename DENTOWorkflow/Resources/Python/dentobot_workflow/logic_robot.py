@@ -16,6 +16,7 @@ from DENTOCaseBundle import (
 from dentobot_workflow.logic_robot_placement import RobotPlacementLogicMixin
 
 
+from dentobot_workflow.logic_robot_overlays import RobotOverlayLogicMixin
 from dentobot_workflow.logic_robot_scene_sync import RobotSceneSyncLogicMixin
 
 
@@ -29,7 +30,7 @@ J2_TRAVEL_M = 0.08
 J2_TRAVEL_MM = J2_TRAVEL_M * 1000.0
 
 
-class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
+class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotOverlayLogicMixin, RobotPlacementLogicMixin):
 
 
 

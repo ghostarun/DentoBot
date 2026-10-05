@@ -364,11 +364,14 @@ class ViewCompositionWidgetMixin:
         node = self._parameterNode
         for key, attribute, default in (
             ("nodes:step6MouthBarrier", "step6ShowMouthBarrier", True),
+            ("nodes:step6MouthBarrierSurface", "step6ShowMouthBarrierSurface", False),
             ("nodes:step6ReachEnvelope", "step6ShowReachEnvelope", True),
             ("nodes:step6TaskSpaceBox", "step6ShowTaskSpaceBox", False),
         ):
             if not bool(getattr(node, attribute, default)):
                 visibleKeys.discard(key)
+        if not bool(getattr(node, "step6ShowMouthBarrier", True)):
+            visibleKeys.discard("nodes:step6MouthBarrierSurface")  # surface needs the barrier toggle
 
     def _setWorkflowCbctSlices(self, enabled: bool) -> None:
         volume = self._parameterNode.inputVolume if self._parameterNode else None

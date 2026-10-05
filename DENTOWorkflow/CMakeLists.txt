@@ -5,6 +5,7 @@ set(MODULE_NAME DENTOWorkflow)
 set(MODULE_PYTHON_SCRIPTS
   ${MODULE_NAME}.py
   Resources/Python/DENTOApplicationShell.py
+  Resources/Python/DENTOLayoutFit.py
   Resources/Python/DENTOCaseBundle.py
   Resources/Python/dentobot_case/__init__.py
   Resources/Python/dentobot_case/__main__.py
@@ -90,11 +91,13 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/task_home_gate.py
   Resources/Python/dentobot_workflow/reach_envelope.py
   Resources/Python/dentobot_workflow/base_diagnosis.py
+  Resources/Python/dentobot_workflow/feasibility_advisor.py
   Resources/Python/dentobot_workflow/virtual_forehead_mount.py
   Resources/Python/dentobot_workflow/virtual_open_mouth_articulator.py
   Resources/Python/dentobot_workflow/logic_step6_scene.py
   Resources/Python/dentobot_workflow/logic_step6_landmark_review.py
   Resources/Python/dentobot_workflow/logic_robot_placement.py
+  Resources/Python/dentobot_workflow/logic_robot_overlays.py
   Resources/Python/dentobot_workflow/logic_robot_scene_sync.py
   Resources/Python/dentobot_workflow/logic_robot.py
   Resources/Python/dentobot_workflow/slicer_tests.py

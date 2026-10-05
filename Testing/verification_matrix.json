@@ -219,6 +219,40 @@
       "pass_condition": "exit_code_zero; explicit chrome visibility restoration, repeat entry, deleted widgets and header/lifecycle contracts pass; visual task-height and operator verdict remain separate"
     },
     {
+      "id": "pure.layout_fit",
+      "execution_kind": "host",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [
+        "static.git_diff_check"
+      ],
+      "approval": "explain_then_approve",
+      "timeout_sec": 60,
+      "evidence_level": "pure_test",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 QT_QPA_PLATFORM=offscreen python3 -m pytest -q -p no:cacheprovider Testing/test_layout_fit.py",
+      "pass_condition": "exit_code_zero; dock-width/dialog/reflow arithmetic, offscreen PyQt5 overflow-removal scenarios and shell/widget wiring pins pass; this is host evidence only, native Slicer rendering and operator verdict remain separate (UI-P3-01)"
+    },
+    {
+      "id": "runtime.layout_width_audit",
+      "execution_kind": "container_slicer",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "pure.layout_fit"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 300,
+      "evidence_level": "synthetic_slicer",
+      "entrypoint": "Testing/run_dentobot_layout_width_audit.py",
+      "command_template": "Back up and later restore slicer-home/.config/slicer.org/Slicer.ini (the run persists GUI mode and dock width). Then for DENTOBOT_NARROW_FIT=0 (baseline) and 1 (fitted), serialized and only when no other Slicer/ROS session runs: docker exec -e DENTOBOT_NARROW_FIT=$FIT -e DENTOBOT_AUDIT_LABEL=$LABEL -e DENTOBOT_AUDIT_OUT=/workspace/data/dentobot-runs/layout-width-audit-$TS dentobot-slicerros2 sh -lc 'timeout 300s xvfb-run -a -s \"-screen 0 1920x1080x24\" /opt/slicer/Slicer-SuperBuild/Slicer-build/Slicer --no-splash --additional-module-paths /workspace/ros2_ws/src/DentoBot/DENTOWorkflow --python-script /workspace/ros2_ws/src/DentoBot/Testing/run_dentobot_layout_width_audit.py'",
+      "pass_condition": "marker:DENTOBOT_LAYOUT_WIDTH_AUDIT_DONE with no Traceback in the log; fitted report shows needs_more_than_viewport_px == 0 on every page at 340 px and dock_width reaching 340; screenshots inspected (a numeric pass alone does not prove appearance); no case loaded, so data-dependent text is not covered; operator verdict separate"
+    },
+    {
       "id": "pure.support_boundary_bridge",
       "execution_kind": "host",
       "parallel_safe": true,

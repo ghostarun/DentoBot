@@ -1,8 +1,29 @@
 # DENTOBOT agent context
 
+## Current 4 October 30-second isolated planner result (`S6-LIVE-01`, P0)
+
+The explicitly approved one-factor domain-74 copy request is complete. With
+OMPL sampling fraction `0.0005`, one RRTConnect attempt exhausted the 30-second
+budget in 30.003 s and returned error `99999` with zero trajectory points. The
+copy and original matched on all 34 objects, ACM, padding, scale and fixed
+transform; the retained burr/template canary matched at 0.286936408 mm and the
+original scene hashes were unchanged. This rules out the 5-second budget alone
+as a sufficient explanation but does not prove disconnection, infeasibility or
+a physical minimum. No motion, GUI Plan, route authority or deployment occurred.
+Evidence: `planner-resolution-20261004T071413Z`.
+
+A later `planner-resolution-20261004T080424Z` directory contains broader branch,
+planner, Base and spindle-scale experiments without a matching approval record
+in the controlled task files. It is preserved as unaccepted diagnostic material
+and must not drive a geometry or policy decision until Tarun supplies its
+disposition. Its idle domain-74 MoveGroup copy was stopped during continuation;
+the operator's domain-73 Slicer PID 3122 and MoveGroup PID 3022 were preserved.
+No further planner or geometry trial is authorized by this handoff. Tarun's
+verdict remains PENDING.
+
 ## Current 4 October live planner stop (`S6-LIVE-01`, P0)
 
-Current prompt supersedes older no-runtime/per-result verdict stops for existing PID2071 only. Exact remote FDI31 redelivery corrected stale MoveGroup geometry; equivalent historical TCP name migrated through real confirmation; PreEntry IK passed. Real Plan then failed P1. Reverse-travel corridor fix host503PASS remains NOT loaded: DENTOROS2Bridge owns ROS state and requires fresh-session/checkpoint approval. Leave existing scene/session open; do not hot-reload bridge or restart without approval. Base/Home/options unchanged; final Tarun verdict PENDING; neitherA norB proven. Read TASKStop/latest DECISIONS/today logbook and planner-resolution-20261004T015000Z evidence.
+Bounded native plan-only investigation approved by “Yes proceed” is complete: one rawservice request retains112points despite99999; authoritativechecks reproduceburr/template invalid104–108, dense41/51invalid peak0.286936408mm. Full34-objectscenegeometry/ACMunchanged, Home/PreEntryvalid, no motion/GUIplan/routeauthoritychange. Originalpre-TOTGverticesunknown; samplingversuspostprocessingnotproven. Proposed isolatedSIMULATION-ONLYOMPLfraction0.005→0.0005trial notloaded; collision-policy approvalneeded peroperatorsection3. Evidenceplanner-resolution-20261004T025825Z; prior109/121/124historyretained; neitherA/B, physicalminimumunknown, TarunverdictPENDING.
 
 ## Step 6 GUI reliability — patches only (4 October, `S6-LIVE-01`)
 
@@ -641,3 +662,7 @@ Native Ubuntu NVIDIA profile now implemented on the integration checkout. Explic
 Verification: pure.ubuntu_graphics_profiles,13host/mock tests passed in0.08s exit0; shell syntax, owned Python syntax, scoped whitespace and frame-probe --self-check passed. Tests cover MesaCPU/CUDA, NVIDIACPU/CUDA, WSL baseline selection, missing command/driver/runtime, container visibility, invalid mode, DRM reset/capabilities and source routing. Evidence /tmp/dentobot-verification/perf-increment3-20261001/{host.log,frame-selfcheck.log,summary.json,launcher-port.diff}. No actual GPU/Docker/container/Slicer/ROS runtime, image/native rebuild, case save or hardware action. Operator explicitly excludes GPU verification on this workstation; >=60FPS and renderer verification remain deferred to approved NVIDIA hardware.
 
 All three finite increments now have source implementations. Item1 paired watchdog overhead/identity evidence and item2 representative long-wait/cancel/normal-window responsiveness remain open under existing S6-P2-03; item3 hardware acceptance deferred. Backend MoveIt cleanup-11 remains S6-U-01. No new increment, no5.12 restart, no main merge/push/commit.
+
+
+### 4 October UTC07:11 — S6-LIVE-01 approved isolated sampling trial result
+Operator “approved” authorized one domain74 SIMULATION-ONLY request at OMPL fraction0.0005 (original0.005), stop first valid result. Corrected geometry-verified copy TIMED_OUT5s, error99999/zero points; original scene unchanged and final PID3122/Home3/Base/snapshot/options unchanged, no motion. Earlier missing-overlay copy result134 excluded; known burr/template collision canary0.286936408427mm matched original. Copy stopped/domain74 empty (SIGINT cleanup crash139 retained). Evidence planner-resolution-20261004T070243Z,135/136 and logbook. NeitherA/B nor physical minimum certified. Next reviewable hypothesis is one30s plan-only copy request with all other settings identical; not executed or deployed. Original109/121/124 ceiling persists. Tarun verdict PENDING.

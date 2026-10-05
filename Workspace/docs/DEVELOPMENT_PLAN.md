@@ -1786,3 +1786,30 @@ path. Source/host/routing evidence is in the 4October logbook.
 ## 4 October — S6-LIVE-01 live-resolution evidence and deployment gate
 
 Current operator authorizes real GUI complete guarded chain twice in existingPID2071, continuing through individual results; final Tarun verdict remains pending. Corrected stale remote FDI31 scene and equivalent frame-name identity permit PreEntry IK. P1 still fails; source reverse-travel corridor fix passes503 affected host checks but needs a fresh ROS-stateful bridge session. Approval for checkpoint/restart precedes deployment. After deployment, re-establish exact current scene/Base/Home/task and validate Complete chain, approach endpoint, prepared Drill/effective Target warning depth, guarded withdrawal/Home and fresh repeat. Finite multistart/planner failures do not accept infeasibility; no minimum physical change established. Existing backlog retains all pending gates; see today's logbook/TASKStop. No new milestone or queue.
+
+
+2026-10-04 S6-LIVE-01 runtime checkpoint: bridgefix live loaded; current Home/scene/PreEntry prerequisites PASS. P1 attempts109/121/124 hit bounded ceiling; no full-chain/repeat or infeasibility acceptance. Native burr/template post-time-parameterization rejection remains an unresolved distinction. Evidence planner-resolution-20261004T023621Z; final Tarun verdict PENDING.
+
+
+2026-10-04 S6-LIVE-01 native evidence: rejected112-pointtrajectory measured, invalid104–108anddense41/51burr/template contacts confirmed; completechainacceptance remainsopen. Proposed isolatedsamplingenrichmenttrialrequiresapproval; no hardware-caseinfeasibilitycertificate/physicalminimum. See planner-resolution-20261004T025825Z.
+
+
+### 4 October UTC07:11 — S6-LIVE-01 approved isolated sampling trial result
+Operator “approved” authorized one domain74 SIMULATION-ONLY request at OMPL fraction0.0005 (original0.005), stop first valid result. Corrected geometry-verified copy TIMED_OUT5s, error99999/zero points; original scene unchanged and final PID3122/Home3/Base/snapshot/options unchanged, no motion. Earlier missing-overlay copy result134 excluded; known burr/template collision canary0.286936408427mm matched original. Copy stopped/domain74 empty (SIGINT cleanup crash139 retained). Evidence planner-resolution-20261004T070243Z,135/136 and logbook. NeitherA/B nor physical minimum certified. Next reviewable hypothesis is one30s plan-only copy request with all other settings identical; not executed or deployed. Original109/121/124 ceiling persists. Tarun verdict PENDING.
+
+
+### 4 October UTC07:16 — S6-LIVE-01 approved 30-second copy result
+The one-factor domain74 continuation exhausted the30s RRTConnect budget and
+returned error99999/zero points with unchanged finer sampling fraction0.0005.
+All34 copied objects, ACM, link padding/scale, fixed transform and the retained
+0.286936408427mm burr/template canary matched the original; original scene
+hashes remained unchanged. The longer budget did not produce a route, so the
+5s budget alone is not a sufficient explanation. This remains diagnostic
+runtime evidence, not a global connectivity/infeasibility certificate or a
+physical redesign threshold. Full guarded-chain/repeat and Tarun verdict remain
+open. Evidence `planner-resolution-20261004T071413Z`.
+
+Broader `planner-resolution-20261004T080424Z` outputs discovered during the
+continuation exceed the approval recorded for the30s copy. They remain
+unaccepted pending operator disposition and cannot advance Section6 acceptance
+or alter Base/geometry/collision policy. No further runtime follows.

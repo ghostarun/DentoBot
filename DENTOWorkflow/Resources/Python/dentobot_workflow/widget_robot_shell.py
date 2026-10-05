@@ -47,6 +47,7 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 "set_spindle_guide_contact": self._onSetSpindleGuideContact,
                 "set_mouth_barrier_edge_mode": self._onSetMouthBarrierEdgeMode,
                 "set_show_mouth_barrier": self._onSetShowMouthBarrier,
+                "set_show_mouth_barrier_surface": self._onSetShowMouthBarrierSurface,
                 "set_mouth_barrier_opacity": self._onSetMouthBarrierOpacity,
                 "set_task_space_box": self._onSetTaskSpaceBox,
                 "set_dev_fast_mode": self._onSetDevFastMode,

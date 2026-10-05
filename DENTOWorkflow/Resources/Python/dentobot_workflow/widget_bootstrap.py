@@ -33,6 +33,7 @@ class BootstrapWidgetMixin:
         self._workflowContentScrollArea = None
         self._workflowContentWidget = None
         self._workflowContentLayout = None
+        self._narrowFit = None
         self._segmentationReviewStageGroup = None
         self._persistentDisplayGroupBox = None
         self._viewControlsPalette = None
@@ -1122,3 +1123,4 @@ class BootstrapWidgetMixin:
         self._setupScanContext()
         self.initializeParameterNode()
         self._setupApplicationShell()
+        self._applyNarrowFit(installResizeReflow=True)

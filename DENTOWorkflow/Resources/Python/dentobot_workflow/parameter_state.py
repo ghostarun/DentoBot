@@ -145,6 +145,7 @@ class DENTOWorkflowParameterNode:
     step6MouthBarrierEdgeMode: str = "gum_line"
     # Display toggles (6.3): mouth barrier model and the workspace reach envelope.
     step6ShowMouthBarrier: bool = True
+    step6ShowMouthBarrierSurface: bool = False  # optional full lip slab + cheek walls
     step6ShowReachEnvelope: bool = True
     # Display (6.3, operator 2026-10-03): barrier opacity and the optional
     # incisor-centred task-space box (display only; sampling ROI unchanged).

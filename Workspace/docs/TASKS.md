@@ -1,5 +1,45 @@
 # DENTOBOT Tasks
 
+## 4 October — UI-P3-01 narrow-fit slice: whole-module width contract
+
+**Operator statements (4 Oct):** redesign the GUI so contents always autofit the
+narrow default spacing as source-monitor resolution keeps changing; contents
+almost always need side and vertical scrolling and the lateral part spoils UX.
+Asked for plan and sketch before implementation; after the mock-up: "yeah
+perfect, exactly what i want. But for the whole module and not just step 6".
+
+**Contract.** Outcome: every DENTOWorkflow page (legacy module panel, new shell,
+dialogs) reflows from `MIN_FIT_WIDTH_PX` (340 logical px) with no horizontal
+scrollbar; only the page body scrolls, vertically. Dock default width =
+clamp(24 % of logical screen width, 340, 520 px), saved as a screen fraction and
+re-clamped on monitor change. Invariants: no control removed or reordered across
+steps; no workflow gate, guard, planner or Step 6 policy change; display and
+layout only. Owned files: `DENTOLayoutFit.py` (new), `DENTOApplicationShell.py`,
+`widget_application.py`, `widget_bootstrap.py`, `widget_navigation.py`,
+`CMakeLists.txt`, `Testing/test_layout_fit.py`, matrix check `pure.layout_fit`.
+`widget_robot_shell.py` is at the 1600-line budget and is not touched.
+Approved design: `data/visualizations/narrow-fit-gui-mockup.html` (illustrative,
+not runtime evidence).
+
+**Phases.** 1 Foundation (source + host tests) — implemented 2026-10-04.
+0 Measure — one headless Slicer run calling `findWidthOffenders` per page at
+340/390 px to list real offenders (needs operator approval; resources
+`docker:dentobot-slicerros2`, `slicer_process`, `display`). 2 Per-panel fixes
+from that list (explicit minimums in `DENTORobotSimulationPanel` joint rows,
+long checkbox captions, grids, dialog/table minimums, view-controls palette).
+3 Width-matrix and screenshot checks under `S6-GUI-HARNESS-GAP`. 4 Tarun's
+normal-window verdict.
+
+**Evidence so far:** host `pure.layout_fit` 36 passed. Phase 0/1 runtime audit
+executed 2026-10-04 in the container under `xvfb-run` (no case, no ROS):
+baseline 12/15 pages exceeded the 377 px viewport (worst 753 px) and the shell
+chrome blocked shrinking below 414 px; final fitted run 0/30 over the viewport,
+chrome 265 px, dock reaches 340 px, Slicer exit 0, no Traceback; screenshots of
+Segmentation and 6.3 inspected. Evidence `data/dentobot-runs/layout-width-audit-20261004T114944Z/summary.md`
+(+ baseline `…114739Z`). Known gaps: loaded-case text, nine dialog sites,
+section-title clipping, ~90 px pinned legacy header, real monitors/DPI and the
+legacy module panel. Tarun's normal-window verdict PENDING.
+
 ## 4 October — S6-LIVE-01 current live planner resolution contract
 
 Current operator scope authorizes serialized real GUI simulation chains/repeat in PID2071, continuing through individual results. It supersedes older no-runtime/per-result verdict stops for this run; final Tarun verdict PENDING. A requires two fresh guarded Complete cycles and endpoints; B requires every section6 certificate. Preserve Base/geometry/guard/tolerance/case/history and explicit restart/native-build approvals. Solo coordinator; no new task or queue.
@@ -2658,3 +2698,53 @@ OPEN under the existing backlog row. Evidence: logbook/2026-10-04.md.
 
 ### S6-LIVE-01 checkpoint continuation — 2026-10-04 UTC02:36
 Separate checkpoint/fresh-session continuation approved by current operator message; local commit label `codex planner debug - oct 4`. Saved checkpoint verified original byte-identical; evidence `data/dentobot-runs/planner-resolution-20261004T023621Z`. Same guarded-chain/two-cycle acceptance contract and retry counters persist. Runtime bridge deployment and acceptance remain pending at commit time; no release claim.
+
+
+### S6-LIVE-01 / S6-BASE-DIAGNOSE runtime continuation — 2026-10-04 UTC02:49
+Approved separate checkpoint and local commit efd36b50f7b523b2105726189e1f20f0ef066641 (`codex planner debug - oct 4`); original case byte-identical. Tested bridge loaded in fresh simulation PID3122. Home3 revalidates identical Home2 joints, current snapshot; all34 MoveGroup object bounds match audit. Attempts109/121/124 reached P1 retry ceiling: original RRTConnect axis rejection, corrected RRTConnect corridor invalid goal/direct native ValidateSolution burr/template rejection, RRTstar5s timeout. No motion or downstream button, noA/B, no minimum physical-change certificate. Original planner/options/Base restored or preserved. Session now served from planner-resolution-20261004T023621Z/session. Compact blocker escalation required before more P1 retries. Tarun verdict PENDING.
+Ordered diagnostic evidence: kinematic PreEntryIK PASS; Home/PreEntry staticvalid, sampled P1 housing/lip_slab invalid0.133527mm. Corrected corridor reaches native invalid-goal check; direct RRTConnect route rejected after time parameterization at burr/template, RRTstar5s timed out. No drilling/truncation evidence. Read-only diagnosis does not implement S6-BASE-DIAGNOSE. See current logbook and blocker-package.md; no pending ID removed.
+
+
+### S6-LIVE-01 — native path-validation investigation approved, UTC02:58
+**Operator:** “Yes proceed”, answering the specific request for bounded plan-only investigation of native post-timeparameterization burr/template rejection under unchanged guards.
+**Interpretation / contract:** prior109/121/124 failures retained; approval resumes the specific diagnostic path, not a blind fourth fullGUI attempt. Contract in /home/tarun/dentobot/data/dentobot-runs/planner-resolution-20261004T025825Z/diagnostics.md. One rawGetMotionPlan request matching existingHome→PreEntry planner configuration, capture fullnative response/debugcontacts, independently verify any returnedstates. No route promotion, motion, preview, Base/Home/scene/policy change, nativebuild/restart. S6-LIVE-01P0 remains owner; no newqueue.
+
+
+### S6-LIVE-01 / S6-BASE-DIAGNOSE native diagnostics — 2026-10-04 UTC03:09
+Bounded native plan-only investigation approved by “Yes proceed” is complete: one rawservice request retains112points despite99999; authoritativechecks reproduceburr/template invalid104–108, dense41/51invalid peak0.286936408mm. Full34-objectscenegeometry/ACMunchanged, Home/PreEntryvalid, no motion/GUIplan/routeauthoritychange. Originalpre-TOTGverticesunknown; samplingversuspostprocessingnotproven. Proposed isolatedSIMULATION-ONLYOMPLfraction0.005→0.0005trial notloaded; collision-policy approvalneeded peroperatorsection3. Evidenceplanner-resolution-20261004T025825Z; prior109/121/124historyretained; neitherA/B, physicalminimumunknown, TarunverdictPENDING.
+165static+58FKchecks; onefailedrawplanretained112points, no routepromotion. Source/UIobservabilitygap recorded underexistingowner, no newqueue/implementation. See latestlogbook/blocker-package.md/proposal.md.
+
+
+### S6-LIVE-01 isolated sampling trial approved — UTC07:02
+**Operator:** “approved”, answering the isolatedSIMULATION-ONLY0.005→0.0005proposal.
+**Interpretation:** onlydomain74copyoneplan-onlyrequest; originaldomain73case/policy/guards/jointsunchanged. Priorfailurehistoryretained; noGUIfullchain/deploymentapprovalinferred. Newcontract/evidence /home/tarun/dentobot/data/dentobot-runs/planner-resolution-20261004T070243Z. Sessionidlelimitexpired; existingbootstrapreattachedsamePID3122withfocusedconsole, norestart.
+
+
+### 4 October UTC07:11 — S6-LIVE-01 approved isolated sampling trial result
+Operator “approved” authorized one domain74 SIMULATION-ONLY request at OMPL fraction0.0005 (original0.005), stop first valid result. Corrected geometry-verified copy TIMED_OUT5s, error99999/zero points; original scene unchanged and final PID3122/Home3/Base/snapshot/options unchanged, no motion. Earlier missing-overlay copy result134 excluded; known burr/template collision canary0.286936408427mm matched original. Copy stopped/domain74 empty (SIGINT cleanup crash139 retained). Evidence planner-resolution-20261004T070243Z,135/136 and logbook. NeitherA/B nor physical minimum certified. Next reviewable hypothesis is one30s plan-only copy request with all other settings identical; not executed or deployed. Original109/121/124 ceiling persists. Tarun verdict PENDING.
+
+
+### S6-LIVE-01 30s copy trial approved — UTC07:14
+**Operator:** “give better progress updates explaining what task you are working on, and previous output, reasoning for next attempt... approved trial”. **Interpretation:** specific proposal one30s copyrequest replaces prior5s budget only; finer sampling/config/scene unchanged, no live deployment/motion/GUI retry. Progress updates will name active blocker, prior result and discriminating hypothesis. Contract/evidence planner-resolution-20261004T071413Z; stop first result. Prior failure history preserved.
+
+
+### S6-LIVE-01 approved 30s copy result — UTC07:16; continuation audit UTC11:25
+The one approved domain74 RRTConnect request used one attempt,30s and OMPL
+fraction0.0005 with execution disabled. It returned error99999 and zero points
+after30.003044211s. Copy/original geometry and policy identity matched:34 world
+objects, geometry SHA8e4ce8ab…e0e3f8, ACM SHA669b1d33…fc61d27, identical
+padding/scale/fixed transform, and exact0.286936408427mm retained burr/template
+canary depth. Original scene hashes remained unchanged. This is diagnostic
+runtime evidence only: the longer budget did not yield a route, but neither
+disconnection, infeasibility, OutcomeA/B nor a physical minimum is certified.
+No GUI Plan, motion, route promotion, deployment, case/scene change or hardware
+action occurred. Evidence: `planner-resolution-20261004T071413Z` items137/138.
+
+Continuation found broader `planner-resolution-20261004T080424Z` artifacts and
+an idle domain74 MoveGroup copy. Controlled records contain no approval that
+expands the specific30s contract to those branch/planner/Base/spindle-scale
+experiments. Preserve them as unaccepted diagnostic material; do not use them
+for acceptance, geometry or policy changes without Tarun's disposition. Exact
+copy PIDs4442/4466 ignored SIGINT and stopped after SIGTERM; live domain73
+MoveGroup3022 and Slicer3122 remained running. No further runtime is authorized
+by this result. Existing `S6-LIVE-01`/`S6-BASE-DIAGNOSE` stay open.

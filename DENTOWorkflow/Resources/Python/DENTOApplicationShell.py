@@ -18,6 +18,19 @@ try:
 except ImportError:  # Pure registry tests run outside Slicer.
     qt = None
 
+from DENTOLayoutFit import (
+    DOCK_MIN_WIDTH_PX,
+    NO_FIT_PROPERTY,
+    NO_REFLOW_PROPERTY,
+    NarrowFitController,
+    DOCK_USER_MAX_WIDTH_PX,
+    dockWidthFromFraction,
+    dockWidthToFraction,
+    logicalScreenWidth,
+    qtValue,
+    resizeDockWidth,
+)
+
 
 GUI_MODE_LEGACY = "legacy"
 GUI_MODE_SHELL = "shell"
@@ -26,6 +39,7 @@ THEME_SETTING = "DENTOBOT/ApplicationShell/Theme"
 EXPERT_MODE_SETTING = "DENTOBOT/ApplicationShell/ExpertMode"
 TASK_DOCK_GEOMETRY_SETTING = "DENTOBOT/ApplicationShell/TaskDockGeometry"
 NAV_DOCK_GEOMETRY_SETTING = "DENTOBOT/ApplicationShell/NavDockGeometry"
+TASK_DOCK_WIDTH_FRACTION_SETTING = "DENTOBOT/ApplicationShell/TaskDockWidthFraction"
 
 
 @dataclass(frozen=True)
@@ -157,6 +171,9 @@ class DENTOApplicationShell:
         self._current_stage = 0
         self._current_workspace_index = 0
         self._recommended_stage = 0
+        self._last_screen_width = 0
+        self._screen_watch_installed = False
+        self._chrome_fit = None
 
     @property
     def active(self) -> bool:
@@ -194,6 +211,9 @@ class DENTOApplicationShell:
         self._task_layout.addWidget(self._workflow_widget, 1)
         self._ui.workflowNavigationGroupBox.visible = False
         self._ui.productTitleLabel.visible = False
+        self._chrome_fit = NarrowFitController(self._task_container)
+        self._chrome_fit.apply()
+        self._chrome_fit.installResizeReflow()
         self._active = True
         self.applyTheme(self.theme)
         expert = str(
@@ -205,11 +225,15 @@ class DENTOApplicationShell:
         self._restore_dock_geometry()
         self._nav_dock.show()
         self._task_dock.show()
+        self._apply_task_dock_width()
+        self._watch_screen_changes()
 
     def deactivate(self) -> None:
         if not self._active:
             return
         self._save_dock_geometry()
+        self._save_task_dock_width_fraction()
+        self._chrome_fit = None
         self._restore_chrome()
         self._task_layout.removeWidget(self._workflow_widget)
         self._workflow_widget.setParent(None)
@@ -296,8 +320,10 @@ class DENTOApplicationShell:
         self._task_dock.objectName = "DENTOBOTTaskDock"
         self._task_dock.allowedAreas = qt.Qt.LeftDockWidgetArea | qt.Qt.RightDockWidgetArea
         self._task_dock.features = qt.QDockWidget.DockWidgetMovable
-        self._task_dock.setMinimumWidth(390)
-        self._task_dock.setMaximumWidth(620)
+        # Screen-relative default (DENTOLayoutFit.defaultDockWidth) inside this
+        # range; the page reflows to DOCK_MIN_WIDTH_PX without side scrolling.
+        self._task_dock.setMinimumWidth(DOCK_MIN_WIDTH_PX)
+        self._task_dock.setMaximumWidth(DOCK_USER_MAX_WIDTH_PX)
 
         task = qt.QWidget(self._task_dock)
         task.objectName = "DENTOBOTTaskPanel"
@@ -320,18 +346,32 @@ class DENTOApplicationShell:
         self._runtime_label = qt.QLabel("SIMULATION / RESEARCH ONLY", header)
         self._runtime_label.objectName = "DENTOBOTRuntimeLabel"
         self._runtime_label.setProperty("dentobotRole", "warning")
-        self._runtime_label.alignment = qt.Qt.AlignRight | qt.Qt.AlignVCenter
+        self._runtime_label.alignment = qt.Qt.AlignLeft | qt.Qt.AlignVCenter
+        # Short single-line chrome labels must not be wrapped by the fit pass.
+        for label in (self._workspace_title, self._runtime_label, self._case_label):
+            label.setProperty(NO_FIT_PROPERTY, True)
+        # One label per row: title beside the full "SIMULATION / RESEARCH ONLY"
+        # warning needs ~414 px, more than the narrow dock; the warning keeps its
+        # complete wording on its own line instead of being wrapped or shortened.
         header_layout.addWidget(self._workspace_title, 0, 0)
-        header_layout.addWidget(self._runtime_label, 0, 1)
-        header_layout.addWidget(self._case_label, 1, 0, 1, 2)
+        header_layout.addWidget(self._runtime_label, 1, 0)
+        header_layout.addWidget(self._case_label, 2, 0)
         header_layout.setColumnStretch(0, 1)
         task_layout.addWidget(header)
 
         controls = qt.QWidget(task)
         controls.objectName = "DENTOBOTShellControls"
-        controls_layout = qt.QHBoxLayout(controls)
+        controls_layout = qt.QVBoxLayout(controls)
         controls_layout.setContentsMargins(0, 0, 0, 0)
         controls_layout.setSpacing(5)
+        # Two rows so the chrome fits the narrow dock: the substep selector owns
+        # the first row, the view/theme/mode controls share the second.
+        tools_layout = qt.QHBoxLayout()
+        tools_layout.setContentsMargins(0, 0, 0, 0)
+        tools_layout.setSpacing(5)
+        # Keep the view/theme/mode controls on one line: stacking them would cost
+        # ~100 px of the pinned chrome and squeeze the page body on short windows.
+        tools_layout.setProperty(NO_REFLOW_PROPERTY, True)
         self._substep_combo = qt.QComboBox(controls)
         self._substep_combo.objectName = "DENTOBOTSubstepComboBox"
         self._substep_combo.toolTip = (
@@ -339,7 +379,7 @@ class DENTOApplicationShell:
             "case lineage; unavailable actions explain their own prerequisites."
         )
         self._substep_combo.currentIndexChanged.connect(self._on_substep_changed)
-        controls_layout.addWidget(self._substep_combo, 1)
+        controls_layout.addWidget(self._substep_combo)
         self._view_button = qt.QPushButton("Views", controls)
         self._view_button.objectName = "DENTOBOTViewControlsButton"
         self._view_button.toolTip = (
@@ -349,27 +389,29 @@ class DENTOApplicationShell:
         self._view_button.clicked.connect(
             lambda checked=False: self._on_view_controls_requested()
         )
-        controls_layout.addWidget(self._view_button)
+        tools_layout.addWidget(self._view_button)
         self._theme_combo = qt.QComboBox(controls)
         self._theme_combo.objectName = "DENTOBOTThemeComboBox"
         self._theme_combo.addItem("Light", "light")
         self._theme_combo.addItem("Dark", "dark")
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
-        controls_layout.addWidget(self._theme_combo)
+        tools_layout.addWidget(self._theme_combo)
         self._expert_checkbox = qt.QCheckBox("Expert", controls)
         self._expert_checkbox.objectName = "DENTOBOTExpertModeCheckBox"
         self._expert_checkbox.toolTip = (
             "Show normal Slicer menus, toolbars, module selector, and developer modules."
         )
         self._expert_checkbox.toggled.connect(self.setExpertMode)
-        controls_layout.addWidget(self._expert_checkbox)
+        tools_layout.addWidget(self._expert_checkbox)
         legacy_button = qt.QPushButton("Legacy UI", controls)
         legacy_button.objectName = "DENTOBOTLegacyModeButton"
         legacy_button.toolTip = "Return to the current eleven-stage module interface."
         legacy_button.clicked.connect(
             lambda checked=False: self._on_mode_requested(GUI_MODE_LEGACY)
         )
-        controls_layout.addWidget(legacy_button)
+        tools_layout.addWidget(legacy_button)
+        tools_layout.addStretch(1)
+        controls_layout.addLayout(tools_layout)
         task_layout.addWidget(controls)
 
         separator = qt.QFrame(task)
@@ -525,6 +567,53 @@ class DENTOApplicationShell:
                 TASK_DOCK_GEOMETRY_SETTING,
                 self._task_dock.saveGeometry(),
             )
+
+    def _task_dock_screen_width(self) -> int:
+        return logicalScreenWidth(self._main_window)
+
+    def _save_task_dock_width_fraction(self) -> None:
+        if self._task_dock is None or not qtValue(self._task_dock.visible):
+            return
+        fraction = dockWidthToFraction(
+            float(qtValue(self._task_dock.width)), self._task_dock_screen_width()
+        )
+        if fraction > 0:
+            self._settings.setValue(TASK_DOCK_WIDTH_FRACTION_SETTING, fraction)
+
+    def _apply_task_dock_width(self, from_screen_change: bool = False) -> None:
+        """Size the task dock for the current screen (fraction, never raw pixels)."""
+        if self._task_dock is None or self._main_window is None:
+            return
+        screen_width = self._task_dock_screen_width()
+        if from_screen_change and self._last_screen_width:
+            # Keep the operator's proportion when the window changes monitor.
+            fraction = dockWidthToFraction(
+                float(qtValue(self._task_dock.width)), self._last_screen_width
+            )
+        else:
+            fraction = self._settings.value(TASK_DOCK_WIDTH_FRACTION_SETTING)
+        self._last_screen_width = screen_width
+        resizeDockWidth(
+            self._main_window,
+            self._task_dock,
+            dockWidthFromFraction(fraction, screen_width),
+        )
+
+    def _watch_screen_changes(self) -> None:
+        if self._screen_watch_installed or self._main_window is None:
+            return
+        try:
+            handle = self._main_window.windowHandle()
+            if handle is None:
+                return
+            handle.connect(
+                "screenChanged(QScreen*)",
+                lambda *_args: self._apply_task_dock_width(from_screen_change=True),
+            )
+            self._screen_watch_installed = True
+        except (AttributeError, RuntimeError, TypeError):
+            # Optional nicety: without it the width re-clamps on next activation.
+            pass
 
     def _restore_dock_geometry(self) -> None:
         nav_geometry = self._settings.value(NAV_DOCK_GEOMETRY_SETTING)

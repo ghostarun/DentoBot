@@ -392,12 +392,25 @@ class RobotPlacementWidgetMixin:
         if bool(self._parameterNode.step6ShowMouthBarrier) != checked:
             self._parameterNode.step6ShowMouthBarrier = checked
         if self.logic:
-            self.logic.setStep6MouthBarrierVisible(checked)
+            self.logic.setStep6MouthBarrierVisible(checked, bool(self._parameterNode.step6ShowMouthBarrierSurface))
         panel = getattr(self, "_robotSimulationPanel", None)
         self._syncCheckBox(getattr(panel, "showMouthBarrierCheckBox", None) if panel is not None else None, checked)
 
+    def _onSetShowMouthBarrierSurface(self, checked: bool) -> None:
+        """Optional display of the full lip slab and cheek walls (off by default)."""
+        if not self._parameterNode:
+            return
+        checked = bool(checked)
+        if bool(self._parameterNode.step6ShowMouthBarrierSurface) != checked:
+            self._parameterNode.step6ShowMouthBarrierSurface = checked
+        if self.logic:
+            self.logic.setStep6MouthBarrierVisible(bool(self._parameterNode.step6ShowMouthBarrier), checked)
+        panel = getattr(self, "_robotSimulationPanel", None)
+        self._syncCheckBox(getattr(panel, "showMouthBarrierSurfaceCheckBox", None) if panel is not None else None,
+                           checked)
+
     def _onSetMouthBarrierOpacity(self, opacity: float) -> None:
-        """Display-only opacity of the 3D mouth barrier (default 0.12)."""
+        """Display-only opacity of the optional full barrier surface (default 0.12)."""
         if not self._parameterNode:
             return
         opacity = min(1.0, max(0.0, float(opacity)))
@@ -433,7 +446,8 @@ class RobotPlacementWidgetMixin:
         if not self._parameterNode or not self.logic:
             return
         node = self._parameterNode
-        visible, side_mm, opacity = bool(visible), float(side_mm), min(1.0, max(0.0, float(opacity)))
+        visible, side_mm = bool(visible), float(side_mm)
+        opacity = min(self.logic.TASK_SPACE_BOX_MAX_OPACITY, max(0.0, float(opacity)))
         if bool(node.step6ShowTaskSpaceBox) != visible:
             node.step6ShowTaskSpaceBox = visible
         if abs(float(node.step6TaskSpaceBoxSideMm) - side_mm) > 1e-9:
@@ -836,6 +850,8 @@ class RobotPlacementWidgetMixin:
         panel = getattr(self, "_robotSimulationPanel", None)
         self._syncCheckBox(getattr(panel, "showMouthBarrierCheckBox", None) if panel is not None else None,
                            bool(self._parameterNode.step6ShowMouthBarrier))
+        self._syncCheckBox(getattr(panel, "showMouthBarrierSurfaceCheckBox", None) if panel is not None else None,
+                           bool(self._parameterNode.step6ShowMouthBarrierSurface))
         self._syncCheckBox(getattr(self, "_showReachEnvelopeCheckBox", None),
                            bool(self._parameterNode.step6ShowReachEnvelope))
         if panel is not None and hasattr(panel, "syncStep6OverlayControls"):
@@ -851,7 +867,10 @@ class RobotPlacementWidgetMixin:
                 dev_fast_mode=bool(getattr(facade, "_dev_first_complete_route", False)),
                 depth_peeling=self.logic.step6DepthPeelingEnabled(),
             )
-        if bool(self._parameterNode.step6ShowTaskSpaceBox) and not self.logic.step6TaskSpaceBoxShown():
+        # Recreate only a missing model (not saved with the scene). A box hidden by the
+        # active view preset stays hidden; re-showing it here popped it up at random
+        # points in Step 6 (operator 2026-10-04).
+        if bool(self._parameterNode.step6ShowTaskSpaceBox) and not self.logic.step6TaskSpaceBoxExists():
             self._onSetTaskSpaceBox(True, float(self._parameterNode.step6TaskSpaceBoxSideMm),
                                     float(self._parameterNode.step6TaskSpaceBoxOpacity))
         baseTransform = self._parameterNode.robotBaseTransform

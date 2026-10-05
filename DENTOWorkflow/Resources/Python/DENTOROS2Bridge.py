@@ -1567,6 +1567,14 @@ def configure_task_phase_guard(
     )
 
 
+# Guard rejections that mean "this query beat its config across topics"; both are
+# checked before any sequence bookkeeping, so a read-only query may be re-sent.
+_LATE_GUARD_CONFIG_REASONS = (
+    "guard session does not match",
+    "task fingerprint does not match",
+)
+
+
 def apply_task_phase_joint_positions(
     positions_si: Mapping[str, float],
     *,
@@ -1648,19 +1656,42 @@ def apply_task_phase_joint_positions(
     if stream_was_active:
         _slicer_joint_command_timer.stop()
     try:
-        command_publisher.Publish(
-            json.dumps(command, sort_keys=True, separators=(",", ":"))
-        )
-        status = _wait_for_task_command_result(
-            task_fingerprint=str(task_fingerprint),
-            guard_session_id=active_session_id,
-            phase=str(phase),
-            sequence=int(sequence),
-            request_id=str(request_id or ""),
-            validation_kind=str(validation_kind),
-            after_monotonic=status_before,
-            timeout_sec=float(timeout_sec),
-        )
+        # Read-only (preflight/static) configurations have no handshake, and
+        # config and command use separate topics: while the guard is still
+        # ingesting a freshly re-sent collision scene, the first query can
+        # arrive before the new config (S6-LIVE-01 2026-10-05: "guard session
+        # does not match", or "task fingerprint does not match" right after a
+        # task is re-confirmed). The guard rejects a session mismatch before any
+        # sequence bookkeeping, so a validate-only query may be re-sent after
+        # re-publishing the same immutable config. Motion commands never retry.
+        retry_deadline = time.monotonic() + ROS2_TASK_GUARD_SCENE_SYNC_TIMEOUT_SEC
+        while True:
+            command_publisher.Publish(
+                json.dumps(command, sort_keys=True, separators=(",", ":"))
+            )
+            status = _wait_for_task_command_result(
+                task_fingerprint=str(task_fingerprint),
+                guard_session_id=active_session_id,
+                phase=str(phase),
+                sequence=int(sequence),
+                request_id=str(request_id or ""),
+                validation_kind=str(validation_kind),
+                after_monotonic=status_before,
+                timeout_sec=float(timeout_sec),
+            )
+            if (
+                not validate_only
+                or status is None
+                or status.accepted
+                or not any(
+                    marker in str(status.reason) for marker in _LATE_GUARD_CONFIG_REASONS
+                )
+                or time.monotonic() >= retry_deadline
+            ):
+                break
+            status_before = _last_task_status_at
+            config_publisher.Publish(_last_task_config_json)
+            time.sleep(0.2)
         if status is None:
             return False, "Task guard did not answer the phased simulation command."
         if status.accepted:

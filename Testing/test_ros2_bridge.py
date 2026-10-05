@@ -1799,7 +1799,12 @@ def test_phased_waypoints_do_not_republish_and_reset_guard_configuration():
     static_refresh = apply_phase.split(
         'if validation_kind == "static_state":', 1
     )[1].split("status_before", 1)[0]
-    assert apply_phase.count("config_publisher.Publish") == 1
+    # The only other publish re-sends the identical config (a guard no-op) after
+    # a validate-only session-mismatch rejection (S6-LIVE-01 2026-10-05).
+    assert apply_phase.count("config_publisher.Publish") == 2
+    mismatch_retry = apply_phase.split("_LATE_GUARD_CONFIG_REASONS", 1)[1]
+    assert mismatch_retry.count("config_publisher.Publish(_last_task_config_json)") == 1
+    assert "not validate_only" in apply_phase.split("retry_deadline", 1)[1]
     assert "config_publisher.Publish(_last_task_config_json)" in static_refresh
     assert "active_fingerprint" in apply_phase
 
@@ -2468,6 +2473,48 @@ def test_handshake_retry_after_late_reply_uses_a_fresh_guard_session(monkeypatch
     assert waits == [h["guard_session_id"] for h in handshakes]
     assert configs[-1]["guard_session_id"] == handshakes[1]["guard_session_id"]
     assert json.loads(bridge_module._last_task_config_json)["guard_session_id"] == handshakes[1]["guard_session_id"]
+
+
+def test_validate_only_query_resends_after_late_config_but_motion_never_retries(monkeypatch):
+    """S6-LIVE-01 2026-10-05: a preflight query that beat its config across topics
+    was rejected as a session mismatch; re-publish the config and re-send."""
+
+    class Publisher:
+        def __init__(self):
+            self.messages = []
+
+        def Publish(self, message):
+            self.messages.append(message)
+
+    config_publisher, command_publisher = Publisher(), Publisher()
+    config = json.dumps({"task_fingerprint": "task", "guard_session_id": "s1"})
+    monkeypatch.setattr(bridge_module, "_native_joint_positions", [0.1] * len(ROS2_JOINT_SI_ORDER))
+    monkeypatch.setattr(bridge_module, "_last_task_config_json", config)
+    monkeypatch.setattr(bridge_module, "_slicer_joint_command_timer", None)
+    monkeypatch.setattr(bridge_module, "_ensure_task_publishers", lambda: (config_publisher, command_publisher))
+    monkeypatch.setattr(bridge_module, "_ensure_task_status_subscriber", lambda: object())
+    monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
+    mismatch = SimpleNamespace(accepted=False, reason="Command guard session does not match the active preview session.",
+                               first_body="", second_body="")
+    accepted = SimpleNamespace(accepted=True, reason="ok", guide_clearance_warning=False)
+    replies = [mismatch, accepted]
+    monkeypatch.setattr(bridge_module, "_wait_for_task_command_result", lambda **_k: replies.pop(0))
+    positions = {name: 0.1 for name in ROS2_JOINT_SI_ORDER}
+    ok, reason = bridge_module.apply_task_phase_joint_positions(
+        positions, task_fingerprint="task", phase="approach", sequence=1, validate_only=True)
+    assert ok, reason
+    assert len(command_publisher.messages) == 2 and config_publisher.messages == [config]
+    replies[:] = [mismatch, accepted]
+    ok, reason = bridge_module.apply_task_phase_joint_positions(
+        positions, task_fingerprint="task", phase="approach", sequence=2)
+    assert not ok and "guard session does not match" in reason
+    assert len(command_publisher.messages) == 3
+    stale_task = SimpleNamespace(accepted=False, first_body="", second_body="",
+                                 reason="Command task fingerprint does not match the active immutable task.")
+    replies[:] = [stale_task, accepted]
+    ok, reason = bridge_module.apply_task_phase_joint_positions(
+        positions, task_fingerprint="task", phase="approach", sequence=3, validate_only=True)
+    assert ok, reason
 
 
 def test_task_publishers_sweep_runtime_nodes_only_when_acquired(monkeypatch):

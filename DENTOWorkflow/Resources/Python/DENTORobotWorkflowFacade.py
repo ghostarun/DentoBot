@@ -83,6 +83,9 @@ GOAL1_MAX_IK_SEEDS = WORKSPACE_HOME_CONNECTIVITY_MAX_SAMPLES + 1
 GOAL1_MAX_PLANNED_IK_CANDIDATES = GOAL1_MAX_IK_SEEDS
 GOAL1_MAX_CLEARANCE_WAYPOINTS = 3
 STEP6_APPROACH_CORRIDOR_MM = 12.0  # operator 2026-10-02: axis-aligned final approach
+# Shortest collision-free axial corridor kept before falling back to the direct plan
+# (operator 2026-10-04: adjust corridor distance to what is clear).
+STEP6_APPROACH_CORRIDOR_MIN_MM = 1.0
 GOAL1_DIRECT_PLANNING_TIME_SEC = 10.0  # operator 2026-10-02: robustness for marginal P1
 GOAL1_CLEARANCE_PLANNING_TIME_SEC = 4.0
 STEP6_JOINT_PLANNER_ID = "RRTConnectkConfigDefault"
@@ -96,6 +99,11 @@ STEP6_JOINT_PLANNER_ALGORITHMS = {
     "RRTstarkConfigDefault": "geometric::RRTstar",
 }
 STEP6_JOINT_PLANNING_ATTEMPTS = 5  # operator 2026-10-02: sampling planner retries
+# Independent sequential re-plans of the Home -> PreEntry free-space leg when the
+# sampling planner returns no trajectory (S6-LIVE-01 2026-10-05: one call misses an
+# existing route ~1 in 30; MoveIt's parallel attempts share one time budget).
+# Every returned plan is still guarded and validated; no rule is relaxed.
+STEP6_JOINT_PLAN_RETRIES = 8
 STEP6_APPROXIMATE_IK_ENABLED = False
 STEP6_CARTESIAN_PLANNING_ENABLED = True
 # The operator-selected simulation burr mesh is approximately 1 mm across. This is a physical
@@ -457,6 +465,7 @@ class DENTORobotWorkflowFacade:
         self._joint_planner_id = STEP6_JOINT_PLANNER_ID
         self._effective_joint_planner_id = ""
         self._joint_planning_attempts = STEP6_JOINT_PLANNING_ATTEMPTS
+        self._approach_corridor_margin_samples = 0
         self._joint_planning_time_sec = GOAL1_DIRECT_PLANNING_TIME_SEC
 
     def setLogic(self, logic) -> None:
@@ -9412,6 +9421,17 @@ class DENTORobotWorkflowFacade:
             and self.MOUTH_PORTAL_GATE_MODE == "enforce"
         )
 
+    def _plan_joint_goal_with_retries(self, **kwargs):
+        """Sequential independent re-plans while the planner returns no route."""
+        plan = None
+        for attempt in range(1, STEP6_JOINT_PLAN_RETRIES + 1):
+            plan = self._bridge.plan_moveit_joint_goal(**kwargs)
+            if plan.success and (plan.waypoint_joint_vectors_si or ()):
+                if attempt > 1:
+                    plan = replace(plan, message=f"{plan.message} (planned on re-plan {attempt} of {STEP6_JOINT_PLAN_RETRIES})")
+                return plan
+        return replace(plan, message=f"{plan.message} (no route in {STEP6_JOINT_PLAN_RETRIES} independent re-plans)")
+
     def _plan_home_to_preentry_with_corridor(
         self,
         parameter_node,
@@ -9441,7 +9461,7 @@ class DENTORobotWorkflowFacade:
         approach = tuple(float(pre_entry[i]) - STEP6_APPROACH_CORRIDOR_MM * unit[i] for i in range(3))
 
         def direct(reason):
-            plan = self._bridge.plan_moveit_joint_goal(
+            plan = self._plan_joint_goal_with_retries(
                 start_joint_positions_si=home_positions,
                 goal_joint_positions_si=preentry_positions,
                 refresh_planning_scene=refresh_planning_scene,
@@ -9469,8 +9489,36 @@ class DENTORobotWorkflowFacade:
         back = tuple(dict(point) for point in (back_out.waypoint_joint_vectors_si or ()))
         if not back_out.success or len(back) < 2:
             return direct("straight back-out failed: " + str(back_out.message))
+        # The back-out is built without collision checking, so A may lie inside
+        # anatomy or the mouth barrier (S6-LIVE-01 2026-10-04: lower canine and
+        # lip slab from ~1.5 mm). Keep the longest collision-free prefix.
+        corridor_mm = STEP6_APPROACH_CORRIDOR_MM
+        checker = getattr(self._bridge, "check_moveit_static_joint_state", None)
+        if callable(checker):
+            valid_count = 0
+            blocked_message = ""
+            for state in back:
+                valid, validity_message, authoritative = checker(state)
+                if not authoritative:
+                    valid_count = len(back)
+                    break
+                if not valid:
+                    blocked_message = str(validity_message)
+                    break
+                valid_count += 1
+            if valid_count < len(back):
+                # Optional margin (operator 2026-10-05 lever): stop short of the
+                # first contact so A is not at zero clearance. Default 0.
+                valid_count = max(1, valid_count - max(0, int(self._approach_corridor_margin_samples)))
+                corridor_mm = STEP6_APPROACH_CORRIDOR_MM * max(valid_count - 1, 0) / (len(back) - 1)
+                if corridor_mm < STEP6_APPROACH_CORRIDOR_MIN_MM:
+                    return direct(
+                        f"axial corridor blocked {corridor_mm:.2f} mm behind PreEntry: "
+                        + blocked_message
+                    )
+                back = back[:valid_count]
         approach_positions = back[-1]
-        to_approach = self._bridge.plan_moveit_joint_goal(
+        to_approach = self._plan_joint_goal_with_retries(
             start_joint_positions_si=home_positions,
             goal_joint_positions_si=approach_positions,
             refresh_planning_scene=refresh_planning_scene,
@@ -9486,8 +9534,8 @@ class DENTORobotWorkflowFacade:
         times = list(to_approach.waypoint_times_sec or ())
         last = times[-1] if times else 0.0
         back_times = list(back_out.waypoint_times_sec or ())
-        if len(back_times) == len(back):
-            total = back_times[-1]
+        if len(back_times) >= len(back):
+            total = back_times[len(back) - 1]
             times += [last + (total - back_times[len(back) - 2 - i]) for i in range(len(descend))]
         else:
             times += [last + 0.1 * (i + 1) for i in range(len(descend))]
@@ -9497,7 +9545,7 @@ class DENTORobotWorkflowFacade:
             waypoint_times_sec=tuple(times),
             message=(
                 f"Approach corridor: free-space Home -> approach point "
-                f"{STEP6_APPROACH_CORRIDOR_MM:g} mm out along the drill axis, then straight "
+                f"{corridor_mm:.2f} mm out along the drill axis, then straight "
                 f"into PreEntry ({len(free)} + {len(descend)} waypoints)."
             ),
         )
@@ -10834,6 +10882,10 @@ class DENTORobotWorkflowFacade:
         from dentobot_workflow import base_diagnosis
 
         rows = []
+        # Raw stage outcomes stay available as display-only evidence (e.g. the
+        # first invalid state for the case evidence package); no authority.
+        stage_outcomes = {}
+        self._last_base_diagnosis_stage_outcomes = stage_outcomes
 
         def step(text):
             if progress:
@@ -10867,6 +10919,7 @@ class DENTORobotWorkflowFacade:
                 )
                 if not isinstance(outcome, Mapping):
                     outcome = {"diagnostic_status": "unknown", "reason": _bounded_text(result.message)}
+                stage_outcomes[phase_id] = outcome
                 rows.append(base_diagnosis.stage_row(phase_id, outcome))
         except (RuntimeError, ValueError, OSError, TypeError, KeyError, AttributeError) as exc:
             done = {row["check"] for row in rows}

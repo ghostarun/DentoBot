@@ -888,7 +888,7 @@ class RobotSceneSyncLogicMixin:
         self._step6MouthPortalCache = (key, portal)
         return portal
 
-    MOUTH_BARRIER_MODEL_NAME = "[Step 6] Mouth Barrier"
+    MOUTH_BARRIER_MODEL_NAME = "[Step 6] Mouth Entry Outline"
     MOUTH_BARRIER_ROLE = "Step6MouthBarrierDisplay"
 
     def step6MouthBarrierEdgeMode(self, parameterNode) -> str:
@@ -978,9 +978,7 @@ class RobotSceneSyncLogicMixin:
         """[(part_name, closed vtkPolyData world RAS mm)] for MoveIt and preflight; [] when off."""
         barrier = self.step6MouthBarrier(parameterNode)
         if barrier is None:
-            for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
-                if node.GetAttribute("DENTOBOT.ModelRole") == self.MOUTH_BARRIER_ROLE and node.GetDisplayNode():
-                    node.GetDisplayNode().SetVisibility(False)
+            self.setStep6MouthBarrierVisible(False)
             return []
         parts = []
         for part in barrier.parts:
@@ -996,120 +994,94 @@ class RobotSceneSyncLogicMixin:
             polydata.SetPoints(points)
             polydata.SetPolys(cells)
             parts.append((part.name, polydata))
-        self._showStep6MouthBarrier(parts, barrier.summary,
-                                    bool(getattr(parameterNode, "step6ShowMouthBarrier", True)),
-                                    float(getattr(parameterNode, "step6MouthBarrierOpacity", 0.12)))
+        self._showStep6MouthBarrier(parts, barrier.opening.vertices_mm, barrier.summary, parameterNode)
         return parts
 
-    def setStep6MouthBarrierVisible(self, visible: bool) -> None:
-        """Show/hide the barrier display model only; MoveIt keeps the barrier."""
-        for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
-            if node.GetAttribute("DENTOBOT.ModelRole") == self.MOUTH_BARRIER_ROLE and node.GetDisplayNode():
-                node.GetDisplayNode().SetVisibility(bool(visible))
+    def _step6MouthBarrierModels(self, role: str) -> list:
+        return [n for n in slicer.util.getNodesByClass("vtkMRMLModelNode")
+                if n.GetAttribute("DENTOBOT.ModelRole") == role]
+
+    def setStep6MouthBarrierVisible(self, visible: bool, surface_visible: bool = False) -> None:
+        """Show/hide the barrier display models only; MoveIt keeps the barrier.
+        The full surface needs the barrier toggle and its own optional toggle."""
+        for role, shown in ((self.MOUTH_BARRIER_ROLE, visible),
+                            (self.MOUTH_BARRIER_SURFACE_ROLE, visible and surface_visible)):
+            for node in self._step6MouthBarrierModels(role):
+                if node.GetDisplayNode():
+                    node.GetDisplayNode().SetVisibility(bool(shown))
 
     def setStep6MouthBarrierOpacity(self, opacity: float) -> None:
-        """Display opacity of the barrier model only; MoveIt keeps the barrier."""
+        """Opacity of the optional full barrier surface only; the outline stays solid."""
         opacity = min(1.0, max(0.0, float(opacity)))
-        for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
-            if node.GetAttribute("DENTOBOT.ModelRole") == self.MOUTH_BARRIER_ROLE and node.GetDisplayNode():
+        for node in self._step6MouthBarrierModels(self.MOUTH_BARRIER_SURFACE_ROLE):
+            if node.GetDisplayNode():
                 node.SetAttribute("DENTOBOT.DisplayOpacity", f"{opacity:.2f}")
                 node.GetDisplayNode().SetOpacity(opacity)
 
-    TASK_SPACE_BOX_ROLE = "Step6TaskSpaceBox"
-    TASK_SPACE_BOX_MODEL_NAME = "[Step 6] Task-Space Box (incisor-centred, display only)"
+    MOUTH_BARRIER_SURFACE_ROLE = "Step6MouthBarrierSurface"
+    MOUTH_BARRIER_SURFACE_MODEL_NAME = "[Step 6] Mouth Barrier (full lip slab and cheek walls)"
+    MOUTH_ENTRY_OUTLINE_RADIUS_MM = 1.5
 
-    def updateStep6TaskSpaceBox(self, center_world_ras_mm, side_mm: float, opacity: float,
-                                visible: bool) -> None:
-        """Optional cube around the incisor-centred task space (operator 2026-10-03).
-
-        Display only: it neither bounds sampling nor enters the MoveIt scene. Cool
-        blue with edges so it stays distinct from the rose mouth barrier.
-        """
-        node = next((n for n in slicer.util.getNodesByClass("vtkMRMLModelNode")
-                     if n.GetAttribute("DENTOBOT.ModelRole") == self.TASK_SPACE_BOX_ROLE), None)
-        if not visible or center_world_ras_mm is None:
-            if node is not None and node.GetDisplayNode():
-                node.GetDisplayNode().SetVisibility(False)
-            return
-        side = float(side_mm)
-        if not side > 0.0:
-            raise ValueError("Task-space box side length must be positive.")
-        cube = vtk.vtkCubeSource()
-        cube.SetCenter(*(float(value) for value in center_world_ras_mm))
-        cube.SetXLength(side)
-        cube.SetYLength(side)
-        cube.SetZLength(side)
-        cube.Update()
+    def _step6MouthBarrierModel(self, role: str, name: str, polydata, summary: dict):
+        """Find or create a display-only barrier model and give it ``polydata``."""
+        node = next(iter(self._step6MouthBarrierModels(role)), None)
         if node is None:
-            node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", self.TASK_SPACE_BOX_MODEL_NAME)
-            node.SetAttribute("DENTOBOT.ModelRole", self.TASK_SPACE_BOX_ROLE)
-            node.SaveWithSceneOff()
-        surface = vtk.vtkPolyData()
-        surface.DeepCopy(cube.GetOutput())
-        node.SetAndObservePolyData(surface)
-        node.CreateDefaultDisplayNodes()
-        display = node.GetDisplayNode()
-        display.SetColor(0.20, 0.55, 1.0)
-        display.SetEdgeVisibility(True)
-        display.SetEdgeColor(0.35, 0.70, 1.0)
-        opacity = min(1.0, max(0.0, float(opacity)))
-        # View presets restore this instead of their solid default (as for the barrier).
-        node.SetAttribute("DENTOBOT.DisplayOpacity", f"{opacity:.2f}")
-        display.SetOpacity(opacity)
-        display.SetVisibility2D(False)
-        display.SetVisibility(True)
-
-    def step6TaskSpaceBoxShown(self) -> bool:
-        return any(n.GetAttribute("DENTOBOT.ModelRole") == self.TASK_SPACE_BOX_ROLE
-                   and n.GetDisplayNode() is not None and bool(n.GetDisplayNode().GetVisibility())
-                   for n in slicer.util.getNodesByClass("vtkMRMLModelNode"))
-
-    @staticmethod
-    def setStep6ViewFrameBoxVisible(visible: bool) -> None:
-        """Slicer's magenta 3D-view frame box (not task space); hidden in Step 6."""
-        for view_node in slicer.util.getNodesByClass("vtkMRMLViewNode"):
-            if bool(view_node.GetBoxVisible()) != bool(visible):
-                view_node.SetBoxVisible(bool(visible))
-
-    @staticmethod
-    def setStep6DepthPeeling(enabled: bool) -> None:
-        """3D-view depth peeling (display only; operator run option 2026-10-03)."""
-        for view_node in slicer.util.getNodesByClass("vtkMRMLViewNode"):
-            if bool(view_node.GetUseDepthPeeling()) != bool(enabled):
-                view_node.SetUseDepthPeeling(bool(enabled))
-
-    @staticmethod
-    def step6DepthPeelingEnabled() -> bool:
-        views = slicer.util.getNodesByClass("vtkMRMLViewNode")
-        return all(bool(view_node.GetUseDepthPeeling()) for view_node in views) if views else True
-
-    def _showStep6MouthBarrier(self, parts, summary, visible: bool = True,
-                               opacity: float = 0.12) -> None:
-        """Display-only model so the barrier is visible in the viewport and recordings."""
-        node = next((n for n in slicer.util.getNodesByClass("vtkMRMLModelNode")
-                     if n.GetAttribute("DENTOBOT.ModelRole") == self.MOUTH_BARRIER_ROLE), None)
-        if node is None:
-            node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", self.MOUTH_BARRIER_MODEL_NAME)
-            node.SetAttribute("DENTOBOT.ModelRole", self.MOUTH_BARRIER_ROLE)
+            node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", name)
+            node.SetAttribute("DENTOBOT.ModelRole", role)
             node.SetAttribute("DENTOBOT.IntendedUse", "SimulationPlanningGate")
             node.SaveWithSceneOff()
+        copy = vtk.vtkPolyData()
+        copy.DeepCopy(polydata)
+        node.SetAndObservePolyData(copy)
+        node.SetAttribute("DENTOBOT.MouthBarrierSummary", json.dumps(summary, sort_keys=True))
+        node.CreateDefaultDisplayNodes()
+        return node
+
+    def _showStep6MouthBarrier(self, parts, opening_vertices_mm, summary, parameterNode) -> None:
+        """Display-only models (operator 2026-10-04): a thick black mouth-entry
+        outline, shown with the barrier toggle, plus the optional full lip slab and
+        cheek walls (off by default) so the solid surface does not hide the anatomy."""
+        vertices = [tuple(float(v) for v in point) for point in opening_vertices_mm]
+        points = vtk.vtkPoints()
+        for point in vertices:
+            points.InsertNextPoint(*point)
+        loop = vtk.vtkCellArray()
+        loop.InsertNextCell(len(vertices) + 1)
+        for index in (*range(len(vertices)), 0):
+            loop.InsertCellPoint(index)
+        outline = vtk.vtkPolyData()
+        outline.SetPoints(points)
+        outline.SetLines(loop)
+        tube = vtk.vtkTubeFilter()
+        tube.SetInputData(outline)
+        tube.SetRadius(self.MOUTH_ENTRY_OUTLINE_RADIUS_MM)
+        tube.SetNumberOfSides(16)
+        tube.CappingOn()
+        tube.Update()
+        node = self._step6MouthBarrierModel(self.MOUTH_BARRIER_ROLE, self.MOUTH_BARRIER_MODEL_NAME,
+                                            tube.GetOutput(), summary)
+        node.SetAttribute("DENTOBOT.DisplayOpacity", "1.00")  # view presets restore solid
+        display = node.GetDisplayNode()
+        if display:
+            display.SetColor(0.0, 0.0, 0.0)
+            display.SetAmbient(1.0)
+            display.SetDiffuse(0.0)
+            display.SetSpecular(0.0)
+            display.SetOpacity(1.0)
+            display.SetVisibility2D(False)
         merged = vtk.vtkAppendPolyData()
         for _name, polydata in parts:
             merged.AddInputData(polydata)
         merged.Update()
-        surface = vtk.vtkPolyData()
-        surface.DeepCopy(merged.GetOutput())
-        node.SetAndObservePolyData(surface)
-        node.SetAttribute("DENTOBOT.MouthBarrierSummary", json.dumps(summary, sort_keys=True))
-        opacity = min(1.0, max(0.0, float(opacity)))
-        node.SetAttribute("DENTOBOT.DisplayOpacity", f"{opacity:.2f}")
-        node.CreateDefaultDisplayNodes()
-        display = node.GetDisplayNode()
+        slab = self._step6MouthBarrierModel(self.MOUTH_BARRIER_SURFACE_ROLE,
+                                            self.MOUTH_BARRIER_SURFACE_MODEL_NAME, merged.GetOutput(), summary)
+        display = slab.GetDisplayNode()
         if display:
             display.SetColor(0.95, 0.45, 0.60)
-            display.SetOpacity(opacity)
-            display.SetVisibility(bool(visible))
             display.SetVisibility2D(False)
+        self.setStep6MouthBarrierOpacity(float(getattr(parameterNode, "step6MouthBarrierOpacity", 0.12)))
+        self.setStep6MouthBarrierVisible(bool(getattr(parameterNode, "step6ShowMouthBarrier", True)),
+                                         bool(getattr(parameterNode, "step6ShowMouthBarrierSurface", False)))
 
     def checkStep6MouthPortalGate(self, parameterNode, tcp_path_world_ras_mm) -> dict:
         """Gate: the TCP path must enter the mouth through the barrier opening."""

@@ -57,6 +57,7 @@ MIXIN_OWNERS = {
     "Step6SceneLogicMixin": "DENTOWorkflowLogic",
     "RobotPlacementLogicMixin": "DENTOWorkflowLogic",
     "RobotSceneSyncLogicMixin": "DENTOWorkflowLogic",
+    "RobotOverlayLogicMixin": "DENTOWorkflowLogic",
     "RobotLogicMixin": "DENTOWorkflowLogic",
     "DENTOWorkflowTestMixin": "DENTOWorkflowTest",
 }

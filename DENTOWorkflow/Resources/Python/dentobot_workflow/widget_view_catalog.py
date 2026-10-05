@@ -716,8 +716,14 @@ class ViewCatalogWidgetMixin:
 
         addNodes(
             "nodes:step6MouthBarrier",
-            _("[Step 6] Mouth barrier — virtual lips/cheeks"),
+            _("[Step 6] Mouth barrier — entry outline"),
             role_models("Step6MouthBarrierDisplay"),
+            "robot_mount",
+        )
+        addNodes(
+            "nodes:step6MouthBarrierSurface",
+            _("[Step 6] Mouth barrier — full lip slab and cheek walls (optional)"),
+            role_models("Step6MouthBarrierSurface"),
             "robot_mount",
         )
         addNodes(

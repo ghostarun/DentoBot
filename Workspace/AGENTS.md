@@ -92,6 +92,16 @@ For every substantial task:
     queue and is not the engineer-owned Drive project tracker; TASKS.md retains
     detailed engineering contracts and completion records.
 
+17. Record every unresolved reasoning thread worth revisiting (unexplored
+    hypothesis, unanswered design question, out-of-scope option, suspected but
+    unproven cause) as one line in today's logbook starting with
+    `OPEN-QUESTION [<task-id>] (<YYYY-MM-DD>):` followed by the question, the
+    evidence that raised it and where to start. Close it later with a line
+    `OPEN-QUESTION-CLOSED [<task-id>] (<date>): <original question> -> <answer
+    and evidence>`. Never delete open lines. The operator's sweep is
+    `grep -rn "OPEN-QUESTION" docs/`, so keep each entry self-contained on one
+    line.
+
 ## Backlog-first gate — mandatory
 
 Before scoping, planning, implementing, diagnosing, reprioritizing, or

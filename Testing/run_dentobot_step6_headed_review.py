@@ -1469,7 +1469,7 @@ def _capture(report, evidence_dir: Path, run_id: str, key: str) -> dict[str, str
 
 
 STEP6_DISPLAY_MODEL_ROLES = (
-    "Step6MouthBarrierDisplay", "Step6ReachEnvelope", "Step6WorkspaceHomeConnected", "RobotWorkspaceCloud",
+    "Step6MouthBarrierDisplay", "Step6MouthBarrierSurface", "Step6ReachEnvelope", "Step6WorkspaceHomeConnected", "RobotWorkspaceCloud",
 )
 
 

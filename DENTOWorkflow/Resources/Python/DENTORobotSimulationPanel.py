@@ -1559,19 +1559,29 @@ class DENTORobotSimulationPanel:
         self.showMouthBarrierCheckBox.objectName = "DENTOBOTShowMouthBarrier63"
         self.showMouthBarrierCheckBox.checked = True
         self.showMouthBarrierCheckBox.toolTip = (
-            "Show or hide the pink virtual lips/cheeks in the 3D view. Display only: "
-            "the planner still avoids the barrier unless its edges are set to Off."
+            "Show or hide the black mouth-entry outline in the 3D view. Display only: "
+            "the planner still avoids the full lip/cheek barrier unless its edges are set to Off."
         )
         planning_advanced_layout.addWidget(self.showMouthBarrierCheckBox)
+        self.showMouthBarrierSurfaceCheckBox = qt.QCheckBox(
+            "Also show the full barrier (lip slab + cheek walls)", self.planningAdvancedGroup
+        )
+        self.showMouthBarrierSurfaceCheckBox.objectName = "DENTOBOTShowMouthBarrierSurface63"
+        self.showMouthBarrierSurfaceCheckBox.checked = False
+        self.showMouthBarrierSurfaceCheckBox.toolTip = (
+            "Optional pink translucent lip slab and cheek walls, drawn together with the "
+            "outline. Off by default because it hides the anatomy. Display only."
+        )
+        planning_advanced_layout.addWidget(self.showMouthBarrierSurfaceCheckBox)
         # Operator 2026-10-03: low default opacities, explicit opacity controls and
         # an optional incisor-centred task-space box (display only, off by default).
         barrier_opacity_row = qt.QHBoxLayout()
-        barrier_opacity_row.addWidget(qt.QLabel("Mouth barrier opacity:", self.planningAdvancedGroup))
+        barrier_opacity_row.addWidget(qt.QLabel("Full barrier opacity:", self.planningAdvancedGroup))
         self.mouthBarrierOpacitySlider = qt.QSlider(qt.Qt.Horizontal, self.planningAdvancedGroup)
         self.mouthBarrierOpacitySlider.objectName = "DENTOBOTMouthBarrierOpacity63"
         self.mouthBarrierOpacitySlider.minimum, self.mouthBarrierOpacitySlider.maximum = 0, 100
         self.mouthBarrierOpacitySlider.value = 12
-        self.mouthBarrierOpacitySlider.toolTip = "Mouth barrier opacity (display only)."
+        self.mouthBarrierOpacitySlider.toolTip = "Full mouth barrier surface opacity (display only)."
         barrier_opacity_row.addWidget(self.mouthBarrierOpacitySlider, 1)
         planning_advanced_layout.addLayout(barrier_opacity_row)
         self.showTaskSpaceBoxCheckBox = qt.QCheckBox(
@@ -1598,9 +1608,9 @@ class DENTORobotSimulationPanel:
         task_box_row.addWidget(qt.QLabel("Opacity:", self.planningAdvancedGroup))
         self.taskSpaceBoxOpacitySlider = qt.QSlider(qt.Qt.Horizontal, self.planningAdvancedGroup)
         self.taskSpaceBoxOpacitySlider.objectName = "DENTOBOTTaskSpaceBoxOpacity63"
-        self.taskSpaceBoxOpacitySlider.minimum, self.taskSpaceBoxOpacitySlider.maximum = 0, 100
+        self.taskSpaceBoxOpacitySlider.minimum, self.taskSpaceBoxOpacitySlider.maximum = 0, 30
         self.taskSpaceBoxOpacitySlider.value = 10
-        self.taskSpaceBoxOpacitySlider.toolTip = "Task-space box opacity (display only)."
+        self.taskSpaceBoxOpacitySlider.toolTip = "Task-space box opacity, 0-30 % (display only)."
         task_box_row.addWidget(self.taskSpaceBoxOpacitySlider, 1)
         planning_advanced_layout.addLayout(task_box_row)
         self.taskSpaceBoxStatusLabel = qt.QLabel("", self.planningAdvancedGroup)
@@ -1794,6 +1804,9 @@ class DENTORobotSimulationPanel:
         )
         self.showMouthBarrierCheckBox.toggled.connect(
             lambda checked: self._invoke("set_show_mouth_barrier", bool(checked))
+        )
+        self.showMouthBarrierSurfaceCheckBox.toggled.connect(
+            lambda checked: self._invoke("set_show_mouth_barrier_surface", bool(checked))
         )
         for owner, mirror in (
             (self.showMouthBarrierCheckBox, self.displayShowMouthBarrierCheckBox),
@@ -4147,7 +4160,10 @@ class DENTORobotSimulationPanel:
         table = self._baseDiagnosisTable
         table.setRowCount(len(rows))
         for index, row in enumerate(rows):
-            cells = (row.get("title", ""), row.get("status", ""), row.get("cause_title", ""), row.get("detail", ""))
+            cause = " · ".join(
+                text for text in (row.get("cause_title", ""), row.get("cause_class_title", "")) if text
+            )
+            cells = (row.get("title", ""), row.get("status", ""), cause, row.get("detail", ""))
             for column, value in enumerate(cells):
                 item = qt.QTableWidgetItem(str(value))
                 if column == 1:
