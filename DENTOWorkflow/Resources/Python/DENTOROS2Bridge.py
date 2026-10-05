@@ -6541,6 +6541,37 @@ ROS2_OBSTACLE_PUBLISH_PACE_SEC = 0.25
 ROS2_OBSTACLE_PUBLISH_PACE_SEC_PER_POINT = 4.0e-6
 
 
+# Robust path (operator 2026-10-06): MoveGroup also receives each changed
+# obstacle through the synchronous /apply_planning_scene service, so its
+# application is acknowledged instead of inferred. The topic publish above
+# still feeds the separate collision guard, which keeps pacing and readback.
+ROS2_APPLY_OBSTACLES_VIA_SERVICE = True
+
+
+def _apply_obstacle_to_move_group(proxy) -> tuple[Optional[bool], str]:
+    """(True|False, message) from MoveGroup, or (None, reason) when unsupported."""
+    logic, _robot_node, _goal_node, error = _dentobot_native_motion_context(
+        initialize_goal=False,
+        require_goal=False,
+    )
+    if error or logic is None:
+        return None, error or "MoveIt context is unavailable."
+    try:
+        import slicer
+
+        motion_node = slicer.mrmlScene.GetNodeByID(logic.getParameterNode().motionControlNodeID)
+    except Exception:
+        motion_node = None
+    apply = getattr(motion_node, "ApplyMoveItCollisionObject", None) if motion_node else None
+    if apply is None:
+        return None, "native ApplyMoveItCollisionObject is unavailable"
+    try:
+        ok = bool(apply(proxy, ROS2_FIXED_FRAME, 5.0))
+        return ok, str(motion_node.GetLastPlanningSceneMessage() or "")
+    except Exception as exc:
+        return False, f"apply failed: {exc}"
+
+
 def _pace_obstacle_publication(point_count: int) -> None:
     delay = ROS2_OBSTACLE_PUBLISH_PACE_SEC + ROS2_OBSTACLE_PUBLISH_PACE_SEC_PER_POINT * max(0, int(point_count))
     deadline = time.monotonic() + delay
@@ -6631,7 +6662,16 @@ def sync_moveit_obstacle_polydata(
     )
     if not motion_logic.PublishMoveItObstacle(proxy, ROS2_FIXED_FRAME, robot_node):
         return False, f"Failed to publish MoveIt obstacle {source_name}."
-    _pace_obstacle_publication(polydata_base_mm.GetNumberOfPoints())
+    applied = None
+    if ROS2_APPLY_OBSTACLES_VIA_SERVICE:
+        applied, apply_message = _apply_obstacle_to_move_group(proxy)
+        if applied is False:
+            return False, f"MoveGroup did not confirm obstacle {source_name}: {apply_message}"
+    if applied is not True:
+        # Fallback when the acknowledged service path is unavailable: pace the
+        # topic so subscriber queues are not overrun (6 Oct E1/E2/E3 evidence:
+        # with the service, MoveGroup 6/6 and the guard 6/6 without pacing).
+        _pace_obstacle_publication(polydata_base_mm.GetNumberOfPoints())
     proxy.SetAttribute(ROS2_OBSTACLE_PUBLISHED_ID_ATTRIBUTE, source_name)
     mark_slicer_ros2_runtime_nodes_transient()
     return True, ""
