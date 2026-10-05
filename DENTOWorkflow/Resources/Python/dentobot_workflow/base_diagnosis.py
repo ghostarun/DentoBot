@@ -258,7 +258,12 @@ def compare_frame_poses(pose_pairs, *, tolerance_mm: float = FRAME_TOLERANCE_MM,
         position = math.sqrt(sum((float(a[r][3]) - float(b[r][3])) ** 2 for r in range(3)))
         angle = 0.0
         for c in range(3):
-            dot = sum(float(a[r][c]) * float(b[r][c]) for r in range(3))
+            # Normalise columns first: the Base matrix carries ~1e-9 column-norm
+            # drift, which acos turns into a false ~0.002 deg (6 Oct finding).
+            col_a = [float(a[r][c]) for r in range(3)]
+            col_b = [float(b[r][c]) for r in range(3)]
+            norm = math.sqrt(sum(v * v for v in col_a)) * math.sqrt(sum(v * v for v in col_b)) or 1.0
+            dot = sum(x * y for x, y in zip(col_a, col_b)) / norm
             angle = max(angle, math.degrees(math.acos(max(-1.0, min(1.0, dot)))))
         ok = position <= tolerance_mm and angle <= tolerance_deg
         rows.append({"state": state, "status": PASS if ok else FAIL,

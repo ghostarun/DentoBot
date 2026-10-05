@@ -222,3 +222,10 @@ def test_frame_comparison_flags_offsets_and_always_reports_with_priority():
                            bd.stage_row("P1", _stage("passed")), bd.stage_row("P2", _stage("passed")),
                            bd.stage_row("P3", _stage("passed")), bd.frame_row(ok)])
     assert passed["status"] == bd.PASS and passed["rows"][-1]["status"] == bd.PASS
+
+
+def test_frame_angle_is_not_inflated_by_column_norm_drift():
+    eye = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    drift = [[1 - 4e-10, 0, 0, 0], [0, 1 - 4e-10, 0, 0], [0, 0, 1 - 4e-10, 0], [0, 0, 0, 1]]
+    row = bd.compare_frame_poses({"home": (eye, drift)})["rows"][0]
+    assert row["axis_deg"] < 1e-6

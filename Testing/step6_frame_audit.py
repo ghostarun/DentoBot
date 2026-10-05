@@ -100,7 +100,12 @@ def to_ras_mm(base_world_mm: np.ndarray, pose_m: np.ndarray) -> np.ndarray:
 
 
 def axis_angles_deg(a: np.ndarray, b: np.ndarray) -> list:
-    return [math.degrees(math.acos(max(-1.0, min(1.0, float(a[:3, i] @ b[:3, i]))))) for i in range(3)]
+    """Per-axis angle; columns normalised (Base matrix column-norm drift ~1e-9 made a false 0.002 deg)."""
+    out = []
+    for i in range(3):
+        u, v = a[:3, i] / np.linalg.norm(a[:3, i]), b[:3, i] / np.linalg.norm(b[:3, i])
+        out.append(math.degrees(math.acos(max(-1.0, min(1.0, float(u @ v))))))
+    return out
 
 
 def bounds_of(points) -> list:
@@ -187,6 +192,17 @@ def run_frame_audit(namespace: dict, out_dir, label: str, *, extrapolate_steps: 
                     h = np.c_[points, np.ones(len(points))]
                     points = (jaw_m @ h.T).T[:, :3]
                     route += " -> jaw opening"
+        elif ":mouth-barrier:" in source:
+            # Generated in world RAS from the canine landmarks/opened jaw; the
+            # frame step (world -> base) is still checked independently here.
+            # logic.step6MouthBarrier() is read-only (the polydata helper also
+            # refreshes the display).
+            part_name = source.split(":mouth-barrier:", 1)[1]
+            barrier = logic.step6MouthBarrier(node)
+            part = next((p for p in (barrier.parts if barrier else ()) if p.name == part_name), None)
+            if part is not None:
+                points = np.array([[float(v) for v in pt] for pt in part.points_mm])
+                route = "barrier part (world RAS, generated)"
         if points is None or not len(points):
             scene_rows.append({"id": object_id, "route": "no independent source (generated geometry)",
                                "status": "SKIP"})

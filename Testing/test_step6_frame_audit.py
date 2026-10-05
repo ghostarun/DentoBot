@@ -54,3 +54,11 @@ def test_mesh_vertices_must_be_in_mm_for_the_ras_mapping():
     mesh_mm = mesh_m * 1000.0
     pts = (ras @ np.c_[mesh_mm, np.ones(2)].T).T[:, :3]
     assert abs(np.ptp(pts[:, 0]) - 60.0) < 1e-9
+
+
+def test_axis_angles_ignore_column_norm_drift():
+    """6 Oct: a Base matrix with ~4e-10 column-norm drift read as 0.0022 deg before normalising."""
+    a = np.eye(4)
+    b = np.eye(4)
+    b[:3, :3] *= (1.0 - 4e-10)
+    assert max(fa.axis_angles_deg(a, b)) < 1e-6
