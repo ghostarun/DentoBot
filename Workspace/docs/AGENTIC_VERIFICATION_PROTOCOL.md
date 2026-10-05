@@ -290,7 +290,9 @@ For every approved runtime check, the runtime worker must:
 **Slicer instance limit (operator 2026-10-06).** Run only the Slicer runtimes
 the check needs: normally one, never more than two, and two only when a check
 genuinely requires it. Before every launch, count `SlicerApp-real` processes
-(host and container). After every stop, verify the count actually reached zero.
+(host and container) by exact process name (`pgrep -c -x SlicerApp-real`; a
+pattern grep can match the checking shell's own command line). After every stop,
+verify the count actually reached zero.
 `SIGTERM` alone has left orphaned instances running: escalate to `SIGKILL` and
 re-check. Never start a fresh session while an older one is still alive.
 

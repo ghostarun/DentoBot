@@ -54,3 +54,11 @@ def test_pose_states_pick_passed_stage_ends_and_failed_first_invalid():
     assert ev.pose_states(chain, outcomes) == {
         "preentry": {"j": 1.0}, "drilling-end": {"j": 3.0}, "first-invalid-p2": {"j": 2.5}}
     assert ev.pose_states(None, None) == {}
+
+
+def test_summary_card_reports_the_frame_audit():
+    rows = [{"title": "1", "status": "PASS", "cause_class": "", "detail": "x"}]
+    summary = _summary(rows)
+    summary["frame_audit"] = {"status": "PASS", "checks": {"A_scene": "PASS", "D_collision": "PASS"}}
+    text = ev.summary_markdown(summary)
+    assert "Coordinate frames (independent audit):** PASS — A_scene PASS, D_collision PASS" in text

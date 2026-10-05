@@ -7188,6 +7188,23 @@ def _diagnose_fixture(*, reachable=True, preentry="EndpointChecksPassed", stages
     return facade, calls
 
 
+def test_diagnose_base_always_cross_checks_kdl_against_moveit_fk():
+    """Operator 2026-10-06: the frame check is a standard Diagnose row with verdict priority."""
+    facade, calls = _diagnose_fixture(reachable=False)
+    bridge = facade._bridge
+    eye = ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1))
+    shifted = ((1, 0, 0, 5.0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1))
+    facade._logic.taskHomeRecord = lambda node: SimpleNamespace(joint_names=("j",), joint_positions_si=(0.0,))
+    bridge.compute_tcp_pose_world_ras_mm = lambda q, base_transform=None: (True, "", eye)
+    bridge.compute_moveit_tcp_pose_world_ras_mm = lambda q, base_transform=None: (True, "", eye)
+    summary = facade.diagnoseBase().details["baseDiagnosis"]
+    assert summary["rows"][-1]["check"] == "frame_match" and summary["rows"][-1]["status"] == "PASS"
+    assert summary["cause"] == "base_placement"  # planning failure still reported when frames agree
+    bridge.compute_moveit_tcp_pose_world_ras_mm = lambda q, base_transform=None: (True, "", shifted)
+    summary = facade.diagnoseBase().details["baseDiagnosis"]
+    assert summary["cause_class"] == "frame_mismatch" and summary["rows"][-1]["status"] == "FAIL"
+
+
 def test_diagnose_base_stops_at_base_placement():
     facade, calls = _diagnose_fixture(reachable=False)
     result = facade.diagnoseBase()

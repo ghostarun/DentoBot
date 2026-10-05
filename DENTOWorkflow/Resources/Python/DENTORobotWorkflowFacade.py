@@ -10963,6 +10963,10 @@ class DENTORobotWorkflowFacade:
                 rows.append(base_diagnosis._row(
                     pending, base_diagnosis.FAIL, f"Check could not run: {_bounded_text(str(exc))}", "unknown"
                 ))
+        frame_states = self._frame_check_states()
+        if frame_states:
+            step("Diagnose 6: Slicer KDL vs MoveIt FK at each available state")
+            rows.append(base_diagnosis.frame_row(self.frameConsistency(frame_states)))
         summary = base_diagnosis.summarize(rows)
         self._last_base_diagnosis = summary
         return RobotActionResult(
@@ -12697,6 +12701,41 @@ class DENTORobotWorkflowFacade:
                   "comparison": scene, "message": message, "repair_log": repair_log}
         self._last_moveit_scene_status = status
         return status
+
+    def _frame_check_states(self) -> dict:
+        """Task Home plus every stage end of the current diagnostic chain.
+
+        Empty when this bridge cannot compute both FKs (host fakes).
+        """
+        if not callable(getattr(self._bridge, "compute_moveit_tcp_pose_world_ras_mm", None)):
+            return {}
+        states = {}
+        try:
+            home = self._logic.taskHomeRecord(self._parameter_node())
+            if home is not None:
+                states["task_home"] = dict(zip(home.joint_names, home.joint_positions_si))
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            pass
+        stages = (self._step6_stage_diagnostic_chain or {}).get("stages") or {}
+        for phase_id, name in (("P1", "preentry"), ("P2", "entry"), ("P3", "drilling_end")):
+            end = (stages.get(phase_id) or {}).get("end")
+            if end:
+                states[name] = dict(end)
+        return states
+
+    def frameConsistency(self, states: Mapping[str, Mapping[str, float]]) -> dict:
+        """Slicer KDL TCP pose vs MoveIt-service TCP pose, world RAS mm (S6-LIVE-01 2026-10-06)."""
+        from dentobot_workflow.base_diagnosis import compare_frame_poses
+
+        base = self._parameter_node().robotBaseTransform
+        pairs = {}
+        for name, q in states.items():
+            ok_kdl, _m1, kdl = self._bridge.compute_tcp_pose_world_ras_mm(q, base_transform=base)
+            ok_moveit, _m2, moveit = self._bridge.compute_moveit_tcp_pose_world_ras_mm(q, base_transform=base)
+            pairs[name] = (kdl if ok_kdl else None, moveit if ok_moveit else None)
+        comparison = compare_frame_poses(pairs)
+        self._last_frame_consistency = comparison
+        return comparison
 
     def moveItSceneComparison(self) -> Optional[dict]:
         """MoveGroup world vs Slicer's audited outgoing objects (S6-LIVE-01 2026-10-06).

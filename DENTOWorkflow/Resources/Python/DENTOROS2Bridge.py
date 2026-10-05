@@ -1572,6 +1572,7 @@ def configure_task_phase_guard(
 _LATE_GUARD_CONFIG_REASONS = (
     "guard session does not match",
     "task fingerprint does not match",
+    "No valid simulation task-guard configuration",  # first query after a Base change (6 Oct)
 )
 
 
@@ -6416,6 +6417,56 @@ def read_moveit_world_object_bounds(*, timeout_sec: float = 3.0) -> tuple[bool, 
     except (TypeError, ValueError) as exc:
         return False, f"MoveIt planning-scene payload is invalid: {exc}", []
     return True, message, list(objects)
+
+
+def compute_moveit_tcp_pose_world_ras_mm(
+    positions_si: Mapping[str, float],
+    *,
+    base_transform,
+    timeout_sec: float = 2.0,
+) -> tuple[bool, str, Optional[tuple[tuple[float, ...], ...]]]:
+    """MoveIt-service FK of the canonical TCP, mapped to world RAS/mm.
+
+    Independent of Slicer's KDL chain (compute_tcp_pose_world_ras_mm); used to
+    cross-check the two kinematic sources (S6-LIVE-01 2026-10-06).
+    """
+    logic, _robot_node, _goal_node, error = _dentobot_native_motion_context(
+        initialize_goal=False,
+        require_goal=False,
+    )
+    if error or logic is None:
+        return False, error or "MoveIt context is unavailable.", None
+    if base_transform is None:
+        return False, "The locked robot base is unavailable.", None
+    try:
+        values = joint_si_vector(positions_si)
+        import slicer
+        import vtk
+
+        motion_node = slicer.mrmlScene.GetNodeByID(logic.getParameterNode().motionControlNodeID)
+    except Exception as exc:
+        return False, f"MoveIt FK setup failed: {exc}", None
+    compute_fk = getattr(motion_node, "ComputeMoveItForwardKinematics", None) if motion_node else None
+    if compute_fk is None:
+        return False, "MoveIt FK is unavailable in this SlicerROS2 build.", None
+    matrix = None
+    try:
+        matrix = compute_fk(ROS2_PLANNING_GROUP, list(ROS2_JOINT_SI_ORDER), values, ROS2_TOOL_TCP_LINK, float(timeout_sec))
+        message = str(motion_node.GetLastForwardKinematicsMessage() or "")
+        if matrix is None or not message.startswith("MoveIt FK returned"):
+            return False, message or "MoveIt FK returned no authoritative pose.", None
+        base_world = vtk.vtkMatrix4x4()
+        base_transform.GetMatrixTransformToWorld(base_world)
+        world = vtk.vtkMatrix4x4()
+        vtk.vtkMatrix4x4.Multiply4x4(base_world, matrix, world)
+        rows = _matrix4_rows(world)
+    except Exception as exc:
+        return False, f"MoveIt FK query failed: {exc}", None
+    finally:
+        _release_moveit_vtk_result(matrix)
+    if not all(isfinite(value) for row in rows for value in row):
+        return False, "MoveIt FK returned a non-finite pose.", None
+    return True, message, rows
 
 
 def compute_moveit_static_tcp_pose_base_mm(

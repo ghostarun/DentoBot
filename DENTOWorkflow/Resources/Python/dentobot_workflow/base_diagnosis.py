@@ -19,9 +19,11 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 
-CHECK_ORDER = ("scene_match", "stroke_reach", "preentry_endpoint", "p1_route", "p2_entry", "p3_drilling")
+CHECK_ORDER = ("scene_match", "stroke_reach", "preentry_endpoint", "p1_route", "p2_entry", "p3_drilling",
+               "frame_match")
 CHECK_TITLES = {
     "scene_match": "0. MoveIt planning scene matches Slicer",
+    "frame_match": "6. Coordinate frames agree (Slicer KDL vs MoveIt FK)",
     "stroke_reach": "1. Base reaches the whole drilling stroke",
     "preentry_endpoint": "2. PreEntry endpoint is reachable and collision-free",
     "p1_route": "3. Route Task Home → PreEntry",
@@ -30,6 +32,7 @@ CHECK_TITLES = {
 }
 CAUSE_TITLES = {
     "scene_mismatch": "MoveIt scene differs from Slicer",
+    "frame_mismatch": "Coordinate frames disagree",
     "base_placement": "Base placement",
     "endpoint_collision": "Collision at PreEntry",
     "solver": "IK solver",
@@ -54,6 +57,7 @@ CAUSE_CLASS_TITLES = {
     "narrow_passage": "Narrow passage (endpoints valid, planner found no route)",
     "solver": "IK solver",
     "scene_mismatch": "MoveIt scene differs from Slicer",
+    "frame_mismatch": "Coordinate frames disagree (Slicer vs MoveIt kinematics)",
     "unknown": "Unknown",
 }
 # Least invasive first. Advisory only: nothing here is applied automatically, and
@@ -67,6 +71,7 @@ CAUSE_CLASS_LEVERS = {
     "narrow_passage": ("Planning attempts/time", "Approach-corridor margin", "Base yaw (±5° steps)"),
     "solver": ("PreEntry IK seeds/budget",),
     "scene_mismatch": ("Re-sync the Step 6 planning scene (6.1 Connect / scene sync), then re-run",),
+    "frame_mismatch": ("Stop: check the robot description and Base transform before any planning (operator)",),
     "unknown": (),
 }
 _CONTACTS = re.compile(r"contacts=(.+?)<->([^\s;,)]+)")
@@ -233,6 +238,51 @@ def scene_row(comparison: Mapping | None, *, unavailable_reason: str = "") -> di
                 "scene_mismatch", cause_class="scene_mismatch")
 
 
+FRAME_TOLERANCE_MM = 0.01
+FRAME_TOLERANCE_DEG = 0.01
+
+
+def compare_frame_poses(pose_pairs, *, tolerance_mm: float = FRAME_TOLERANCE_MM,
+                        tolerance_deg: float = FRAME_TOLERANCE_DEG) -> dict:
+    """Compare two 4x4 TCP poses (RAS, mm) per named state: position and the three axes.
+
+    ``pose_pairs``: {state: (pose_a, pose_b)}; a missing pose fails that state.
+    """
+    import math
+
+    rows = []
+    for state, (a, b) in (pose_pairs or {}).items():
+        if a is None or b is None:
+            rows.append({"state": state, "status": FAIL, "detail": "pose unavailable"})
+            continue
+        position = math.sqrt(sum((float(a[r][3]) - float(b[r][3])) ** 2 for r in range(3)))
+        angle = 0.0
+        for c in range(3):
+            dot = sum(float(a[r][c]) * float(b[r][c]) for r in range(3))
+            angle = max(angle, math.degrees(math.acos(max(-1.0, min(1.0, dot)))))
+        ok = position <= tolerance_mm and angle <= tolerance_deg
+        rows.append({"state": state, "status": PASS if ok else FAIL,
+                     "position_mm": round(position, 6), "axis_deg": round(angle, 6)})
+    passed = bool(rows) and all(r["status"] == PASS for r in rows)
+    worst_mm = max((r.get("position_mm", 0.0) for r in rows), default=0.0)
+    worst_deg = max((r.get("axis_deg", 0.0) for r in rows), default=0.0)
+    return {"matches": passed, "rows": rows,
+            "summary": f"{sum(r['status'] == PASS for r in rows)}/{len(rows)} states agree; worst "
+                       f"{worst_mm:.6f} mm, {worst_deg:.4f}° (tolerance {tolerance_mm} mm, {tolerance_deg}°)."}
+
+
+def frame_row(comparison: Mapping | None) -> dict:
+    if not isinstance(comparison, Mapping) or not comparison.get("rows"):
+        return _row("frame_match", FAIL, "Kinematic cross-check could not run.", "frame_mismatch",
+                    cause_class="frame_mismatch")
+    if comparison.get("matches"):
+        return _row("frame_match", PASS, str(comparison.get("summary")))
+    bad = [r["state"] for r in comparison["rows"] if r["status"] != PASS]
+    return _row("frame_match", FAIL, "Slicer and MoveIt place the tool differently at "
+                + ", ".join(bad[:5]) + ": " + str(comparison.get("summary")),
+                "frame_mismatch", cause_class="frame_mismatch")
+
+
 def stroke_row(stroke: Mapping | None) -> dict:
     if not isinstance(stroke, Mapping):
         return _row("stroke_reach", FAIL, "Stroke reachability is unavailable.", "unknown")
@@ -343,8 +393,15 @@ def summarize(rows: Sequence[Mapping]) -> dict:
     warning_row = None
     for check in CHECK_ORDER:
         row = by_check.get(check)
-        if check == "scene_match" and row is None:
-            continue  # optional row: only present when the MoveIt scene was read
+        if check in ("scene_match", "frame_match") and row is None:
+            continue  # optional rows: present only when the runtime could check them
+        if check == "frame_match":
+            # Independent of planning: always reported, and a frame mismatch
+            # outranks any planning verdict (image-guided safety).
+            table.append(row)
+            if row["status"] == FAIL:
+                verdict_row = row
+            continue
         if stopped or row is None:
             table.append(_row(check, NOT_RUN, "Not run: an earlier check failed." if stopped else "Not run."))
             stopped = stopped or row is None

@@ -276,7 +276,8 @@ def run_frame_audit(namespace: dict, out_dir, label: str, *, extrapolate_steps: 
                           "standoff_mm": round(float(-(off @ drill_axis)), 4),
                           "status": "PASS" if lateral <= TOL_TASK_MM else "FAIL"})
     report["checks"]["C_task"] = {"rows": task_rows,
-                                  "status": "PASS" if task_rows and all(r["status"] == "PASS" for r in task_rows) else "FAIL"}
+                                  "status": "NOT_RUN" if not task_rows else
+                                  "PASS" if all(r["status"] == "PASS" for r in task_rows) else "FAIL"}
 
     # ---- D. collision agreement ----------------------------------------
     template = node.finalPrintableTemplateModel
@@ -315,10 +316,14 @@ def run_frame_audit(namespace: dict, out_dir, label: str, *, extrapolate_steps: 
     }
     report["checks"]["D_collision"] = {"pair": "pneumatic_spindle-Copy vs final template", "rows": d_rows,
                                        **transitions,
-                                       "status": "PASS" if d_rows and all(r["agree"] for r in d_rows)
+                                       "status": "NOT_RUN" if not d_rows else
+                                       "PASS" if all(r["agree"] for r in d_rows)
                                        and transitions["moveit_first_contact"] is not None else "FAIL"}
 
-    report["status"] = "PASS" if all(c["status"] == "PASS" for c in report["checks"].values()) else "FAIL"
+    statuses = [c["status"] for c in report["checks"].values()]
+    # Missing data (no planned chain) is NOT_RUN, never a coordinate failure.
+    report["status"] = ("FAIL" if "FAIL" in statuses else "PASS" if all(s == "PASS" for s in statuses)
+                        else "PARTIAL")
     report["duration_sec"] = round(time.monotonic() - started, 1)
     (out / "frame-audit.json").write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
     return report

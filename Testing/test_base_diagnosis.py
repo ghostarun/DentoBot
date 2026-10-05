@@ -200,3 +200,25 @@ def test_moveit_scene_comparison_flags_missing_extra_and_moved_objects():
     assert result["status"] == bd.FAIL and result["rows"][0]["check"] == "scene_match"
     assert [r["status"] for r in result["rows"][1:]] == [bd.NOT_RUN] * 5
     assert bd.scene_row(None, unavailable_reason="timeout")["status"] == bd.FAIL
+
+
+def test_frame_comparison_flags_offsets_and_always_reports_with_priority():
+    import math
+    eye = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    moved = [[1, 0, 0, 0.02], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    c, s_ = math.cos(math.radians(0.02)), math.sin(math.radians(0.02))
+    turned = [[c, -s_, 0, 0], [s_, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    ok = bd.compare_frame_poses({"home": (eye, eye)})
+    assert ok["matches"] and bd.frame_row(ok)["status"] == bd.PASS
+    bad = bd.compare_frame_poses({"home": (eye, eye), "preentry": (eye, moved), "entry": (eye, turned), "x": (eye, None)})
+    assert not bad["matches"] and [r["status"] for r in bad["rows"]] == [bd.PASS, bd.FAIL, bd.FAIL, bd.FAIL]
+    row = bd.frame_row(bad)
+    assert row["cause_class"] == "frame_mismatch" and "preentry" in row["detail"]
+    # frame row is reported even after a planning failure, and its FAIL wins the verdict
+    result = bd.summarize([bd.stroke_row({"reachable": True}), bd.preentry_row("NoEndpointPassed"), row])
+    assert result["rows"][-1]["check"] == "frame_match" and result["cause_class"] == "frame_mismatch"
+    assert "Coordinate frames disagree" in result["verdict"]
+    passed = bd.summarize([bd.stroke_row({"reachable": True}), bd.preentry_row("EndpointChecksPassed"),
+                           bd.stage_row("P1", _stage("passed")), bd.stage_row("P2", _stage("passed")),
+                           bd.stage_row("P3", _stage("passed")), bd.frame_row(ok)])
+    assert passed["status"] == bd.PASS and passed["rows"][-1]["status"] == bd.PASS

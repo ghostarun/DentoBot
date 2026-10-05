@@ -171,12 +171,22 @@ def summary_markdown(summary: dict) -> str:
         f"**Poses shown (ghost robot):** {', '.join(summary.get('poses') or []) or 'none'}",
         "",
     ]
+    frame = summary.get("frame_audit")
+    if frame:
+        checks = frame.get("checks") or {}
+        lines += [
+            f"**Coordinate frames (independent audit):** {frame.get('status')} — "
+            + (", ".join(f"{k} {v}" for k, v in checks.items()) or frame.get("error", "")),
+            "(A scene, B kinematics, C task, D collision boundary; details in frame-audit.json)",
+            "",
+        ]
     for name in summary["images"]:
         lines.append(f"![{name}]({name})")
     return "\n".join(lines) + "\n"
 
 
-def capture_case_evidence(namespace: dict, out_dir, label: str, *, run_diagnose: bool = True) -> dict:
+def capture_case_evidence(namespace: dict, out_dir, label: str, *, run_diagnose: bool = True,
+                          run_frame_audit: bool = True) -> dict:
     """Capture the standard evidence set for the current case state."""
     import slicer
 
@@ -305,6 +315,19 @@ def capture_case_evidence(namespace: dict, out_dir, label: str, *, run_diagnose:
         "pose_joint_positions_si": {name: poses[name] for name in shown},
         "images": images,
     }
+    if run_frame_audit:
+        # Standard coordinate-system proof for every case (operator 2026-10-06).
+        try:
+            import step6_frame_audit
+
+            audit = step6_frame_audit.run_frame_audit(namespace, out, label)
+            summary["frame_audit"] = {
+                "status": audit["status"],
+                "checks": {k: v["status"] for k, v in audit["checks"].items()},
+                "file": "frame-audit.json",
+            }
+        except Exception as exc:  # recorded, never hidden
+            summary["frame_audit"] = {"status": "ERROR", "error": str(exc)[:300]}
     (out / "summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     (out / "summary.md").write_text(summary_markdown(summary), encoding="utf-8")
     return summary
