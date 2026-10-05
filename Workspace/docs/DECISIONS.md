@@ -7388,3 +7388,19 @@ Operator: "running full 20 cycles is overdoing testing for single target tooth a
 - Failures are recorded with their diagnostics and dealt with later; they do not stop the multi-target campaign.
 - Scale is breadth: many target teeth, up to 3 trajectories per tooth, with compiled diagnostics across cases as the evidence of where the stack works or fails.
 - FDI14 (10/10 runs) and FDI11 (6/6 runs, stopped early under this rule) exceed the bar.
+
+## 6 October 2026 — RUN-ARCHIVE-01 dated local evidence storage
+
+Operator: organize dentobot-runs into datewise folders, record it in the logbook
+and stage for commit. Decision: preserve original run names and payloads beneath
+`YYYY-MM-DD`; use encoded dates literally, mtime only for UUID runs, and paired
+PID dates for undated watchdog stderr. Preserve original provenance strings and
+supply a move manifest. Two temporary root symlinks preserve the live GUI/session
+and watchdog paths; no process restart or runtime acceptance is inferred.
+[Layout](diagnostics/RUN_ARCHIVE_LAYOUT_2026-10-06.md).
+
+## 6 October 2026 — Base yaw is a last-resort adjustment
+
+Operator: "adjusting base yaw is one of the last preferred adjustments in our robot design."
+- Feasibility Advisor and Diagnose lever lists put Base yaw last for every cause class (after planning reliability, corridor margin, mouth opening and Base translation).
+- Neither accepted case used yaw: FDI14 used the saved Base (yaw 0); FDI11 used Find Reachable Base level 1, a forehead-plane translation (u = 0, v = −3 mm) with locked orientation, measured yaw 0.000° relative to the saved Base.

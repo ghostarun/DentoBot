@@ -64,11 +64,11 @@ CAUSE_CLASS_TITLES = {
 # contact allowances, guard tolerances and tool/axis changes are never suggested.
 CAUSE_CLASS_LEVERS = {
     "reach": ("Find Reachable Base (6.1)", "Base translation"),
-    "anatomy_neighbour": ("Mouth opening (+0.5 mm steps, within the patient maximum)", "Base yaw (±5° steps)"),
+    "anatomy_neighbour": ("Mouth opening (+0.5 mm steps, within the patient maximum)", "Base yaw (±5° steps; last resort)"),
     "target_tooth": ("Review the PreEntry standoff and drill axis (operator)",),
-    "barrier": ("Base yaw (±5° steps)", "Base translation", "Mouth opening"),
-    "template": ("Base yaw (±5° steps)", "Template sleeve/relief review (operator, not automatic)"),
-    "narrow_passage": ("Planning attempts/time", "Approach-corridor margin", "Base yaw (±5° steps)"),
+    "barrier": ("Base translation", "Mouth opening", "Base yaw (±5° steps; last resort)"),
+    "template": ("Template sleeve/relief review (operator, not automatic)", "Base yaw (±5° steps; last resort)"),
+    "narrow_passage": ("Planning attempts/time", "Approach-corridor margin", "Base yaw (±5° steps; last resort)"),
     "solver": ("PreEntry IK seeds/budget",),
     "scene_mismatch": ("Re-sync the Step 6 planning scene (6.1 Connect / scene sync), then re-run",),
     "frame_mismatch": ("Stop: check the robot description and Base transform before any planning (operator)",),

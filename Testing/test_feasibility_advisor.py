@@ -91,3 +91,10 @@ def test_policy_below_default_is_reset_first_and_stops_the_search():
     tried.clear()
     fa.search("template", lambda c: tried.append(c) or False, at_default, fa.Limits(max_yaw_deg=5.0))
     assert {fa.PLANNING_ATTEMPTS: 5} not in tried
+
+
+def test_base_yaw_is_always_the_last_lever():
+    """Operator 2026-10-06: Base yaw is one of the last preferred adjustments."""
+    for levers in fa.CAUSE_CLASS_SEARCH.values():
+        if fa.BASE_YAW_DEG in levers:
+            assert levers[-1] == fa.BASE_YAW_DEG

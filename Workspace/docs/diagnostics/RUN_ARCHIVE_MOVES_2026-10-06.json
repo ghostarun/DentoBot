@@ -1,0 +1,540 @@
+{
+  "task": "RUN-ARCHIVE-01",
+  "root": "/home/tarun/dentobot/data/dentobot-runs",
+  "date": "2026-10-06",
+  "verification": "same-filesystem rename; device/inode/type identity of every moved entry unchanged",
+  "compatibility_links": {
+    "gui-step4a-20261006T204848Z": "2026-10-06/gui-step4a-20261006T204848Z",
+    "ui-watchdog": "2026-10-05/ui-watchdog"
+  },
+  "moves": [
+    {
+      "old": "4135fcf2afaf4dcda5323b29ab4680af",
+      "new": "2026-09-07/4135fcf2afaf4dcda5323b29ab4680af",
+      "date_basis": "mtime fallback (host Asia/Kolkata; date not encoded in name)",
+      "entries_verified": 4
+    },
+    {
+      "old": "5e523824f7504009a9bcaec3025ee2af",
+      "new": "2026-09-17/5e523824f7504009a9bcaec3025ee2af",
+      "date_basis": "mtime fallback (host Asia/Kolkata; date not encoded in name)",
+      "entries_verified": 3
+    },
+    {
+      "old": "601a2e0b249d4d6aacaa12ead2fd2b3a",
+      "new": "2026-09-07/601a2e0b249d4d6aacaa12ead2fd2b3a",
+      "date_basis": "mtime fallback (host Asia/Kolkata; date not encoded in name)",
+      "entries_verified": 3
+    },
+    {
+      "old": "basefix-20261004",
+      "new": "2026-10-04/basefix-20261004",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 254
+    },
+    {
+      "old": "fdi11-20261006T190911Z",
+      "new": "2026-10-06/fdi11-20261006T190911Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 154
+    },
+    {
+      "old": "frame-campaign-20261006T164158Z",
+      "new": "2026-10-06/frame-campaign-20261006T164158Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 24
+    },
+    {
+      "old": "frame-campaign2-20261006T164524Z",
+      "new": "2026-10-06/frame-campaign2-20261006T164524Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 24
+    },
+    {
+      "old": "frame-campaign3-20261006T164904Z",
+      "new": "2026-10-06/frame-campaign3-20261006T164904Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 43
+    },
+    {
+      "old": "frame-standard-20261006T182001Z",
+      "new": "2026-10-06/frame-standard-20261006T182001Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 34
+    },
+    {
+      "old": "frame-standard2-20261006T182228Z",
+      "new": "2026-10-06/frame-standard2-20261006T182228Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 40
+    },
+    {
+      "old": "frame-standard3-20261006T183455Z",
+      "new": "2026-10-06/frame-standard3-20261006T183455Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 40
+    },
+    {
+      "old": "gui-step4a-20261006T204848Z",
+      "new": "2026-10-06/gui-step4a-20261006T204848Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 19
+    },
+    {
+      "old": "home-gate-20261004",
+      "new": "2026-10-04/home-gate-20261004",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 11
+    },
+    {
+      "old": "layout-width-audit-20261004T114508Z",
+      "new": "2026-10-04/layout-width-audit-20261004T114508Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 33
+    },
+    {
+      "old": "layout-width-audit-20261004T114739Z",
+      "new": "2026-10-04/layout-width-audit-20261004T114739Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 65
+    },
+    {
+      "old": "layout-width-audit-20261004T114915Z",
+      "new": "2026-10-04/layout-width-audit-20261004T114915Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 33
+    },
+    {
+      "old": "layout-width-audit-20261004T114944Z",
+      "new": "2026-10-04/layout-width-audit-20261004T114944Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 34
+    },
+    {
+      "old": "planner-advisor-20261005T213713Z",
+      "new": "2026-10-05/planner-advisor-20261005T213713Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 842
+    },
+    {
+      "old": "planner-default-off-20261004T141629Z",
+      "new": "2026-10-04/planner-default-off-20261004T141629Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 316
+    },
+    {
+      "old": "planner-resolution-20261004T015000Z",
+      "new": "2026-10-04/planner-resolution-20261004T015000Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 234
+    },
+    {
+      "old": "planner-resolution-20261004T023621Z",
+      "new": "2026-10-04/planner-resolution-20261004T023621Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 178
+    },
+    {
+      "old": "planner-resolution-20261004T025825Z",
+      "new": "2026-10-04/planner-resolution-20261004T025825Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 36
+    },
+    {
+      "old": "planner-resolution-20261004T070243Z",
+      "new": "2026-10-04/planner-resolution-20261004T070243Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 40
+    },
+    {
+      "old": "planner-resolution-20261004T071413Z",
+      "new": "2026-10-04/planner-resolution-20261004T071413Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 18
+    },
+    {
+      "old": "planner-resolution-20261004T080424Z",
+      "new": "2026-10-04/planner-resolution-20261004T080424Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 142
+    },
+    {
+      "old": "planner-verify-20261005T192837Z",
+      "new": "2026-10-05/planner-verify-20261005T192837Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 840
+    },
+    {
+      "old": "robust-final-20261006T175925Z",
+      "new": "2026-10-06/robust-final-20261006T175925Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 24
+    },
+    {
+      "old": "robust-sync-20261006T175144Z",
+      "new": "2026-10-06/robust-sync-20261006T175144Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 24
+    },
+    {
+      "old": "scene-check-20261006T155100Z",
+      "new": "2026-10-06/scene-check-20261006T155100Z",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 82
+    },
+    {
+      "old": "taskhome-revalidation-20261004",
+      "new": "2026-10-04/taskhome-revalidation-20261004",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 82
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-113.log",
+      "new": "2026-10-04/ui-watchdog/monitor-stderr-113.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-1903.log",
+      "new": "2026-10-03/ui-watchdog/monitor-stderr-1903.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-1926.log",
+      "new": "2026-10-04/ui-watchdog/monitor-stderr-1926.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-2094.log",
+      "new": "2026-10-05/ui-watchdog/monitor-stderr-2094.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-2535.log",
+      "new": "2026-10-05/ui-watchdog/monitor-stderr-2535.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-2806.log",
+      "new": "2026-10-04/ui-watchdog/monitor-stderr-2806.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-2960.log",
+      "new": "2026-10-05/ui-watchdog/monitor-stderr-2960.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-2970.log",
+      "new": "2026-10-04/ui-watchdog/monitor-stderr-2970.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-3279.log",
+      "new": "2026-10-05/ui-watchdog/monitor-stderr-3279.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-3953.log",
+      "new": "2026-10-05/ui-watchdog/monitor-stderr-3953.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-4279.log",
+      "new": "2026-10-05/ui-watchdog/monitor-stderr-4279.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-4608.log",
+      "new": "2026-10-05/ui-watchdog/monitor-stderr-4608.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-4889.log",
+      "new": "2026-10-05/ui-watchdog/monitor-stderr-4889.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-5258.log",
+      "new": "2026-10-05/ui-watchdog/monitor-stderr-5258.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-5597.log",
+      "new": "2026-10-05/ui-watchdog/monitor-stderr-5597.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-6486.log",
+      "new": "2026-10-05/ui-watchdog/monitor-stderr-6486.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/monitor-stderr-761.log",
+      "new": "2026-10-04/ui-watchdog/monitor-stderr-761.log",
+      "date_basis": "paired resources log PID/name date",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261003-163858-1903.jsonl",
+      "new": "2026-10-03/ui-watchdog/resources-20261003-163858-1903.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261004-023801-2806.jsonl",
+      "new": "2026-10-04/ui-watchdog/resources-20261004-023801-2806.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261004-023834-2970.jsonl",
+      "new": "2026-10-04/ui-watchdog/resources-20261004-023834-2970.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261004-141633-113.jsonl",
+      "new": "2026-10-04/ui-watchdog/resources-20261004-141633-113.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261004-192838-761.jsonl",
+      "new": "2026-10-04/ui-watchdog/resources-20261004-192838-761.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261004-213713-1926.jsonl",
+      "new": "2026-10-04/ui-watchdog/resources-20261004-213713-1926.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261005-155101-2094.jsonl",
+      "new": "2026-10-05/ui-watchdog/resources-20261005-155101-2094.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261005-164159-2535.jsonl",
+      "new": "2026-10-05/ui-watchdog/resources-20261005-164159-2535.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261005-164525-2960.jsonl",
+      "new": "2026-10-05/ui-watchdog/resources-20261005-164525-2960.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261005-164905-3279.jsonl",
+      "new": "2026-10-05/ui-watchdog/resources-20261005-164905-3279.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261005-175145-3953.jsonl",
+      "new": "2026-10-05/ui-watchdog/resources-20261005-175145-3953.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261005-175926-4279.jsonl",
+      "new": "2026-10-05/ui-watchdog/resources-20261005-175926-4279.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261005-182002-4608.jsonl",
+      "new": "2026-10-05/ui-watchdog/resources-20261005-182002-4608.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261005-182228-4889.jsonl",
+      "new": "2026-10-05/ui-watchdog/resources-20261005-182228-4889.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261005-183456-5258.jsonl",
+      "new": "2026-10-05/ui-watchdog/resources-20261005-183456-5258.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261005-190912-5597.jsonl",
+      "new": "2026-10-05/ui-watchdog/resources-20261005-190912-5597.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/resources-20261005-204849-6486.jsonl",
+      "new": "2026-10-05/ui-watchdog/resources-20261005-204849-6486.jsonl",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261003-163908-2071.log",
+      "new": "2026-10-03/ui-watchdog/slicer-ui-20261003-163908-2071.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261004-023842-3122.log",
+      "new": "2026-10-04/ui-watchdog/slicer-ui-20261004-023842-3122.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261004-081221-3122.log",
+      "new": "2026-10-04/ui-watchdog/slicer-ui-20261004-081221-3122.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261004-114513-141.log",
+      "new": "2026-10-04/ui-watchdog/slicer-ui-20261004-114513-141.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261004-114744-277.log",
+      "new": "2026-10-04/ui-watchdog/slicer-ui-20261004-114744-277.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261004-114751-412.log",
+      "new": "2026-10-04/ui-watchdog/slicer-ui-20261004-114751-412.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261004-114920-547.log",
+      "new": "2026-10-04/ui-watchdog/slicer-ui-20261004-114920-547.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261004-114949-682.log",
+      "new": "2026-10-04/ui-watchdog/slicer-ui-20261004-114949-682.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261004-141644-275.log",
+      "new": "2026-10-04/ui-watchdog/slicer-ui-20261004-141644-275.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261004-192848-923.log",
+      "new": "2026-10-04/ui-watchdog/slicer-ui-20261004-192848-923.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261004-213722-2088.log",
+      "new": "2026-10-04/ui-watchdog/slicer-ui-20261004-213722-2088.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261005-155123-2256.log",
+      "new": "2026-10-05/ui-watchdog/slicer-ui-20261005-155123-2256.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261005-164209-2683.log",
+      "new": "2026-10-05/ui-watchdog/slicer-ui-20261005-164209-2683.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261005-164536-3107.log",
+      "new": "2026-10-05/ui-watchdog/slicer-ui-20261005-164536-3107.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261005-164915-3427.log",
+      "new": "2026-10-05/ui-watchdog/slicer-ui-20261005-164915-3427.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261005-175155-4115.log",
+      "new": "2026-10-05/ui-watchdog/slicer-ui-20261005-175155-4115.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261005-175937-4426.log",
+      "new": "2026-10-05/ui-watchdog/slicer-ui-20261005-175937-4426.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261005-182013-4755.log",
+      "new": "2026-10-05/ui-watchdog/slicer-ui-20261005-182013-4755.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261005-182239-5036.log",
+      "new": "2026-10-05/ui-watchdog/slicer-ui-20261005-182239-5036.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261005-183506-5405.log",
+      "new": "2026-10-05/ui-watchdog/slicer-ui-20261005-183506-5405.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261005-190922-5744.log",
+      "new": "2026-10-05/ui-watchdog/slicer-ui-20261005-190922-5744.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "ui-watchdog/slicer-ui-20261005-204900-6633.log",
+      "new": "2026-10-05/ui-watchdog/slicer-ui-20261005-204900-6633.log",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 1
+    },
+    {
+      "old": "weekly-report-20261005-S6-LIVE-01",
+      "new": "2026-10-05/weekly-report-20261005-S6-LIVE-01",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 35
+    },
+    {
+      "old": "weekly-report-20261006-S6-LIVE-01",
+      "new": "2026-10-06/weekly-report-20261006-S6-LIVE-01",
+      "date_basis": "name date (preserved, no timezone reinterpretation)",
+      "entries_verified": 28
+    }
+  ]
+}

@@ -2760,3 +2760,29 @@ by this result. Existing `S6-LIVE-01`/`S6-BASE-DIAGNOSE` stay open.
 4. **Execution semantics and safety:** enable trajectory execution in simulation only; the guard validates controller commands and actual states; keep "EXECUTE DISABLED" for hardware; GUI shows simulated execution distinctly from preview.
 5. **Acceptance:** existing frame audit plus tracking-error thresholds per phase; 3-run series per case under execution.
 **Boundaries:** simulation only; no hardware command path; any change to guard/execute semantics needs explicit operator approval and its own decision record.
+
+## RUN-ARCHIVE-01 — datewise local run archive (6 October 2026)
+
+**Operator outcome:** organize all existing dentobot-runs artifacts by date,
+log the change, stage for commit. No matching organization task was found in the
+full backlog or controlled-record overlap search. Existing diagnostic task
+results and priorities remain unchanged.
+
+**Contract:** own local run-path renames and the layout/move manifest plus
+controlled records. Preserve payload bytes, names, evidence meaning and active
+operator processes. No code, model policy, robot action, runtime launch,
+engineer-owned record, external sync, or publication. Acceptance for the move:
+same-filesystem device/inode/type identity for every moved entry; review and
+stage only owned documents. Stop before disrupting a live path.
+
+**Implemented / inspected:** 88 moves into six date folders, with all 3,795
+entries retaining identity. UUID dates and watchdog pairing are documented in
+the manifest. Two compatibility symlinks intentionally remain for the active
+GUI and watchdog. Payloads are local and outside Git; no application testing
+needed for this path-only migration. Evidence: logbook/2026-10-06.md and
+[manifest](diagnostics/RUN_ARCHIVE_MOVES_2026-10-06.json).
+
+**Pending closure:** after the operator handoff ends, confirm no live users of
+the old paths, then retire only the two compatibility symlinks. Keep this task
+in backlog until that bounded cleanup is recorded. Future automatic date routing
+is a separate undecided option, not authorized implementation.

@@ -27,12 +27,14 @@ CORRIDOR_MARGIN_SAMPLES = "corridor_margin_samples"  # approach point backed off
 # Cause class -> searchable levers, least invasive first (mirrors
 # base_diagnosis.CAUSE_CLASS_LEVERS; levers with no automatic owner are omitted).
 CAUSE_CLASS_SEARCH = {
-    "narrow_passage": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, BASE_YAW_DEG, MOUTH_OPENING_MM),
-    "barrier": (BASE_YAW_DEG, MOUTH_OPENING_MM),
+    # Base yaw is one of the last preferred adjustments in the robot design
+    # (operator 2026-10-06): always searched after every other lever.
+    "narrow_passage": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, MOUTH_OPENING_MM, BASE_YAW_DEG),
+    "barrier": (MOUTH_OPENING_MM, BASE_YAW_DEG),
     "anatomy_neighbour": (MOUTH_OPENING_MM, BASE_YAW_DEG),
     "template": (BASE_YAW_DEG,),
-    "solver": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, BASE_YAW_DEG, MOUTH_OPENING_MM),
-    "unknown": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, BASE_YAW_DEG, MOUTH_OPENING_MM),
+    "solver": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, MOUTH_OPENING_MM, BASE_YAW_DEG),
+    "unknown": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, MOUTH_OPENING_MM, BASE_YAW_DEG),
 }
 
 

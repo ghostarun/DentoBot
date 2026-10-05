@@ -2131,3 +2131,11 @@ Native Ubuntu existing dentobot-slicerros2, Slicer5.10, ROSdomain73: approved se
 
 
 4 October UTC07:11 temporary diagnostic environment: isolated domain74 MoveGroup copied original launch parameters with only SIMULATION-ONLY OMPL fraction0.0005, execution disabled. Correct launch must source both /opt/ros/jazzy/setup.bash and /workspace/ros2_ws/install/setup.bash for package meshes. Copy stopped after bounded trial; domain74 empty. Original domain73/Slicer3122 unchanged. Session driver idle expiry repaired by re-running existing bootstrap in the same Slicer process, no restart. Evidence planner-resolution-20261004T070243Z.
+
+## 6 October 2026 — local dated run archive
+
+Existing `/home/tarun/dentobot/data/dentobot-runs` content is grouped under
+`YYYY-MM-DD`, visible at the same relative paths beneath `/workspace/data`.
+See [layout and live compatibility paths](diagnostics/RUN_ARCHIVE_LAYOUT_2026-10-06.md)
+and its move manifest. Producer defaults and container mounts are unchanged;
+future flat output is not automatically organized by this one-time migration.
