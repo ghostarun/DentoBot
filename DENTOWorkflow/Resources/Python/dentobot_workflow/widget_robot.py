@@ -456,6 +456,8 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             clear_stale_display()
         if not hasattr(self, "ui") or not self._parameterNode:
             return
+        if hasattr(getattr(self, "_robotSimulationPanel", None), "showMoveItSceneStatus"):  # scene badge
+            self._robotSimulationPanel.showMoveItSceneStatus(getattr(self._robotWorkflowFacade, "lastMoveItSceneStatus", None))
         imported = bool(self._parameterNode.step6PlanningContextImported)
         locked = bool(self._parameterNode.robotBaseMountLocked)
         facade_plan = (

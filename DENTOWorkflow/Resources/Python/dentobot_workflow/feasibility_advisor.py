@@ -46,6 +46,7 @@ class Limits:
     yaw_step_deg: float = 5.0
     max_yaw_deg: float = 20.0
     attempts_ladder: tuple = (5, 10)
+    default_attempts: int = 5  # project default STEP6_JOINT_PLANNING_ATTEMPTS
     margin_ladder: tuple = (1, 2, 4)
     # Acceptability weights: cost per unit of change (operator-tunable).
     cost_per_attempt: float = 0.05
@@ -153,6 +154,12 @@ def search(cause_class: str, evaluate: Callable[[dict], bool], baseline: Mapping
     opening search when no single lever passes (e.g. the best yaw values).
     """
     found = []
+    # Reliability preflight (S6-LIVE-01 2026-10-05): a case policy below the
+    # project default is a configuration error, not a geometry problem.
+    if baseline.get(PLANNING_ATTEMPTS, limits.default_attempts) < limits.default_attempts:
+        reset = {PLANNING_ATTEMPTS: limits.default_attempts}
+        if evaluate(reset):
+            return [reset]
     levers = CAUSE_CLASS_SEARCH.get(cause_class, CAUSE_CLASS_SEARCH["unknown"])
     for lever in levers:
         change = search_single_lever(lever, evaluate, baseline, limits)
@@ -174,6 +181,8 @@ def report_markdown(baseline: Mapping[str, float], cause_class: str, candidates:
         "# Feasibility Advisor report",
         "",
         "SIMULATION ONLY. Nothing was applied: the baseline was restored after the search.",
+        "Planning reliability: independent re-plans are active (STEP6_JOINT_PLAN_RETRIES); a planning-attempts "
+        "value below the project default is tried first as a reset, before any geometry lever.",
         "",
         f"**Baseline:** {dict(baseline)} · **Baseline cause class:** `{cause_class}`",
         f"**Limits:** opening ≤ {limits.max_opening_mm} mm (resolution {limits.opening_resolution_mm} mm), "

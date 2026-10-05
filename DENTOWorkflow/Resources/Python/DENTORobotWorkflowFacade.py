@@ -16,7 +16,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from math import acos, atan2, ceil, cos, degrees, isfinite, pi, sin, sqrt
 from numbers import Real
-from time import monotonic, monotonic_ns
+from time import monotonic, monotonic_ns, sleep
 from typing import Any, Callable, Mapping, Optional, Sequence
 from uuid import uuid4
 
@@ -104,6 +104,9 @@ STEP6_JOINT_PLANNING_ATTEMPTS = 5  # operator 2026-10-02: sampling planner retri
 # existing route ~1 in 30; MoveIt's parallel attempts share one time budget).
 # Every returned plan is still guarded and validated; no rule is relaxed.
 STEP6_JOINT_PLAN_RETRIES = 8
+# Bounded wait for MoveGroup to apply a scene re-sync before the scene gate re-compares.
+STEP6_SCENE_RESYNC_WAIT_SEC = 5.0
+STEP6_SCENE_REPAIR_ROUNDS = 3
 STEP6_APPROXIMATE_IK_ENABLED = False
 STEP6_CARTESIAN_PLANNING_ENABLED = True
 # The operator-selected simulation burr mesh is approximately 1 mm across. This is a physical
@@ -383,7 +386,22 @@ def _drilling_truncation_warning(truncation) -> str:
         f"{float(truncation['requested_depth_mm']):.2f} mm planned. The remaining "
         f"{float(truncation['remaining_depth_mm']):.2f} mm (orange-red in the 3D view) "
         "was not completed because of collision/invalid states."
+        + (
+            f" Why: {truncation['feedback']['why']} To drill further: "
+            + " / ".join(truncation["feedback"]["what_to_change"])
+            if isinstance(truncation.get("feedback"), dict) else ""
+        )
     )
+
+
+def _truncation_feedback(truncation) -> Optional[dict]:
+    """Advisory why/what-to-change text; never allowed to break planning."""
+    try:
+        from dentobot_workflow.base_diagnosis import truncation_feedback
+
+        return truncation_feedback(truncation, effective_protrusion_mm=PROVISIONAL_EFFECTIVE_TOOL_PROTRUSION_MM)
+    except Exception:  # noqa: BLE001 - feedback is display-only
+        return None
 
 
 class DENTORobotWorkflowFacade:
@@ -9406,6 +9424,7 @@ class DENTORobotWorkflowFacade:
             "last_joint_positions_si": dict(shortened[-1]),
             "task_fingerprint": str(snapshot.snapshot_fingerprint),
         }
+        truncation["feedback"] = _truncation_feedback(truncation)
         return plan, truncation
 
     # "report": evaluate and record the mouth-portal gate without blocking;
@@ -9637,6 +9656,7 @@ class DENTORobotWorkflowFacade:
             "last_joint_positions_si": dict(shortened[-1]),
             "task_fingerprint": str(getattr(snapshot, "snapshot_fingerprint", "") or ""),
         }
+        truncation["feedback"] = _truncation_feedback(truncation)
         return shortened, trial_paths, trial_guard, endpoint, truncation
 
     def _goal1_candidate_chain_preflight(
@@ -10893,10 +10913,22 @@ class DENTORobotWorkflowFacade:
 
         try:
             parameter_node = self._require_context()
+            step("Diagnose 0/5: MoveIt planning scene matches Slicer")
+            scene_status = self.ensureMoveItSceneMatches()
+            if scene_status["state"] != "not_checked":
+                comparison = scene_status["comparison"] or {}
+                row = base_diagnosis.scene_row(
+                    comparison if "expected_count" in comparison else None,
+                    unavailable_reason=str(comparison.get("summary") or ""),
+                )
+                if scene_status["state"] == "resynced":
+                    row["detail"] += " MoveIt differed at first and was re-synchronized from Slicer."
+                rows.append(row)
             step("Diagnose 1/5: whole-stroke reach at the accepted Base")
             stroke_check = getattr(self._logic, "step6CurrentBaseStrokeReachability", None)
             stroke = stroke_check(parameter_node) if callable(stroke_check) else None
-            rows.append(base_diagnosis.stroke_row(stroke))
+            if not rows or rows[-1]["status"] != base_diagnosis.FAIL:
+                rows.append(base_diagnosis.stroke_row(stroke))
             if rows[-1]["status"] != base_diagnosis.FAIL:
                 step("Diagnose 2/5: PreEntry endpoint IK and collision")
                 preentry = self.checkPreEntryIK(progress=progress)
@@ -10924,7 +10956,8 @@ class DENTORobotWorkflowFacade:
         except (RuntimeError, ValueError, OSError, TypeError, KeyError, AttributeError) as exc:
             done = {row["check"] for row in rows}
             pending = next(
-                (check for check in base_diagnosis.CHECK_ORDER if check not in done), None
+                (check for check in base_diagnosis.CHECK_ORDER
+                 if check not in done and check != "scene_match"), None
             )
             if pending is not None:
                 rows.append(base_diagnosis._row(
@@ -10957,6 +10990,15 @@ class DENTORobotWorkflowFacade:
                 details={"phase_id": phase_id, "status": "unknown"},
             )
         stage_started = monotonic()
+        scene_status = self.ensureMoveItSceneMatches()
+        if scene_status["refuse"]:
+            return RobotActionResult(
+                False,
+                "moveit_scene_mismatch",
+                f"{phase_id} check refused: " + scene_status["message"],
+                details={"phase_id": phase_id, "status": "unknown", "moveItSceneStatus": scene_status},
+                payload={"diagnostic_status": "unknown", "reason": scene_status["message"]},
+            )
         if phase_id == "P1":
             self._step6_stage_diagnostic_chain = {}
             try:
@@ -12550,6 +12592,145 @@ class DENTORobotWorkflowFacade:
         return result
 
     def planApproachPhase(
+        self,
+        *,
+        planner_id: str = STEP6_JOINT_PLANNER_ID,
+        planning_attempts: int = STEP6_JOINT_PLANNING_ATTEMPTS,
+        planning_time_sec: float = GOAL1_DIRECT_PLANNING_TIME_SEC,
+        progress=None,
+    ) -> RobotActionResult:
+        """Plan Approach; warn when the case policy is below the project default.
+
+        S6-LIVE-01 2026-10-05: a case saved with 1 MoveIt attempt (default 5)
+        turned a reliable configuration into a failing one. Not blocking.
+        """
+        scene_status = self.ensureMoveItSceneMatches()
+        if scene_status["refuse"]:
+            return RobotActionResult(
+                False,
+                "moveit_scene_mismatch",
+                "Planning refused: " + scene_status["message"],
+                details={"moveItSceneStatus": scene_status},
+            )
+        result = self._plan_approach_phase(
+            planner_id=planner_id,
+            planning_attempts=planning_attempts,
+            planning_time_sec=planning_time_sec,
+            progress=progress,
+        )
+        if scene_status["state"] == "resynced":
+            result = replace(
+                result,
+                message="NOTE: MoveIt's planning scene differed from Slicer and was re-synchronized before planning. "
+                + str(result.message),
+                details={**dict(result.details or {}), "moveItSceneResynchronized": True},
+            )
+        if int(planning_attempts) < STEP6_JOINT_PLANNING_ATTEMPTS:
+            warning = (
+                f"WARNING: planning attempts {int(planning_attempts)} is below the project default "
+                f"{STEP6_JOINT_PLANNING_ATTEMPTS}; planning is less reliable. Reset it in Planning Parameters. "
+            )
+            result = replace(
+                result,
+                message=warning + str(result.message),
+                details={**dict(result.details or {}), "planningPolicyBelowDefault": True},
+            )
+        return result
+
+    @property
+    def lastMoveItSceneStatus(self) -> Optional[dict]:
+        """Most recent scene-gate outcome, for the GUI badge (display only)."""
+        return getattr(self, "_last_moveit_scene_status", None)
+
+    def ensureMoveItSceneMatches(self) -> dict:
+        """Compare MoveGroup with Slicer's audit; re-sync once on mismatch.
+
+        States: matched | resynced | mismatch | unreadable | not_checked.
+        ``refuse`` is True for mismatch/unreadable (S6-LIVE-01 2026-10-06).
+        """
+        scene = self.moveItSceneComparison()
+        if scene is None:
+            status = {"state": "not_checked", "refuse": False, "comparison": None,
+                      "message": "MoveIt scene not checked (this bridge cannot read it)."}
+            self._last_moveit_scene_status = status
+            return status
+        resynced = False
+        repair_log = []
+        republish = getattr(self._bridge, "republish_moveit_obstacles", None)
+        sync = getattr(self._logic, "syncStep6MoveItPlanningScene", None)
+        for round_index in range(STEP6_SCENE_REPAIR_ROUNDS):
+            if scene is None or scene.get("matches") or "expected_count" not in scene:
+                break
+            # Targeted, paced re-send of only the differing objects; a full burst
+            # re-sync is what lost updates in the first place (6 Oct evidence).
+            ids = list(scene.get("missing") or ()) + [i for i, _ in scene.get("differing") or ()]
+            if callable(republish) and ids:
+                ok, message, _sent = republish(ids)
+                repair_log.append(f"round {round_index + 1}: {message}")
+                if not ok and callable(sync):
+                    sync(self._parameter_node())
+                    repair_log.append(f"round {round_index + 1}: full re-sync")
+            elif callable(sync):
+                try:
+                    sync(self._parameter_node())
+                    repair_log.append(f"round {round_index + 1}: full re-sync")
+                except (RuntimeError, ValueError, TypeError) as exc:
+                    repair_log.append(f"re-sync failed: {exc}")
+                    break
+            else:
+                break
+            resynced = True
+            # Publishing is asynchronous: allow MoveGroup a bounded time to apply it.
+            deadline = monotonic() + STEP6_SCENE_RESYNC_WAIT_SEC
+            while True:
+                scene = self.moveItSceneComparison()
+                if scene is None or scene.get("matches") or monotonic() >= deadline:
+                    break
+                sleep(0.25)
+        if scene is not None and scene.get("matches"):
+            state = "resynced" if resynced else "matched"
+            message = str(scene.get("summary"))
+        else:
+            state = "unreadable" if scene is not None and "expected_count" not in scene else "mismatch"
+            message = str((scene or {}).get("detail") or (scene or {}).get("summary"))
+        status = {"state": state, "refuse": state in ("mismatch", "unreadable"),
+                  "comparison": scene, "message": message, "repair_log": repair_log}
+        self._last_moveit_scene_status = status
+        return status
+
+    def moveItSceneComparison(self) -> Optional[dict]:
+        """MoveGroup world vs Slicer's audited outgoing objects (S6-LIVE-01 2026-10-06).
+
+        None when this bridge cannot read the MoveIt scene at all (host fakes).
+        Otherwise a dict with ``matches``; an unreadable scene counts as no match.
+        """
+        from dentobot_workflow.base_diagnosis import compare_moveit_scene
+
+        reader = getattr(self._bridge, "read_moveit_world_object_bounds", None)
+        if not callable(reader):
+            return None
+        try:
+            audit = self._logic.collisionSceneAuditRecord(self._parameter_node())
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            audit = None
+        if audit is None:
+            return {"matches": False, "summary": "no collision-scene audit to compare",
+                    "detail": "Synchronize the Step 6 planning scene before planning."}
+        ok, message, objects = reader()
+        if not ok:
+            ok, message, objects = reader()
+        if not ok:
+            return {"matches": False, "summary": "MoveIt scene unreadable: " + str(message),
+                    "detail": "the MoveIt planning scene could not be read (" + str(message) + ")."}
+        comparison = compare_moveit_scene(audit.object_records, objects)
+        comparison["detail"] = (
+            "MoveIt holds a different collision scene than Slicer: " + comparison["summary"]
+            + " Re-sync the Step 6 planning scene."
+        )
+        self._last_moveit_scene_comparison = comparison
+        return comparison
+
+    def _plan_approach_phase(
         self,
         *,
         planner_id: str = STEP6_JOINT_PLANNER_ID,

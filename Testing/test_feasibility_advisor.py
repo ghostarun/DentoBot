@@ -48,10 +48,11 @@ def test_search_pairs_opening_with_yaw_when_no_single_lever_passes():
 
 def test_search_ranks_by_cost_and_attempts_need_increase():
     def evaluate(change):
-        return change.get(fa.PLANNING_ATTEMPTS, 0) >= 5 or abs(change.get(fa.BASE_YAW_DEG, 0)) >= 5
+        return change.get(fa.PLANNING_ATTEMPTS, 0) >= 10 or abs(change.get(fa.BASE_YAW_DEG, 0)) >= 5
 
-    found = fa.search("narrow_passage", evaluate, BASE, fa.Limits())
-    assert found[0] == {fa.PLANNING_ATTEMPTS: 5}
+    at_default = {**BASE, fa.PLANNING_ATTEMPTS: 5}
+    found = fa.search("narrow_passage", evaluate, at_default, fa.Limits())
+    assert found[0] == {fa.PLANNING_ATTEMPTS: 10}
     assert {fa.BASE_YAW_DEG: 5.0} in found
     assert fa.search_single_lever(fa.PLANNING_ATTEMPTS, lambda c: True, {fa.PLANNING_ATTEMPTS: 10}, fa.Limits()) is None
 
@@ -75,3 +76,18 @@ def test_corridor_margin_is_tried_before_yaw_for_narrow_passages():
     assert found[0] == {fa.CORRIDOR_MARGIN_SAMPLES: 2}
     assert tried.index({fa.CORRIDOR_MARGIN_SAMPLES: 1}) < tried.index({fa.BASE_YAW_DEG: 5.0})
     assert fa.Limits().max_opening_mm == 46.0
+
+
+def test_policy_below_default_is_reset_first_and_stops_the_search():
+    tried = []
+
+    def evaluate(change):
+        tried.append(change)
+        return change.get(fa.PLANNING_ATTEMPTS) == 5
+
+    assert fa.search("narrow_passage", evaluate, BASE, fa.Limits()) == [{fa.PLANNING_ATTEMPTS: 5}]
+    assert tried == [{fa.PLANNING_ATTEMPTS: 5}]
+    at_default = {**BASE, fa.PLANNING_ATTEMPTS: 5}
+    tried.clear()
+    fa.search("template", lambda c: tried.append(c) or False, at_default, fa.Limits(max_yaw_deg=5.0))
+    assert {fa.PLANNING_ATTEMPTS: 5} not in tried

@@ -7022,6 +7022,102 @@ def test_free_space_leg_is_replanned_independently_when_the_planner_returns_no_r
     assert not failed.success and f"no route in {module.STEP6_JOINT_PLAN_RETRIES} independent re-plans" in failed.message
 
 
+def test_plan_approach_warns_when_case_policy_is_below_project_default():
+    """S6-LIVE-01 2026-10-05: a case saved with 1 attempt (default 5) failed reliably."""
+    import DENTORobotWorkflowFacade as module
+
+    facade, _parameter_node, _logic, _bridge = make_facade()
+    facade._plan_approach_phase = lambda **k: module.RobotActionResult(True, "ok", "planned", details={"a": 1})
+    low = facade.planApproachPhase(planning_attempts=1)
+    assert low.message.startswith("WARNING: planning attempts 1 is below the project default 5")
+    assert low.details["planningPolicyBelowDefault"] is True and low.details["a"] == 1 and low.success
+    default = facade.planApproachPhase(planning_attempts=module.STEP6_JOINT_PLANNING_ATTEMPTS)
+    assert default.message == "planned"
+
+
+def test_plan_approach_is_refused_when_moveit_scene_differs_from_slicer():
+    """S6-LIVE-01 2026-10-06: refuse planning on a MoveGroup/Slicer scene mismatch."""
+    import DENTORobotWorkflowFacade as module
+    from types import SimpleNamespace
+
+    facade, parameter_node, logic, bridge = make_facade()
+    module.STEP6_SCENE_RESYNC_WAIT_SEC, saved_wait = 0.0, module.STEP6_SCENE_RESYNC_WAIT_SEC
+    planned = []
+    facade._plan_approach_phase = lambda **k: planned.append(1) or module.RobotActionResult(True, "ok", "planned")
+    audit = SimpleNamespace(object_records=[{"outgoing_collision_object_id": "t31",
+                                             "outgoing_bounds_base_link_mm": [0, 1, 0, 1, 0, 1]}])
+    logic.collisionSceneAuditRecord = lambda node: audit
+    bridge.read_moveit_world_object_bounds = lambda: (True, "1 object", [{"id": "t31", "bounds_mm": [19.4, 20.4, 0, 1, 0, 1]}])
+    syncs = []
+    logic.syncStep6MoveItPlanningScene = lambda node: syncs.append(1)
+    refused = facade.planApproachPhase()
+    assert not refused.success and refused.code == "moveit_scene_mismatch" and not planned
+    assert "t31 (19.4 mm)" in refused.message and len(syncs) == module.STEP6_SCENE_REPAIR_ROUNDS
+    scenes = [[{"id": "t31", "bounds_mm": [19.4, 20.4, 0, 1, 0, 1]}], [{"id": "t31", "bounds_mm": [0, 1, 0, 1, 0, 1]}]]
+    bridge.read_moveit_world_object_bounds = lambda: (True, "1 object", scenes.pop(0))
+    healed = facade.planApproachPhase()
+    assert healed.success and healed.message.startswith("NOTE: MoveIt's planning scene differed") and planned
+    planned.clear()
+    bridge.read_moveit_world_object_bounds = lambda: (True, "1 object", [{"id": "t31", "bounds_mm": [0, 1, 0, 1, 0, 1]}])
+    assert facade.planApproachPhase().success and planned
+    bridge.read_moveit_world_object_bounds = lambda: (False, "timed out", [])
+    unreadable = facade.planApproachPhase()
+    assert not unreadable.success and "could not be read" in unreadable.message
+    module.STEP6_SCENE_RESYNC_WAIT_SEC = saved_wait
+
+
+def test_stage_checks_share_the_scene_gate_and_report_its_state():
+    """Operator 2026-10-06: stage checks and Diagnose also re-sync and report the scene state."""
+    import DENTORobotWorkflowFacade as module
+    from types import SimpleNamespace
+
+    facade, parameter_node, logic, bridge = make_facade()
+    module.STEP6_SCENE_RESYNC_WAIT_SEC, saved_wait = 0.0, module.STEP6_SCENE_RESYNC_WAIT_SEC
+    try:
+        assert facade.ensureMoveItSceneMatches()["state"] == "not_checked"
+        logic.collisionSceneAuditRecord = lambda node: SimpleNamespace(object_records=[
+            {"outgoing_collision_object_id": "t", "outgoing_bounds_base_link_mm": [0, 1, 0, 1, 0, 1]}])
+        logic.syncStep6MoveItPlanningScene = lambda node: None
+        bridge.read_moveit_world_object_bounds = lambda: (True, "", [{"id": "t", "bounds_mm": [5, 6, 0, 1, 0, 1]}])
+        refused = facade.checkPlanningStage("P1")
+        assert not refused.success and refused.code == "moveit_scene_mismatch"
+        assert refused.payload["diagnostic_status"] == "unknown"
+        assert facade.lastMoveItSceneStatus["state"] == "mismatch"
+        bridge.read_moveit_world_object_bounds = lambda: (True, "", [{"id": "t", "bounds_mm": [0, 1, 0, 1, 0, 1]}])
+        assert facade.ensureMoveItSceneMatches()["state"] == "matched"
+    finally:
+        module.STEP6_SCENE_RESYNC_WAIT_SEC = saved_wait
+
+
+def test_scene_repair_resends_only_differing_objects_one_at_a_time():
+    """6 Oct root cause: a burst sync lost updates; repair re-sends only the stale objects."""
+    import DENTORobotWorkflowFacade as module
+    from types import SimpleNamespace
+
+    facade, parameter_node, logic, bridge = make_facade()
+    module.STEP6_SCENE_RESYNC_WAIT_SEC, saved_wait = 0.0, module.STEP6_SCENE_RESYNC_WAIT_SEC
+    try:
+        logic.collisionSceneAuditRecord = lambda node: SimpleNamespace(object_records=[
+            {"outgoing_collision_object_id": i, "outgoing_bounds_base_link_mm": [0, 1, 0, 1, 0, 1]} for i in ("a", "b")])
+        logic.syncStep6MoveItPlanningScene = lambda node: (_ for _ in ()).throw(AssertionError("no burst re-sync"))
+        state = {"a": [5, 6, 0, 1, 0, 1], "b": [0, 1, 0, 1, 0, 1]}
+        bridge.read_moveit_world_object_bounds = lambda: (True, "", [{"id": k, "bounds_mm": v} for k, v in state.items()])
+        resent = []
+
+        def republish(ids):
+            resent.append(list(ids))
+            for i in ids:
+                state[i] = [0, 1, 0, 1, 0, 1]
+            return True, "re-sent", list(ids)
+
+        bridge.republish_moveit_obstacles = republish
+        status = facade.ensureMoveItSceneMatches()
+        assert status["state"] == "resynced" and not status["refuse"] and resent == [["a"]]
+        assert status["repair_log"] == ["round 1: re-sent"]
+    finally:
+        module.STEP6_SCENE_RESYNC_WAIT_SEC = saved_wait
+
+
 def test_spindle_guide_contact_option_reaches_guard_and_policy_fingerprint_only_when_on():
     import DENTOROS2Bridge as real_bridge
 

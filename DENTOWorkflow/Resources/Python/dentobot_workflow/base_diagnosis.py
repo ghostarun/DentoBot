@@ -19,8 +19,9 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 
-CHECK_ORDER = ("stroke_reach", "preentry_endpoint", "p1_route", "p2_entry", "p3_drilling")
+CHECK_ORDER = ("scene_match", "stroke_reach", "preentry_endpoint", "p1_route", "p2_entry", "p3_drilling")
 CHECK_TITLES = {
+    "scene_match": "0. MoveIt planning scene matches Slicer",
     "stroke_reach": "1. Base reaches the whole drilling stroke",
     "preentry_endpoint": "2. PreEntry endpoint is reachable and collision-free",
     "p1_route": "3. Route Task Home → PreEntry",
@@ -28,6 +29,7 @@ CHECK_TITLES = {
     "p3_drilling": "5. Drilling Entry → Target",
 }
 CAUSE_TITLES = {
+    "scene_mismatch": "MoveIt scene differs from Slicer",
     "base_placement": "Base placement",
     "endpoint_collision": "Collision at PreEntry",
     "solver": "IK solver",
@@ -51,6 +53,7 @@ CAUSE_CLASS_TITLES = {
     "template": "Final printable template",
     "narrow_passage": "Narrow passage (endpoints valid, planner found no route)",
     "solver": "IK solver",
+    "scene_mismatch": "MoveIt scene differs from Slicer",
     "unknown": "Unknown",
 }
 # Least invasive first. Advisory only: nothing here is applied automatically, and
@@ -63,6 +66,7 @@ CAUSE_CLASS_LEVERS = {
     "template": ("Base yaw (±5° steps)", "Template sleeve/relief review (operator, not automatic)"),
     "narrow_passage": ("Planning attempts/time", "Approach-corridor margin", "Base yaw (±5° steps)"),
     "solver": ("PreEntry IK seeds/budget",),
+    "scene_mismatch": ("Re-sync the Step 6 planning scene (6.1 Connect / scene sync), then re-run",),
     "unknown": (),
 }
 _CONTACTS = re.compile(r"contacts=(.+?)<->([^\s;,)]+)")
@@ -108,6 +112,42 @@ def contact_pairs_from_text(text) -> list:
     return [[a.strip(), b.strip()] for a, b in _CONTACTS.findall(str(text or ""))]
 
 
+def truncation_feedback(truncation: Mapping, *, effective_protrusion_mm: float | None = None) -> dict:
+    """Why drilling stopped short and what would have to change (operator 2026-10-05).
+
+    Advisory only. The spindle housing has to travel the remaining depth further
+    along the drill axis; whatever it meets there must move out of the way.
+    """
+    remaining = float(truncation.get("remaining_depth_mm") or 0.0)
+    completed = float(truncation.get("completed_depth_mm") or 0.0)
+    pair = classify_pair(truncation.get("blocking_pair") or ())
+    obstacle = pair.get("cause_class", "unknown")
+    part = str(pair.get("tool_part", "unknown")).replace("_", " ")
+    why = (
+        f"The {part} meets the {CAUSE_CLASS_TITLES.get(obstacle, obstacle).lower()} after "
+        f"{completed:.2f} mm of drilling; going deeper would push it {remaining:.2f} mm into that body."
+    )
+    changes = []
+    if obstacle == "template":
+        changes.append(
+            f"Lower or relieve the guide sleeve/collar at the contact by at least {remaining:.2f} mm "
+            "(closed-loop template redesign, DECISIONS 2 Oct item 3); keep the bore coaxial."
+        )
+    if obstacle in ("template", "target_tooth", "anatomy_neighbour"):
+        if effective_protrusion_mm is not None:
+            changes.append(
+                f"Use a burr with at least {remaining:.2f} mm more effective protrusion "
+                f"({float(effective_protrusion_mm):.2f} → ≥ {float(effective_protrusion_mm) + remaining:.2f} mm), "
+                "within the tool's insertion limits."
+            )
+        else:
+            changes.append(f"Use a burr with at least {remaining:.2f} mm more effective protrusion.")
+        changes.append("A smaller handpiece head or a different drill axis (outside current scope).")
+    if not changes:
+        changes.append("Review the blocking body with the evidence views; no automatic suggestion for this pair.")
+    return {"why": why, "what_to_change": changes, "obstacle_class": obstacle, "tool_part": pair.get("tool_part")}
+
+
 def _row(check: str, status: str, detail: str, cause: str = "", *,
          cause_class: str = "", pairs=()) -> dict:
     classified = [c for c in (classify_pair(p) for p in pairs) if c]
@@ -130,6 +170,67 @@ def _pair_text(pair) -> str:
     if isinstance(pair, Sequence) and not isinstance(pair, str) and len(pair) >= 2:
         return f"{pair[0]} ↔ {pair[1]}"
     return ""
+
+
+SCENE_BOUNDS_TOLERANCE_MM = 0.05
+
+
+def compare_moveit_scene(expected_records, observed_objects, *, tolerance_mm: float = SCENE_BOUNDS_TOLERANCE_MM) -> dict:
+    """Compare Slicer's audited outgoing objects with MoveGroup's world objects.
+
+    S6-LIVE-01 2026-10-04: MoveGroup held FDI31 19.4 mm away from Slicer's copy
+    while the guard acknowledged the scene. Bounds are base_link millimetres.
+    """
+    expected = {
+        str(r.get("outgoing_collision_object_id") or ""): r.get("outgoing_bounds_base_link_mm")
+        for r in expected_records or ()
+    }
+    expected.pop("", None)
+    observed = {str(o.get("id") or ""): o for o in observed_objects or ()}
+    missing = sorted(set(expected) - set(observed))
+    extra = sorted(set(observed) - set(expected))
+    differing = []
+    for object_id in sorted(set(expected) & set(observed)):
+        want, got = expected[object_id], observed[object_id].get("bounds_mm")
+        try:
+            delta = max(abs(float(a) - float(b)) for a, b in zip(want, got))
+            if len(want) != 6 or len(got) != 6:
+                raise ValueError
+        except (TypeError, ValueError):
+            differing.append((object_id, None))
+            continue
+        if delta > tolerance_mm:
+            differing.append((object_id, round(delta, 3)))
+    matches = not (missing or extra or differing)
+    parts = []
+    if missing:
+        parts.append(f"missing in MoveIt: {', '.join(missing[:4])}" + (" …" if len(missing) > 4 else ""))
+    if extra:
+        parts.append(f"only in MoveIt: {', '.join(extra[:4])}" + (" …" if len(extra) > 4 else ""))
+    if differing:
+        parts.append("bounds differ: " + ", ".join(
+            f"{i} ({'?' if d is None else f'{d} mm'})" for i, d in differing[:4]))
+    return {
+        "matches": matches,
+        "expected_count": len(expected),
+        "observed_count": len(observed),
+        "missing": missing,
+        "extra": extra,
+        "differing": differing,
+        "summary": (f"All {len(expected)} objects match within {tolerance_mm} mm." if matches
+                    else "; ".join(parts) + "."),
+    }
+
+
+def scene_row(comparison: Mapping | None, *, unavailable_reason: str = "") -> dict:
+    if not isinstance(comparison, Mapping):
+        return _row("scene_match", FAIL, "MoveIt scene could not be read: " + (unavailable_reason or "unknown")
+                    + ". Planning results would not be trustworthy.", "scene_mismatch", cause_class="scene_mismatch")
+    if comparison.get("matches"):
+        return _row("scene_match", PASS, str(comparison.get("summary")))
+    return _row("scene_match", FAIL, "MoveIt holds a different collision scene than Slicer: "
+                + str(comparison.get("summary")) + " Re-sync the planning scene.",
+                "scene_mismatch", cause_class="scene_mismatch")
 
 
 def stroke_row(stroke: Mapping | None) -> dict:
@@ -200,7 +301,10 @@ def stage_row(phase_id: str, outcome: Mapping | None) -> dict:
                 f"Drilling shortened: {float(truncation.get('completed_depth_mm', 0.0)):.2f} of "
                 f"{float(truncation.get('requested_depth_mm', 0.0)):.2f} mm reached; "
                 f"{float(truncation.get('remaining_depth_mm', 0.0)):.2f} mm not completed"
-                + (f" ({pair})" if pair else "") + ".",
+                + (f" ({pair})" if pair else "") + "."
+                + (f" Why: {truncation['feedback']['why']} To drill further: "
+                   + " / ".join(truncation["feedback"]["what_to_change"])
+                   if isinstance(truncation.get("feedback"), Mapping) else ""),
                 "tool_geometry",
                 pairs=[truncation.get("blocking_pair")] if pair else (),
             )
@@ -239,6 +343,8 @@ def summarize(rows: Sequence[Mapping]) -> dict:
     warning_row = None
     for check in CHECK_ORDER:
         row = by_check.get(check)
+        if check == "scene_match" and row is None:
+            continue  # optional row: only present when the MoveIt scene was read
         if stopped or row is None:
             table.append(_row(check, NOT_RUN, "Not run: an earlier check failed." if stopped else "Not run."))
             stopped = stopped or row is None

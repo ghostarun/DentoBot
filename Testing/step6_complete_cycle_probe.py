@@ -18,7 +18,9 @@ import step6_full_chain_probe as full_chain
 ACTION_TIMEOUT_SEC = 300.0
 PREVIEW_START_TIMEOUT_SEC = 15.0
 PREVIEW_COMPLETION_TIMEOUT_SEC = 900.0
-RETURN_HOME_TIMEOUT_SEC = 300.0
+# Return Home replays the retraction plus the reversed approach corridor; 300 s cut off
+# completed returns at long corridors (S6-LIVE-01 2026-10-04/05). Same bound as previews.
+RETURN_HOME_TIMEOUT_SEC = PREVIEW_COMPLETION_TIMEOUT_SEC
 SLOW_PREVIEW_MULTIPLIER = 0.25
 PREVIEW_COMPLETE_TEXT = "Guarded preview complete; endpoint verified."
 RETURN_HOME_COMPLETE_TEXT = (

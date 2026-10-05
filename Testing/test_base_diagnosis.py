@@ -165,3 +165,38 @@ def test_unknown_stage_names_guard_reason_and_truncation_warning_is_template_cla
         "completed_depth_mm": 3.64, "requested_depth_mm": 8.25, "remaining_depth_mm": 4.61}}))
     assert truncated["status"] == bd.WARNING and truncated["cause_class"] == "template"
     assert truncated["blocking_pairs"][0]["tool_part"] == "spindle_housing"
+
+
+def test_truncation_feedback_explains_why_and_what_to_change():
+    """Operator 2026-10-05: shortened drilling is a success with a warning plus why/what-to-change."""
+    truncation = {
+        "blocking_pair": ["[Step 5C] DENTO Final Printable Template", "pneumatic_spindle-Copy"],
+        "completed_depth_mm": 3.64, "requested_depth_mm": 8.25, "remaining_depth_mm": 4.61,
+    }
+    feedback = bd.truncation_feedback(truncation, effective_protrusion_mm=7.0)
+    assert "spindle housing meets the final printable template after 3.64 mm" in feedback["why"]
+    assert any("by at least 4.61 mm" in c for c in feedback["what_to_change"])
+    assert any("7.00 → ≥ 11.61 mm" in c for c in feedback["what_to_change"])
+    row = bd.stage_row("P3", _stage("passed", plan={"drilling_truncation": {**truncation, "feedback": feedback}}))
+    assert row["status"] == bd.WARNING and "To drill further:" in row["detail"]
+
+
+def test_moveit_scene_comparison_flags_missing_extra_and_moved_objects():
+    """S6-LIVE-01 2026-10-04: MoveGroup held FDI31 19.4 mm away from Slicer's copy."""
+    expected = [
+        {"outgoing_collision_object_id": "tooth_31", "outgoing_bounds_base_link_mm": [0, 10, 0, 10, 0, 10]},
+        {"outgoing_collision_object_id": "lip_slab", "outgoing_bounds_base_link_mm": [0, 1, 0, 1, 0, 1]},
+    ]
+    same = [{"id": "tooth_31", "bounds_mm": [0, 10, 0, 10, 0, 10.01]}, {"id": "lip_slab", "bounds_mm": [0, 1, 0, 1, 0, 1]}]
+    ok = bd.compare_moveit_scene(expected, same)
+    assert ok["matches"] and bd.scene_row(ok)["status"] == bd.PASS
+    moved = [{"id": "tooth_31", "bounds_mm": [19.4, 29.4, 0, 10, 0, 10]}, {"id": "extra", "bounds_mm": [0, 1, 0, 1, 0, 1]}]
+    bad = bd.compare_moveit_scene(expected, moved)
+    assert not bad["matches"] and bad["missing"] == ["lip_slab"] and bad["extra"] == ["extra"]
+    assert bad["differing"] == [("tooth_31", 19.4)] and "tooth_31 (19.4 mm)" in bad["summary"]
+    row = bd.scene_row(bad)
+    assert row["status"] == bd.FAIL and row["cause_class"] == "scene_mismatch"
+    result = bd.summarize([row, bd.stroke_row({"reachable": True})])
+    assert result["status"] == bd.FAIL and result["rows"][0]["check"] == "scene_match"
+    assert [r["status"] for r in result["rows"][1:]] == [bd.NOT_RUN] * 5
+    assert bd.scene_row(None, unavailable_reason="timeout")["status"] == bd.FAIL

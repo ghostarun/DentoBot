@@ -7362,3 +7362,19 @@ Operator: "10/10 is the only success since we deal with medical image guided int
 
 1. **Reliability bar:** a configuration counts as planning-successful only if it passes 10 out of 10 repeated planning trials. Fewer than 10/10 is a failure, however close. Applies to the Feasibility Advisor and all acceptance claims.
 2. **Shortened drilling (2 Oct rule 2b) is a success with a WARNING**, clinically useful. Required with it: highlighted missed length (existing magenta remainder and depths), the blocking pair (existing), and **new:** feedback on why drilling cannot continue and what would have to change to drill further (e.g. template sleeve height/relief at the blocking contact, tool/head size). Recorded as pending work.
+
+## 6 October 2026 — MoveIt ↔ Slicer planning-scene gate (`S6-LIVE-01`)
+
+Operator: "proceed to moveit slicer check" (follow-up to the 4 Oct FDI31 desync, where MoveGroup held a tooth 19.4 mm away from Slicer's copy while the guard acknowledged the scene).
+
+- Before Plan Guarded Approach, MoveGroup's world objects (read natively via `/get_planning_scene`) are compared with Slicer's collision-scene audit: same object ids, base-link bounds within 0.05 mm.
+- On a mismatch, Slicer's audited scene is re-sent once (bounded 5 s wait). If MoveIt still differs, or the scene cannot be read, **planning is refused** with the differing objects named. A repaired mismatch is reported in the plan message.
+- Diagnose This Base shows the comparison as row 0. No collision, guard or tolerance rule changes.
+
+## 6 October 2026 — Coordinate-system verification and paced obstacle publication (`S6-LIVE-01`)
+
+Operator: "yes to both questions, we need to extensively diagnose, test, and confirm that there's no mismatch in coordinate systems, extremely crucial for image guided interventions".
+
+1. The scene gate (MoveIt vs Slicer) runs before Plan, the P1–P3 checks and Diagnose (row 0). On a mismatch it re-sends only the differing objects one at a time (up to 3 rounds) and refuses if any still differ. The state is shown as a colour badge in 6.3.
+2. **Root cause of stale MoveIt/guard objects (FDI31 4 Oct; 1–7 teeth after Base changes 6 Oct):** MoveIt's `/collision_object` subscriber keeps 10 messages; a burst of changed meshes overflows it while large meshes are digested. Changed obstacles are now **paced** (0.25 s + 4 µs per point). The publisher history is raised to 1000 as defence in depth.
+3. `Testing/step6_frame_audit.py` is the reference frame audit: independent scene derivation, three-way FK (URDF/KDL/MoveIt), task/axis residuals, and independent collision agreement at the drilling boundary. Acceptance thresholds: bounds ≤ 0.05 mm, FK ≤ 0.01 mm / 0.01°, task ≤ 0.25 mm / 0.5°, collision-boundary agreement at every state.

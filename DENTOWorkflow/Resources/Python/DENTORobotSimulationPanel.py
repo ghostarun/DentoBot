@@ -1707,6 +1707,11 @@ class DENTORobotSimulationPanel:
             "Planning Parameters…", self.approachGroup
         )
         approach_layout.addWidget(self.approachPlanningPolicyButton)
+        self.moveItSceneStatusLabel = qt.QLabel("MoveIt scene: not checked yet.", self.approachGroup)
+        self.moveItSceneStatusLabel.objectName = "DENTOBOTMoveItSceneStatusLabel"
+        self.moveItSceneStatusLabel.wordWrap = True
+        self.moveItSceneStatusLabel.setProperty("dentobotRole", "status")
+        approach_layout.addWidget(self.moveItSceneStatusLabel)
         self.approachStatusLabel = qt.QLabel("No Approach plan.", self.approachGroup)
         self.approachStatusLabel.wordWrap = True
         self.approachStatusLabel.setProperty("dentobotRole", "status")
@@ -4122,6 +4127,23 @@ class DENTORobotSimulationPanel:
     BASE_DIAGNOSIS_COLORS = {
         "PASS": "#1e7d32", "WARNING": "#b26a00", "FAIL": "#b3261e", "NOT RUN": "#5f6368",
     }
+
+    MOVEIT_SCENE_BADGE = {
+        "matched": ("MoveIt scene matches Slicer", "#1e7e34"),
+        "resynced": ("MoveIt scene was re-synchronized from Slicer", "#b8860b"),
+        "mismatch": ("MoveIt scene DIFFERS from Slicer: planning refused", "#b00020"),
+        "unreadable": ("MoveIt scene could not be read: planning refused", "#b00020"),
+        "not_checked": ("MoveIt scene: not checked", "#5f6368"),
+    }
+
+    def showMoveItSceneStatus(self, status) -> None:
+        """Badge for the MoveIt <-> Slicer scene gate (S6-LIVE-01 2026-10-06)."""
+        label = getattr(self, "moveItSceneStatusLabel", None)
+        if label is None or not isinstance(status, dict):
+            return  # display only; never break the planning UI
+        title, color = self.MOVEIT_SCENE_BADGE.get(str(status.get("state")), self.MOVEIT_SCENE_BADGE["not_checked"])
+        label.text = f"{title}. {status.get('message', '')}"
+        label.styleSheet = f"font-weight: bold; color: {color};"
 
     def showBaseDiagnosisDialog(self, summary) -> None:
         """Non-modal Diagnose This Base table (S6-BASE-DIAGNOSE)."""

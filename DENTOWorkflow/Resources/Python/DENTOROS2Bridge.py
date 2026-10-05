@@ -6349,6 +6349,75 @@ def check_moveit_static_joint_state(
     return valid, message or ("MoveIt state is valid." if valid else "MoveIt state is invalid."), authoritative
 
 
+def republish_moveit_obstacles(object_ids, *, pause_sec: float = 0.4) -> tuple[bool, str, list]:
+    """Re-send named obstacles from their hidden proxies, one message at a time.
+
+    Targeted repair for objects MoveGroup did not apply (S6-LIVE-01 2026-10-06:
+    a burst sync through a KEEP_LAST(10) publisher lost updates). Paced so each
+    large mesh is digested before the next. Returns ``(ok, message, sent_ids)``.
+    """
+    try:
+        import slicer
+    except ImportError:
+        return False, ROS2_UNAVAILABLE_MESSAGE, []
+    robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+    motion_logic = get_motion_control_logic()
+    if robot_node is None or motion_logic is None:
+        return False, "Connect DENTOBOT Motion Control before re-sending obstacles.", []
+    wanted = {str(i) for i in object_ids or ()}
+    sent = []
+    for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+        if node.GetAttribute(ROS2_OBSTACLE_PROXY_ATTRIBUTE) != "true" or node.GetName() not in wanted:
+            continue
+        if not motion_logic.PublishMoveItObstacle(node, ROS2_FIXED_FRAME, robot_node):
+            return False, f"Failed to re-send MoveIt obstacle {node.GetName()}.", sent
+        sent.append(node.GetName())
+        deadline = time.monotonic() + max(0.0, float(pause_sec))
+        while time.monotonic() < deadline:
+            slicer.app.processEvents()
+            time.sleep(0.02)
+    missing = sorted(wanted.difference(sent))
+    if missing:
+        return False, "No hidden proxy for: " + ", ".join(missing[:4]), sent
+    return True, f"Re-sent {len(sent)} obstacle(s) one at a time.", sent
+
+
+def read_moveit_world_object_bounds(*, timeout_sec: float = 3.0) -> tuple[bool, str, list]:
+    """Read MoveGroup's world collision objects (id, frame, base_link bounds mm).
+
+    Read-only /get_planning_scene query through the native motion node
+    (S6-LIVE-01 2026-10-06). Returns ``(ok, message, objects)``.
+    """
+    logic, _robot_node, _goal_node, error = _dentobot_native_motion_context(
+        initialize_goal=False,
+        require_goal=False,
+    )
+    if error or logic is None:
+        return False, error or "MoveIt context is unavailable.", []
+    parameter_node = logic.getParameterNode()
+    try:
+        import slicer
+
+        motion_node = slicer.mrmlScene.GetNodeByID(parameter_node.motionControlNodeID)
+    except Exception:
+        motion_node = None
+    reader = getattr(motion_node, "GetMoveItWorldObjectBounds", None) if motion_node else None
+    if reader is None:
+        return False, "The loaded SlicerROS2 build cannot read the MoveIt planning scene; rebuild slicer_ros2_module.", []
+    try:
+        payload = str(reader(float(timeout_sec)) or "")
+        message = str(motion_node.GetLastPlanningSceneMessage() or "")
+    except Exception as exc:
+        return False, f"MoveIt planning-scene query failed: {exc}", []
+    if not payload:
+        return False, message or "MoveIt planning-scene query returned nothing.", []
+    try:
+        objects = json.loads(payload)
+    except (TypeError, ValueError) as exc:
+        return False, f"MoveIt planning-scene payload is invalid: {exc}", []
+    return True, message, list(objects)
+
+
 def compute_moveit_static_tcp_pose_base_mm(
     positions_si: Mapping[str, float],
     *,
@@ -6462,6 +6531,29 @@ def compute_tcp_position_world_ras_mm(
     return True, message, tuple(float(pose[index][3]) for index in range(3))
 
 
+# MoveIt's PlanningSceneMonitor subscribes to /collision_object with
+# rclcpp::ServicesQoS() (reliable, KEEP_LAST 10). A burst of changed meshes
+# overflows that subscriber queue while MoveGroup/the guard digest large meshes,
+# and the overwritten objects silently keep their previous pose (S6-LIVE-01,
+# 4 and 6 Oct 2026: 1-7 of 34 teeth stale after a Base change). Pace changed
+# objects so each is digested before the next arrives.
+ROS2_OBSTACLE_PUBLISH_PACE_SEC = 0.25
+ROS2_OBSTACLE_PUBLISH_PACE_SEC_PER_POINT = 4.0e-6
+
+
+def _pace_obstacle_publication(point_count: int) -> None:
+    delay = ROS2_OBSTACLE_PUBLISH_PACE_SEC + ROS2_OBSTACLE_PUBLISH_PACE_SEC_PER_POINT * max(0, int(point_count))
+    deadline = time.monotonic() + delay
+    while time.monotonic() < deadline:
+        try:
+            import slicer
+
+            slicer.app.processEvents()
+        except Exception:
+            pass
+        time.sleep(0.02)
+
+
 def sync_moveit_obstacle_polydata(
     *,
     source_id: str,
@@ -6539,6 +6631,7 @@ def sync_moveit_obstacle_polydata(
     )
     if not motion_logic.PublishMoveItObstacle(proxy, ROS2_FIXED_FRAME, robot_node):
         return False, f"Failed to publish MoveIt obstacle {source_name}."
+    _pace_obstacle_publication(polydata_base_mm.GetNumberOfPoints())
     proxy.SetAttribute(ROS2_OBSTACLE_PUBLISHED_ID_ATTRIBUTE, source_name)
     mark_slicer_ros2_runtime_nodes_transient()
     return True, ""
