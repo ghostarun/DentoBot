@@ -295,6 +295,9 @@ pattern grep can match the checking shell's own command line). After every stop,
 verify the count actually reached zero.
 `SIGTERM` alone has left orphaned instances running: escalate to `SIGKILL` and
 re-check. Never start a fresh session while an older one is still alive.
+Do not stop processes with `pkill -f` patterns that also appear in the agent's
+own command line (e.g. `pkill -f "ros2 launch"`): it kills the issuing shell
+mid-command. List PIDs (`ps -eo pid,args`) and `kill` those PIDs instead.
 
 A PASS marker followed by a non-zero shutdown must be reported as two pieces of
 evidence, not collapsed into PASS or FAIL. Scene-clear, VTK leak, or native

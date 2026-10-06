@@ -7430,3 +7430,26 @@ legacy alias for new sessions. Existing session/robot/ROS policy is unchanged.
 legacy aliases retired with dated data intact; no recreation for new runs.
 Defer editing executing shell scripts until their session stops. Four host stub
 tests pass; cleanup completion does not certify clean Slicer shutdown.
+
+
+## 6 October — accepted meeting discussion order and six-slide draft (`S6-LIVE-01`)
+
+Tarun accepts the question analysis and priority split as proposed: meeting attention order, not reassignment of backlog P0/P1 metadata. First: barrier validity, useful drilling depth, scene consistency/recovery, advisor objectives/confirmation, corridor clearance. Secondary: policy provenance, guard acknowledgement, stem/head split and alternative tool/axis; engineering follow-ups kept separate. Apply later 6 October scene-check completion, CUDA recovery, three-run rule and yaw-last decision when presenting older questions. Update the existing dated weekly REPORT.md and prepare exactly six slides of Markdown content only: week overview first, questions/next last, additional-case slots pending. No PPTX, runtime, physical redesign or operator case acceptance inferred.
+
+**6 October presentation refinement:** Tarun specifies slide 1 must contain text bullets only, without images, and cover secondary accomplishments across 29 September–6 October. Preserve the six-slide structure; keep granular completed deliverables in a linked retrospective checklist and compress them into seven outcome-level overview bullets. Historical mixed-build performance measurements remain qualified; no current-stack speed-up number is placed on the slide. No new engineering policy, runtime authorization or acceptance is inferred.
+
+
+**6 October presentation template:** Tarun selects `/home/tarun/Downloads/Tarun_weeklyupdate_Oct6.pptx` as the style reference. Keep its simple white/black, bold-lead, screenshot-and-caption format, with text-only slide 1 and questions/next last. Preserve current six-slide content/evidence and correct clipping/overlap during assembly. This chooses the visual template without reversing deferred PPTX production.
+
+## 2026-10-06 — Assisted configuration belongs inside DENTOWorkflow (operator)
+
+**Decision:** The trial-and-error search that found working planner configurations for
+FDI14/FDI11 (opening, barrier, attempts, margin, Base placement, yaw last) must become
+deterministic module logic in the Step 6 GUI, with no external AI involved. The module
+diagnoses, searches levers in a fixed priority order, re-verifies each candidate with the
+Diagnose checks and recommends the best configuration. Automate what is clinically and
+engineering-wise feasible; require explicit operator review where a change is clinically
+sensitive or fails/is not recommended. Tracked as P0 `S6-ADVISOR-GUI-01`, starting right
+after the 5-case S6-MULTI-TARGET-01 conclusion.
+**Why:** Until now Diagnose only suggests levers; applying them and confirming success was
+done off-GUI by scripts and agent analysis, so the module alone cannot assist an operator.

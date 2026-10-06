@@ -700,3 +700,11 @@ All three finite increments now have source implementations. Item1 paired watchd
 
 ### 4 October UTC07:11 — S6-LIVE-01 approved isolated sampling trial result
 Operator “approved” authorized one domain74 SIMULATION-ONLY request at OMPL fraction0.0005 (original0.005), stop first valid result. Corrected geometry-verified copy TIMED_OUT5s, error99999/zero points; original scene unchanged and final PID3122/Home3/Base/snapshot/options unchanged, no motion. Earlier missing-overlay copy result134 excluded; known burr/template collision canary0.286936408427mm matched original. Copy stopped/domain74 empty (SIGINT cleanup crash139 retained). Evidence planner-resolution-20261004T070243Z,135/136 and logbook. NeitherA/B nor physical minimum certified. Next reviewable hypothesis is one30s plan-only copy request with all other settings identical; not executed or deployed. Original109/121/124 ceiling persists. Tarun verdict PENDING.
+
+## Weekly meeting presentations
+
+For weekly PPT content and deck preparation, use
+[WEEKLY_PRESENTATION_FORMAT.md](WEEKLY_PRESENTATION_FORMAT.md): Tarun's simple
+text overview and evidence screenshot/caption style, with readable layouts,
+explicit result boundaries and questions/next steps last. Dated reports retain
+case facts; the guide is reusable presentation guidance.

@@ -2821,3 +2821,10 @@ Evidence: logbook/2026-10-06.md; durable
 Shutdown status 127 / Slicer exit 1 is retained as a separate outcome, not clean
 shutdown acceptance. The recorded shell-error hypothesis remains an open
 reasoning thread; all requested alias cleanup and routing work is complete.
+
+
+## 6 October — weekly report and presentation-content draft (`S6-LIVE-01`)
+
+Operator accepted the discussion-priority split and requested its inclusion in `data/dentobot-runs/2026-10-06/weekly-report-20261006-S6-LIVE-01/REPORT.md`. Completed content deliverable: accepted priority/status tables and `SLIDE_CONTENT_DRAFT.md`, exactly six slides; overview first and questions/next last. Preserved the detailed evidence report, reserved additional-case comparison space and used the latest three-run rule and no-yaw clarification. PPTX production deliberately deferred by operator; no new pending queue or runtime campaign. Verification: file readback, six slide-heading assertion, local link checks and series-summary counts recorded in logbook/2026-10-06.md. Existing S6-MULTI-TARGET-01 owns additional cases; all acceptance boundaries retained.
+
+**6 October content refinement:** operator requests a text-only first slide and comprehensive secondary accomplishments for 29 September–6 October. Completed a 74-item retrospective `WEEK_ACCOMPLISHMENTS_CHECKLIST.md` alongside the report, with dated evidence and implementation/runtime/acceptance boundaries. Replaced slide 1 with seven outcome-level bullets spanning planning, workbench, case management, templates, reliability and reproducibility; corrected the date range and linked the inventory. No task acceptance or pending-work priority changed. Document assertions and link/line readback passed; see today's log.
