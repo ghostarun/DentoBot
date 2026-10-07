@@ -1,0 +1,5 @@
+# Base image ID: sha256:c297544a5ab5f5ad28c1cbf8ecb208a2ea32473d82676ab510d8c380eccca433
+# Distribute the built image; runtime-lock.json is the exact identity authority.
+FROM dentobot/slicerros2:jazzy-moveit-sim-20260909
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends x11-utils ffmpeg && rm -rf /var/lib/apt/lists/*

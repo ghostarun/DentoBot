@@ -1,6 +1,6 @@
 {
-  "image_id": "sha256:c297544a5ab5f5ad28c1cbf8ecb208a2ea32473d82676ab510d8c380eccca433",
-  "image_name": "dentobot/slicerros2:jazzy-moveit-sim-20260909",
+  "image_id": "sha256:33a9e1e3fe82971473b36c98be4b37066787de73ac61713b96e6ebdc3d323ce6",
+  "image_name": "dentobot/slicerros2:ubuntu-ab-runtime-20261007",
   "native_sha": "0db5a2c1c5311a74b8189b58f3c13a7218a20199",
   "native_files": [
     {
@@ -332,6 +332,316 @@
     {
       "path": "Slicer_Saved/SampleCBCT/Oct6-multitarget/dentobot-case_5tooth-sample-final_fdi11-14-31-34-42.dentocase",
       "sha256": "be58b2431c4829c3101a2dd732c3dcfde823013461a399b0e9f071f0f34f7e54"
+    }
+  ],
+  "ros_files": [
+    {
+      "path": "dentobot_description/lib/dentobot_description/manual_joint_state_publisher",
+      "sha256": "458b883620857b887a7bf9615dea473bc92bb29f73ec1a0336e10c67b1b47dd9"
+    },
+    {
+      "path": "dentobot_description/lib/dentobot_description/neutral_joint_state_publisher",
+      "sha256": "c88b701b0f344174d8246a78bdb7729e31351b086b6cfe4e81f488d4b0f308a8"
+    },
+    {
+      "path": "dentobot_description/lib/dentobot_description/simulation_status_publisher",
+      "sha256": "c6783b3c4ce757f709cce411449baacbb765f0e47c0958ea7798c903db822a79"
+    },
+    {
+      "path": "dentobot_description/lib/dentobot_description/slicer_joint_state_publisher",
+      "sha256": "b39feae856f9d1c9a7f517aba15a7b15d35ae485470f7cc3969e47c4bbfa15ed"
+    },
+    {
+      "path": "dentobot_description/share/ament_index/resource_index/package_run_dependencies/dentobot_description",
+      "sha256": "4b04cd463c1ecfda1d6094c71f84696007befd96863e5b6d5dfcedfa1c1b1b64"
+    },
+    {
+      "path": "dentobot_description/share/ament_index/resource_index/packages/dentobot_description",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "dentobot_description/share/ament_index/resource_index/parent_prefix_path/dentobot_description",
+      "sha256": "c935c0e21d789d00e95ddb4f96b9836332fb2151e8c1e11868f33245a21ff421"
+    },
+    {
+      "path": "dentobot_description/share/colcon-core/packages/dentobot_description",
+      "sha256": "0d75bbcb2a74cf5619f6ab72992ad3f638056550df0c420a35d0ec2e0da76c08"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/README.md",
+      "sha256": "1562689161fbc3321357c3525bdff4647cb6e22f590d509753781869b4b4a2c9"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/cmake/dentobot_descriptionConfig-version.cmake",
+      "sha256": "5df7fb3481e154840dd6ac6d1b6eb53c81ed9cadd5e7a00398962383332be7ea"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/cmake/dentobot_descriptionConfig.cmake",
+      "sha256": "54563763c0077245221bdbd7bf3ffc72358f855622f3201890229c1e5b852e71"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/environment/ament_prefix_path.dsv",
+      "sha256": "c4797d0a0670c70b4d3bcb5b7d47563635c7950595603f3af66f70af546ad57e"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/environment/ament_prefix_path.sh",
+      "sha256": "6658f14efe913e291c0bf2c74059a9e14fb8abdb5a31628bef61d3b41e206679"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/environment/path.dsv",
+      "sha256": "3f2cdf6234ea2525c1670c140b6a03700d98a2408e7a232107791fa96c08b58b"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/environment/path.sh",
+      "sha256": "abe10a0452bc4b93f665fc343a7e6d32fe3f3a2b6beb90d338044a71d2583f18"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/hook/cmake_prefix_path.dsv",
+      "sha256": "7ab2eb0a25c282f9a5bf62596b4c098865cd3a8aa5740601a9efa8620acd69d3"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/hook/cmake_prefix_path.ps1",
+      "sha256": "0c7394c1d89765deec81cb10e59a36d0d98867690b4b8781d5bc9186fc67885a"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/hook/cmake_prefix_path.sh",
+      "sha256": "ee9849def404b669097010f38735aa521e0731366a319b6e1abe996c793494b2"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/launch/description.launch.py",
+      "sha256": "72a949ceb00714611d33ce07e55f1a1777475cbf3ed16496e560325aeaeff7f9"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/launch/manual.launch.py",
+      "sha256": "5109327023b06a9e7c0de55f506c4b1f35617ee47cde97163ec772b01562825e"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/local_setup.bash",
+      "sha256": "41b30b6c107da94a2478e43953b8cbd0d920f5e8fc1ea847c61a213623d623b0"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/local_setup.dsv",
+      "sha256": "9f92be2812b5f269d4718d2b468939e99019ee599b2572225a4f031ae95d5e0d"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/local_setup.sh",
+      "sha256": "c5e538463c830f81ecab66ca0461d577cdecf3a0ad9fd5ac34adc1d5417d41c1"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/local_setup.zsh",
+      "sha256": "56942873096201f4e7fe5e7b9bd87e56cc42ced33fadb53fbc25766fd9149c81"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/Step 6 DENTO Robot burr.stl",
+      "sha256": "a44ee228ae2a4911d27ddec63a2f159aca3e5fdf1d47bf7793c96c8d65f9fed2"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/Step 6 DENTO Robot link-1.stl",
+      "sha256": "283490712ff8140bc79a02a6ed1de439433a9d8b48ffb470e75188b0119b047c"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/Step 6 DENTO Robot link-2.stl",
+      "sha256": "4b5ffb5a65c01017a32421cfde111a00a448ded0946d476a0c76aac644894f2f"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/Step 6 DENTO Robot link-3.stl",
+      "sha256": "62532433d23e4d6ffebc372ca5b28cde7e9f6c7c77e9552d8af425f69d0b9341"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/Step 6 DENTO Robot link-4.stl",
+      "sha256": "ef30ef7d0e2fccc10c3ca821c97d31d9776faed3c19e30774970ec5dbe5f55c2"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/Step 6 DENTO Robot link-5.stl",
+      "sha256": "91b4a74ccd92b85faa4b1b7879df0610e87d358165b7da25cd7d4ab2aeff9458"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/Step 6 DENTO Robot pneumatic_spindle-Copy.stl",
+      "sha256": "81035cc9d09d65db4079f748698d59857ba93cb6519a336a82643af3f73a0558"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/burr.stl",
+      "sha256": "7ed794505b0440aed9092ac6a5522a9235e078410f6e5d43ba161b3c2768a51b"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/burr_simulation_1mm.stl",
+      "sha256": "469c4ddc223253c534488fd00b4e31727a8ee6ffcb2be3be87c358b92a968cec"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/link-1.stl",
+      "sha256": "a71a9bc70fd0562da915e06b84c8cec7fe827191da34e4d93156e7fed1484353"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/link-2.stl",
+      "sha256": "2b72f4d2b09e00a7461fca00870f396904bdfe41c868fc92b733ccfdc7911c97"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/link-3.stl",
+      "sha256": "5d691e382dc6c9a4e855e4536665e00ceac4e120737321d0ccc9a2225d992219"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/link-4.stl",
+      "sha256": "d720fdc8a2a8e50828a010c5e5d789ad5f4aa5095411e95fbdbf2eedbd31bb24"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/link-5.stl",
+      "sha256": "7c81574d081316358cd6fc94b5d7e9d2534b7883971cfb8c1dacaf53a5e67d25"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/meshes/pneumatic_spindle-Copy.stl",
+      "sha256": "85c45db85a70a4eb2ab568d300348d05af715608f5c046aaf4c3000d1bc478fb"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/package.bash",
+      "sha256": "42bc41ba1282fea8b2e9d5ccc29371338813fd180fe2d26040b97817bb829784"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/package.dsv",
+      "sha256": "650b513d48864dd2d66cf66b3acf12254d9c32f0a64f7d62dc6854a901e1d993"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/package.ps1",
+      "sha256": "441413dab24f8f44971564646784e4199b0de679ff0f89e148b8ea8c7819924a"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/package.sh",
+      "sha256": "63927ab2893c900aa8af53ec93a12f4eec9fd60418c6db6f38cd53bc4f23ffca"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/package.xml",
+      "sha256": "b30317bc82d0f974ca366f85aafd22931f93e74262fc06816021e08f64bc9f19"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/package.zsh",
+      "sha256": "18099f2a645a37483c7c2b7c4aa50ae168b8d7eacb645cb6f458a87a2e90061a"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/rviz/dentobot_description.rviz",
+      "sha256": "9a7ac07af15cb879f26256f8fbee47b27d51de2e5cd5cd422cbf3e81a0ff2257"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/urdf/dentobot.diagnostic-no-spindle-collision.urdf",
+      "sha256": "980192c3d4239876ad31948671117acc368816317a814d9433db4c101f0b6995"
+    },
+    {
+      "path": "dentobot_description/share/dentobot_description/urdf/dentobot.urdf",
+      "sha256": "3638f919e5a853b1c72d851f8bf61d4aaff8942aaa767c476face0108daedf8a"
+    },
+    {
+      "path": "dentobot_moveit_config/lib/dentobot_moveit_config/collision_guard",
+      "sha256": "8b63b6635148e0097a66672e08a8380166cffec5241bcad1e1682bb71a45d114"
+    },
+    {
+      "path": "dentobot_moveit_config/share/ament_index/resource_index/package_run_dependencies/dentobot_moveit_config",
+      "sha256": "86a1dbe48ea36422cecb287b45336e0aadd1bcd71187086385a15bdd7b8ab0b7"
+    },
+    {
+      "path": "dentobot_moveit_config/share/ament_index/resource_index/packages/dentobot_moveit_config",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "dentobot_moveit_config/share/ament_index/resource_index/parent_prefix_path/dentobot_moveit_config",
+      "sha256": "1cc855d58e95da3a83816eca55159d163eca9fd6943ffa544579434b445c078f"
+    },
+    {
+      "path": "dentobot_moveit_config/share/colcon-core/packages/dentobot_moveit_config",
+      "sha256": "3cde7a57d3d73ee41a3e9da35f67a0cad373f4bfc64074fffcd7309ea7b20894"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/cmake/dentobot_moveit_configConfig-version.cmake",
+      "sha256": "5df7fb3481e154840dd6ac6d1b6eb53c81ed9cadd5e7a00398962383332be7ea"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/cmake/dentobot_moveit_configConfig.cmake",
+      "sha256": "19fb28991aade1503451b5c0c07dc6e0b271779ea2f1157347ca91c04bed3ce0"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/config/dentobot.srdf",
+      "sha256": "11d5151bb89e5530a488ec5d4ee3035e71215d30884f2b04e3919db61a8f4d71"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/config/joint_limits.yaml",
+      "sha256": "7ae207ef5c86337b369dad9b20d23bc295af7952a2ee15b651d514248ecf13f3"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/config/kinematics.yaml",
+      "sha256": "a5d4cbd78751dfce3b947f30780cc3a78c68798de54daeb8be1f38a0454678e9"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/config/ompl_planning.yaml",
+      "sha256": "9acb46e12a30dcf198d2fe415f10446b8f340fe57b9051de7a9ad91cbab5e7b3"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/environment/ament_prefix_path.dsv",
+      "sha256": "c4797d0a0670c70b4d3bcb5b7d47563635c7950595603f3af66f70af546ad57e"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/environment/ament_prefix_path.sh",
+      "sha256": "6658f14efe913e291c0bf2c74059a9e14fb8abdb5a31628bef61d3b41e206679"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/environment/path.dsv",
+      "sha256": "3f2cdf6234ea2525c1670c140b6a03700d98a2408e7a232107791fa96c08b58b"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/environment/path.sh",
+      "sha256": "abe10a0452bc4b93f665fc343a7e6d32fe3f3a2b6beb90d338044a71d2583f18"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/hook/cmake_prefix_path.dsv",
+      "sha256": "7ab2eb0a25c282f9a5bf62596b4c098865cd3a8aa5740601a9efa8620acd69d3"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/hook/cmake_prefix_path.ps1",
+      "sha256": "0c7394c1d89765deec81cb10e59a36d0d98867690b4b8781d5bc9186fc67885a"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/hook/cmake_prefix_path.sh",
+      "sha256": "ee9849def404b669097010f38735aa521e0731366a319b6e1abe996c793494b2"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/launch/simulation.launch.py",
+      "sha256": "549c63b9a791aac8d2cb1785aa7e42b72eb2a27caddef3aa0f704d142bbe7eeb"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/local_setup.bash",
+      "sha256": "41b30b6c107da94a2478e43953b8cbd0d920f5e8fc1ea847c61a213623d623b0"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/local_setup.dsv",
+      "sha256": "37213f672bfc842d0fde02b174db5439cc1273872e577bb8df76eb89973939ad"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/local_setup.sh",
+      "sha256": "ab6e00d168621212162765d0473b4191f0b8879197a1fc3f4cf334f9cdd70185"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/local_setup.zsh",
+      "sha256": "56942873096201f4e7fe5e7b9bd87e56cc42ced33fadb53fbc25766fd9149c81"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/package.bash",
+      "sha256": "0835d04f4320d167789558c6eb20a2e4fca05248ed51312e42cb3b7a6769e922"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/package.dsv",
+      "sha256": "26cf3852ab18f81e06566bd052728e09478b8530384c8d2aac29613bf05faa32"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/package.ps1",
+      "sha256": "75c40778879456d8af1f31484b279f229e0fe441a1e7b4322bb813bbe3cbaf6a"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/package.sh",
+      "sha256": "0be8edcf0e21674667eefb6318cf1e72c9d073f23d35befab9d8e5bd8e6db56e"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/package.xml",
+      "sha256": "a670f3b13f1febf2fda9050c95270e00a8c9ca343e30573830de535387a09b4b"
+    },
+    {
+      "path": "dentobot_moveit_config/share/dentobot_moveit_config/package.zsh",
+      "sha256": "e0583a1cebbb16be15aa8a3caadc0e7f514f6244f1cd531607799113354e7b1d"
     }
   ]
 }
