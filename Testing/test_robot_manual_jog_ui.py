@@ -3566,6 +3566,7 @@ def test_step6_two_area_navigation_ownership_and_preview_authority():
         panel_path, "DENTORobotSimulationPanel", "ACTION_OWNER_SUBSTEP"
     )
     assert owners["connect"] == 1
+    assert owners["disconnect"] == (0, 1, 2, 3, 4)
     assert owners["review_task_home"] == owners["cancel_task_home_review"] == (2, 3)
     assert owners["accept_task_home_review"] == owners["reconcile_task_home"] == (2, 3)
     assert owners["apply_home"] == 2

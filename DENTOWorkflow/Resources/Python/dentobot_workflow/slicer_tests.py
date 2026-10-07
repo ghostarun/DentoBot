@@ -6395,6 +6395,38 @@ class DENTOWorkflowTestMixin:
                 ],
                 selectedBranchId,
             )
+            # S6-MULTI-JAW-STALE-01: a Step 6 mouth-opening change moves this
+            # mandibular (FDI31) branch rigidly with the jaw and never invalidates it;
+            # returning to the original opening leaves no stale marks.
+            originalGap = float(parameterNode.step6CaseJawTargetGapMm)
+            provenanceBefore = logic.canonicalTrajectoryGeometry(guideTrajectories)
+            verificationBefore = finalTemplate.GetAttribute("DENTOBOT.VerificationJson")
+            for gap in (originalGap + 4.0, originalGap):
+                parameterNode.step6CaseJawTargetGapMm = gap
+                logic.createOrUpdateStep6CaseJawOpening(parameterNode)
+                eligibility = logic.evaluatePreparedBranchEligibility(parameterNode)
+                self.assertEqual(eligibility["reason"], "VALID", eligibility["message"])
+                self.assertEqual(
+                    logic.canonicalTrajectoryGeometry(guideTrajectories), provenanceBefore
+                )
+                dockSummary = logic.getTargetDockingAssemblySummary(targetDockingAssembly)
+                self.assertEqual(dockSummary["geometryState"], "Current")
+                self.assertEqual(dockSummary["orientationState"], "Confirmed")
+                self.assertEqual(
+                    finalTemplate.GetAttribute("DENTOBOT.VerificationJson"),
+                    verificationBefore,
+                )
+                jawWorld = np.asarray(
+                    logic.owningJawWorldMatrix(parameterNode, targetDockingAssembly), dtype=float
+                )
+                storedFrame = json.loads(targetDockingAssembly.GetAttribute("DENTOBOT.FrameJson"))
+                self.assertTrue(
+                    np.allclose(
+                        dockSummary["frame"]["originRas"],
+                        (jawWorld @ np.r_[storedFrame["originRas"], 1.0])[:3],
+                        atol=1e-6,
+                    )
+                )
             self.delayDisplay(
                 "DENTOWorkflow single-target PreparedBranch 4A-to-6 test passed"
             )

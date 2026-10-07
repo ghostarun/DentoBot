@@ -6,9 +6,13 @@ from .runtime import *
 
 
 class TrajectoryViewWidgetMixin:
-    @staticmethod
-    def _trajectoryGeometrySnapshot(trajectoryNode) -> dict:
-        """Capture only point state that can change trajectory geometry."""
+    def _trajectoryGeometrySnapshot(self, trajectoryNode) -> dict:
+        """Capture only point state that can change trajectory geometry.
+
+        Positions are in the owning-jaw frame: a mouth-opening change moves a
+        mandibular trajectory rigidly with the jaw and is not a trajectory edit
+        (S6-MULTI-JAW-STALE-01).
+        """
 
         if not trajectoryNode or not trajectoryNode.IsA(
             "vtkMRMLMarkupsLineNode"
@@ -21,8 +25,13 @@ class TrajectoryViewWidgetMixin:
             )
             pointRas = None
             if status == int(slicer.vtkMRMLMarkupsNode.PositionDefined):
-                point = [0.0, 0.0, 0.0]
-                trajectoryNode.GetNthControlPointPositionWorld(index, point)
+                if self.logic and self._parameterNode:
+                    point = self.logic.owningJawFrameControlPoint(
+                        self._parameterNode, trajectoryNode, index
+                    )
+                else:
+                    point = [0.0, 0.0, 0.0]
+                    trajectoryNode.GetNthControlPointPositionWorld(index, point)
                 pointRas = tuple(float(value) for value in point)
             points.append((status, pointRas))
         return {
@@ -38,7 +47,7 @@ class TrajectoryViewWidgetMixin:
         right: dict | None,
         toleranceMm: float = 1e-6,
     ) -> bool:
-        """Compare point count/status and world-RAS positions with tolerance."""
+        """Compare point count/status and owning-jaw positions with tolerance."""
 
         if left is None or right is None:
             return left is right

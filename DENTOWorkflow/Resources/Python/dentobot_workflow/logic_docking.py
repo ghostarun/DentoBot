@@ -3,11 +3,38 @@
 from __future__ import annotations
 
 from .runtime import *
+from . import jaw_frame
 
 
 class DockingLogicMixin:
     def canonicalTrajectoryGeometry(self, trajectories: list) -> list[dict]:
-        """Return reload-stable trajectory provenance without changing geometry inputs."""
+        """Return reload-stable trajectory provenance without changing geometry inputs.
+
+        Recorded in the owning-jaw frame (S6-MULTI-JAW-STALE-01): world RAS for the
+        fixed upper jaw, the closed-mouth (jaw-local) pose for the moving lower jaw,
+        so a Step 6 mouth-opening change never alters a branch's identity.
+        """
+
+        parameterNode = self.getParameterNode()
+        records = []
+        for node in trajectories:
+            summary = self.getTrajectorySummary(node)  # validates completeness
+            if summary["entryRas"] is None or summary["targetRas"] is None:
+                raise ValueError(_("Every trajectory requires Entry and Target."))
+            records.append(
+                {
+                    "entryRas": self._registryWorldPoint(
+                        self.owningJawFrameControlPoint(parameterNode, node, 0)
+                    ),
+                    "targetRas": self._registryWorldPoint(
+                        self.owningJawFrameControlPoint(parameterNode, node, 1)
+                    ),
+                }
+            )
+        return records
+
+    def legacyWorldTrajectoryGeometry(self, trajectories: list) -> list[dict]:
+        """Pre-2026-10-07 world-RAS provenance; used only to migrate legacy records."""
 
         return [
             {
@@ -410,7 +437,15 @@ class DockingLogicMixin:
             raise RuntimeError(_("Slicer could not create the Step 4C docking nodes."))
 
         parametersJson = json.dumps(parameters, sort_keys=True, separators=(",", ":"))
-        frameJson = json.dumps(frame, sort_keys=True, separators=(",", ":"))
+        # Stored in the owning-jaw frame; the summary returns it in current world RAS.
+        frameJson = json.dumps(
+            jaw_frame.to_owning_jaw_frame(
+                frame,
+                self.owningJawWorldMatrix(parameterNode, trajectories[0]),
+            ),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         trajectoryJson = json.dumps(
             self.canonicalTrajectoryGeometry(trajectories),
             sort_keys=True,
@@ -437,6 +472,9 @@ class DockingLogicMixin:
             planeNode.SetAttribute("DENTOBOT.Status", "ResearchOnly")
             planeNode.SetAttribute("DENTOBOT.CoordinateConvention", "WorldRASmm")
             planeNode.SetAttribute("DENTOBOT.FrameJson", frameJson)
+            planeNode.SetAttribute(
+                jaw_frame.PROVENANCE_FRAME_ATTRIBUTE, jaw_frame.OWNING_JAW_FRAME
+            )
             planeNode.SetAttribute("DENTOBOT.ParametersJson", parametersJson)
             planeNode.SetAttribute("DENTOBOT.TrajectoryGeometryJson", trajectoryJson)
             planeNode.SetAttribute("DENTOBOT.TargetSegmentId", targetRecord["segmentId"])
@@ -521,6 +559,9 @@ class DockingLogicMixin:
             )
             assemblyModel.SetAttribute("DENTOBOT.ParametersJson", parametersJson)
             assemblyModel.SetAttribute("DENTOBOT.FrameJson", frameJson)
+            assemblyModel.SetAttribute(
+                jaw_frame.PROVENANCE_FRAME_ATTRIBUTE, jaw_frame.OWNING_JAW_FRAME
+            )
             assemblyModel.SetAttribute("DENTOBOT.TrajectoryGeometryJson", trajectoryJson)
             assemblyModel.SetAttribute(
                 "DENTOBOT.GeometryMetricsJson",
@@ -587,6 +628,23 @@ class DockingLogicMixin:
             "metrics": metrics,
             "measurementNodes": measurementNodes,
         }
+
+    def targetDockingFrameWorld(self, assemblyModel) -> dict:
+        """The dock frame in current world RAS (construction input).
+
+        Owning-jaw records (S6-MULTI-JAW-STALE-01) follow the current mouth opening;
+        legacy records are world RAS captured at build time and are returned as-is.
+        """
+
+        frame = json.loads(assemblyModel.GetAttribute("DENTOBOT.FrameJson") or "{}")
+        if (
+            assemblyModel.GetAttribute(jaw_frame.PROVENANCE_FRAME_ATTRIBUTE)
+            != jaw_frame.OWNING_JAW_FRAME
+        ):
+            return frame
+        return jaw_frame.to_world(
+            frame, self.owningJawWorldMatrix(self.getParameterNode(), assemblyModel)
+        )
 
     def getTargetDockingAssemblySummary(self, assemblyModel: vtkMRMLModelNode) -> dict:
         if not self.isTargetDockingAssemblyModelNode(assemblyModel):
@@ -683,7 +741,7 @@ class DockingLogicMixin:
             ),
             "trajectories": trajectories,
             "parametersJson": assemblyModel.GetAttribute("DENTOBOT.ParametersJson") or "",
-            "frame": json.loads(assemblyModel.GetAttribute("DENTOBOT.FrameJson") or "{}"),
+            "frame": self.targetDockingFrameWorld(assemblyModel),
             "trajectoryGeometryJson": assemblyModel.GetAttribute("DENTOBOT.TrajectoryGeometryJson") or "",
             "metrics": json.loads(
                 assemblyModel.GetAttribute("DENTOBOT.GeometryMetricsJson") or "{}"

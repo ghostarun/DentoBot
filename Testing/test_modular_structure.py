@@ -31,6 +31,7 @@ MIXIN_OWNERS = {
     "GuideBuildWidgetMixin": "DENTOWorkflowWidget",
     "CaseBackendWidgetMixin": "DENTOWorkflowWidget",
     "RobotShellWidgetMixin": "DENTOWorkflowWidget",
+    "Step6BranchConfigWidgetMixin": "DENTOWorkflowWidget",
     "RobotPlacementWidgetMixin": "DENTOWorkflowWidget",
     "RobotSceneWidgetMixin": "DENTOWorkflowWidget",
     "RobotWidgetMixin": "DENTOWorkflowWidget",

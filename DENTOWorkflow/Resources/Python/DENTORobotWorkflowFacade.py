@@ -1668,6 +1668,31 @@ class DENTORobotWorkflowFacade:
             )
         )
 
+    def setJointPlanningPolicy(self, planner_id, planning_attempts, planning_time_sec) -> None:
+        """Set the Home -> PreEntry joint-planning policy used by planning and Diagnose."""
+        if planner_id not in STEP6_JOINT_PLANNER_ALGORITHMS:
+            raise ValueError(f"Planner '{planner_id}' is not configured for DENTOBOT.")
+        self._joint_planner_id = planner_id
+        self._effective_joint_planner_id = ""
+        self._joint_planning_attempts = max(1, min(10, int(planning_attempts)))
+        self._joint_planning_time_sec = max(0.5, min(60.0, float(planning_time_sec)))
+
+    def setApproachCorridorMarginSamples(self, samples: int) -> None:
+        """Adaptive-corridor margin samples (restored per PreparedBranch)."""
+        self._approach_corridor_margin_samples = max(0, int(samples))
+
+    def approachCorridorMarginSamples(self) -> int:
+        return int(self._approach_corridor_margin_samples or 0)
+
+    def jointPlanningPolicy(self) -> dict:
+        """The joint-planning policy Diagnose and P1 will actually use."""
+        return {
+            "planner_id": self._joint_planner_id,
+            "planning_attempts": int(self._joint_planning_attempts),
+            "planning_time_sec": float(self._joint_planning_time_sec),
+            "independent_replans": STEP6_JOINT_PLAN_RETRIES,
+        }
+
     def taskHomeValidationGap(self, parameter_node=None) -> str:
         """Say why Task Home is not runtime-validated ('' when it is).
 
@@ -9451,6 +9476,138 @@ class DENTORobotWorkflowFacade:
                 return plan
         return replace(plan, message=f"{plan.message} (no route in {STEP6_JOINT_PLAN_RETRIES} independent re-plans)")
 
+    def _measure_approach_corridor(
+        self,
+        parameter_node,
+        preentry_positions,
+        *,
+        pre_entry,
+        entry,
+        target,
+        fixed_rotation_ras,
+        roll_deg: float,
+    ) -> dict:
+        """Axial approach-corridor clearance behind PreEntry; read-only, no planning.
+
+        Shared by P1 and the Feasibility Advisor (S6-MULTI-TARGET-01 2026-10-06)
+        so both apply the same STEP6_APPROACH_CORRIDOR_MIN_MM rule. ``status`` is
+        ``available`` (``back`` is the kept collision-free prefix), ``blocked``
+        (shorter than the minimum) or ``unavailable`` (no straight back-out).
+        """
+        axis = tuple(float(target[i]) - float(entry[i]) for i in range(3))
+        length = sqrt(sum(value * value for value in axis))
+        unit = tuple(value / length for value in axis) if length > 0 else (0.0, 0.0, 0.0)
+        approach = tuple(float(pre_entry[i]) - STEP6_APPROACH_CORRIDOR_MM * unit[i] for i in range(3))
+        back_out = self._bridge.plan_moveit_cartesian_path(
+            entry_ras_mm=tuple(float(v) for v in pre_entry),
+            target_ras_mm=approach,
+            sample_count=max(3, int(parameter_node.robotMotionPlanSampleCount)),
+            base_transform=parameter_node.robotBaseTransform,
+            avoid_collisions=False,
+            minimum_fraction=0.99,
+            start_joint_positions_si=dict(preentry_positions),
+            axial_roll_start_deg=float(roll_deg),
+            axial_roll_end_deg=float(roll_deg),
+            fixed_rotation_ras=fixed_rotation_ras,
+            position_axis_only=True,
+            reverse_travel=True,
+        )
+        back = tuple(dict(point) for point in (back_out.waypoint_joint_vectors_si or ()))
+        result = {
+            "status": "available",
+            "reason": "",
+            "corridor_mm": STEP6_APPROACH_CORRIDOR_MM,
+            "requested_mm": STEP6_APPROACH_CORRIDOR_MM,
+            "minimum_mm": STEP6_APPROACH_CORRIDOR_MIN_MM,
+            "margin_samples": max(0, int(self._approach_corridor_margin_samples)),
+            "sample_count": len(back),
+            "valid_count": len(back),
+            "validity_authoritative": False,
+            "blocked_message": "",
+            "first_blocked_state": None,
+            "back": back,
+            "back_out": back_out,
+        }
+        if not back_out.success or len(back) < 2:
+            result.update(status="unavailable", corridor_mm=0.0, valid_count=0,
+                          reason="straight back-out failed: " + str(back_out.message))
+            return result
+        # The back-out is built without collision checking, so A may lie inside
+        # anatomy or the mouth barrier (S6-LIVE-01 2026-10-04: lower canine and
+        # lip slab from ~1.5 mm). Keep the longest collision-free prefix.
+        checker = getattr(self._bridge, "check_moveit_static_joint_state", None)
+        if callable(checker):
+            result["validity_authoritative"] = True
+            valid_count = 0
+            for state in back:
+                valid, validity_message, authoritative = checker(state)
+                if not authoritative:
+                    result["validity_authoritative"] = False
+                    valid_count = len(back)
+                    break
+                if not valid:
+                    result["blocked_message"] = str(validity_message)
+                    result["first_blocked_state"] = dict(state)
+                    break
+                valid_count += 1
+            if valid_count < len(back):
+                # Optional margin (operator 2026-10-05 lever): stop short of the
+                # first contact so A is not at zero clearance. Default 0.
+                valid_count = max(1, valid_count - result["margin_samples"])
+                corridor_mm = STEP6_APPROACH_CORRIDOR_MM * max(valid_count - 1, 0) / (len(back) - 1)
+                result.update(corridor_mm=corridor_mm, valid_count=valid_count, back=back[:valid_count])
+                if corridor_mm < STEP6_APPROACH_CORRIDOR_MIN_MM:
+                    result.update(
+                        status="blocked",
+                        reason=(
+                            f"axial corridor blocked {corridor_mm:.2f} mm behind PreEntry: "
+                            + result["blocked_message"]
+                        ),
+                    )
+        return result
+
+    def checkApproachCorridorClearance(self) -> RobotActionResult:
+        """Read-only P1 corridor clearance at the same-instance PreEntry endpoint.
+
+        Feasibility Advisor screen (S6-MULTI-TARGET-01 2026-10-06): runs the
+        exact P1 corridor measurement without planning, so an endpoint pass is
+        not mistaken for a route. Creates no plan, route or MRML change.
+        """
+        try:
+            context = self._step6_stage_context()
+            cache = self._step6_preentry_candidate_cache
+            if not isinstance(cache, Mapping) or cache.get("identity") != context["identity"]:
+                raise ValueError("Run PreEntry IK for the current inputs first.")
+            candidates = tuple(cache.get("candidates") or ())
+            if not candidates:
+                raise ValueError("PreEntry IK produced no collision-checked endpoint candidate.")
+            candidate = candidates[0]
+            measured = self._measure_approach_corridor(
+                context["parameter_node"],
+                dict(candidate["positions"]),
+                pre_entry=context["pre_entry"],
+                entry=context["entry"],
+                target=context["target"],
+                fixed_rotation_ras=candidate["orientation"].get("rotationRas"),
+                roll_deg=float(candidate["roll_deg"]),
+            )
+        except (RuntimeError, ValueError, OSError, TypeError, KeyError, AttributeError) as exc:
+            return RobotActionResult(False, "approach_corridor_check_failed", str(exc))
+        details = {
+            key: value for key, value in measured.items() if key not in ("back", "back_out")
+        }
+        details["identity"] = dict(context["identity"])
+        details["preentry_positions_si"] = dict(candidate["positions"])
+        if measured["status"] == "available":
+            return RobotActionResult(
+                True,
+                "approach_corridor_clear",
+                f"Axial approach corridor {measured['corridor_mm']:.2f} mm "
+                f"(minimum {STEP6_APPROACH_CORRIDOR_MIN_MM:.2f} mm).",
+                details=details,
+            )
+        return RobotActionResult(False, "approach_corridor_" + measured["status"], measured["reason"], details=details)
+
     def _plan_home_to_preentry_with_corridor(
         self,
         parameter_node,
@@ -9474,11 +9631,6 @@ class DENTORobotWorkflowFacade:
         the corridor cannot be built, the direct Home->PreEntry plan is used and
         both outcomes are reported in ``plan.message``.
         """
-        axis = tuple(float(target[i]) - float(entry[i]) for i in range(3))
-        length = sqrt(sum(value * value for value in axis))
-        unit = tuple(value / length for value in axis) if length > 0 else (0.0, 0.0, 0.0)
-        approach = tuple(float(pre_entry[i]) - STEP6_APPROACH_CORRIDOR_MM * unit[i] for i in range(3))
-
         def direct(reason):
             plan = self._plan_joint_goal_with_retries(
                 start_joint_positions_si=home_positions,
@@ -9491,51 +9643,14 @@ class DENTORobotWorkflowFacade:
             )
             return replace(plan, message=f"Approach corridor unavailable ({reason}); direct plan: {plan.message}")
 
-        back_out = self._bridge.plan_moveit_cartesian_path(
-            entry_ras_mm=tuple(float(v) for v in pre_entry),
-            target_ras_mm=approach,
-            sample_count=max(3, int(parameter_node.robotMotionPlanSampleCount)),
-            base_transform=parameter_node.robotBaseTransform,
-            avoid_collisions=False,
-            minimum_fraction=0.99,
-            start_joint_positions_si=dict(preentry_positions),
-            axial_roll_start_deg=float(roll_deg),
-            axial_roll_end_deg=float(roll_deg),
-            fixed_rotation_ras=fixed_rotation_ras,
-            position_axis_only=True,
-            reverse_travel=True,
-        )
-        back = tuple(dict(point) for point in (back_out.waypoint_joint_vectors_si or ()))
-        if not back_out.success or len(back) < 2:
-            return direct("straight back-out failed: " + str(back_out.message))
-        # The back-out is built without collision checking, so A may lie inside
-        # anatomy or the mouth barrier (S6-LIVE-01 2026-10-04: lower canine and
-        # lip slab from ~1.5 mm). Keep the longest collision-free prefix.
-        corridor_mm = STEP6_APPROACH_CORRIDOR_MM
-        checker = getattr(self._bridge, "check_moveit_static_joint_state", None)
-        if callable(checker):
-            valid_count = 0
-            blocked_message = ""
-            for state in back:
-                valid, validity_message, authoritative = checker(state)
-                if not authoritative:
-                    valid_count = len(back)
-                    break
-                if not valid:
-                    blocked_message = str(validity_message)
-                    break
-                valid_count += 1
-            if valid_count < len(back):
-                # Optional margin (operator 2026-10-05 lever): stop short of the
-                # first contact so A is not at zero clearance. Default 0.
-                valid_count = max(1, valid_count - max(0, int(self._approach_corridor_margin_samples)))
-                corridor_mm = STEP6_APPROACH_CORRIDOR_MM * max(valid_count - 1, 0) / (len(back) - 1)
-                if corridor_mm < STEP6_APPROACH_CORRIDOR_MIN_MM:
-                    return direct(
-                        f"axial corridor blocked {corridor_mm:.2f} mm behind PreEntry: "
-                        + blocked_message
-                    )
-                back = back[:valid_count]
+        corridor = self._measure_approach_corridor(
+            parameter_node, preentry_positions, pre_entry=pre_entry, entry=entry, target=target,
+            fixed_rotation_ras=fixed_rotation_ras, roll_deg=roll_deg)
+        if corridor["status"] != "available":
+            return direct(corridor["reason"])
+        back = corridor["back"]
+        back_out = corridor["back_out"]
+        corridor_mm = corridor["corridor_mm"]
         approach_positions = back[-1]
         to_approach = self._plan_joint_goal_with_retries(
             start_joint_positions_si=home_positions,
@@ -12788,14 +12903,7 @@ class DENTORobotWorkflowFacade:
         try:
             if progress:
                 progress("Checking confirmed task and runtime")
-            if planner_id not in STEP6_JOINT_PLANNER_ALGORITHMS:
-                raise ValueError(f"Planner '{planner_id}' is not configured for DENTOBOT.")
-            self._joint_planner_id = planner_id
-            self._effective_joint_planner_id = ""
-            self._joint_planning_attempts = max(1, min(10, int(planning_attempts)))
-            self._joint_planning_time_sec = max(
-                0.5, min(60.0, float(planning_time_sec))
-            )
+            self.setJointPlanningPolicy(planner_id, planning_attempts, planning_time_sec)
             parameter_node = self._require_context()
             preferred_plan_selection = self._current_diagnostic_plan_selection(
                 parameter_node

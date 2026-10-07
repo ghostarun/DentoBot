@@ -7006,6 +7006,68 @@ def test_approach_corridor_shortens_to_collision_free_prefix_or_reports_block():
     assert "axial corridor blocked 0.00 mm behind PreEntry: lip_slab <-> spindle" in fallback.message
 
 
+def test_corridor_clearance_check_is_read_only_and_uses_the_p1_rule():
+    """S6-MULTI-TARGET-01 2026-10-06: the advisor screens the exact P1 corridor rule."""
+    import DENTORobotWorkflowFacade as module
+    from types import SimpleNamespace
+    from DENTOROS2Bridge import MoveItCartesianResult
+
+    facade, parameter_node, _logic, bridge = make_facade()
+    parameter_node.robotMotionPlanSampleCount = 5
+    q = lambda v: {name: float(v) for name in ROS2_JOINT_SI_ORDER}
+    back = tuple(q(v) for v in (5, 6, 7, 8, 9))  # PreEntry .. 12 mm out, 3 mm apart
+    bridge.plan_moveit_cartesian_path = lambda **k: MoveItCartesianResult(
+        True, "line", 1.0, back, (0.0, 0.1, 0.2, 0.3, 0.4))
+    planned = []
+    bridge.plan_moveit_joint_goal = lambda **k: planned.append(k) or MoveItCartesianResult(False, "unused")
+    blocked_from = {"value": 8.0}
+    bridge.check_moveit_static_joint_state = lambda state: (
+        state["link-1_Revolute-1"] < blocked_from["value"], "contacts=dentobot_tooth_x<->pneumatic_spindle-Copy", True)
+    identity = {"task": "t"}
+    facade._step6_stage_context = lambda: {
+        "parameter_node": parameter_node, "identity": dict(identity),
+        "pre_entry": (0.0, 0.0, -2.0), "entry": (0.0, 0.0, 0.0), "target": (0.0, 0.0, 10.0)}
+    assert facade.checkApproachCorridorClearance().code == "approach_corridor_check_failed"
+    facade._step6_preentry_candidate_cache = {"identity": dict(identity), "candidates": (
+        {"positions": q(5), "roll_deg": 0.0, "orientation": {"rotationRas": None}},)}
+    clear = facade.checkApproachCorridorClearance()
+    assert clear.success and clear.code == "approach_corridor_clear"
+    assert clear.details["corridor_mm"] == 6.0 and clear.details["minimum_mm"] == module.STEP6_APPROACH_CORRIDOR_MIN_MM
+    assert clear.details["first_blocked_state"] == q(8) and "back" not in clear.details
+    blocked_from["value"] = 6.0
+    blocked = facade.checkApproachCorridorClearance()
+    assert not blocked.success and blocked.code == "approach_corridor_blocked"
+    assert blocked.details["corridor_mm"] == 0.0 and "axial corridor blocked 0.00 mm" in blocked.message
+    assert planned == []  # measurement only: no planning request
+    bridge.plan_moveit_cartesian_path = lambda **k: MoveItCartesianResult(False, "no line")
+    assert facade.checkApproachCorridorClearance().code == "approach_corridor_unavailable"
+    facade._step6_stage_context = lambda: (_ for _ in ()).throw(ValueError("Task Home is not validated"))
+    refused = facade.checkApproachCorridorClearance()
+    assert refused.code == "approach_corridor_check_failed" and "Task Home" in refused.message
+    del SimpleNamespace
+
+
+def test_joint_planning_policy_is_set_and_reported_for_diagnose():
+    """Diagnose plans with the facade policy; the advisor sets and records it (5 attempts / 5 s)."""
+    import DENTORobotWorkflowFacade as module
+
+    facade, _parameter_node, _logic, _bridge = make_facade()
+    assert facade.jointPlanningPolicy()["planning_time_sec"] == module.GOAL1_DIRECT_PLANNING_TIME_SEC
+    facade.setJointPlanningPolicy(module.STEP6_JOINT_PLANNER_ID, 5, 5.0)
+    assert facade.jointPlanningPolicy() == {
+        "planner_id": module.STEP6_JOINT_PLANNER_ID, "planning_attempts": 5, "planning_time_sec": 5.0,
+        "independent_replans": module.STEP6_JOINT_PLAN_RETRIES}
+    facade.setJointPlanningPolicy(module.STEP6_JOINT_PLANNER_ID, 50, 0.1)
+    assert facade.jointPlanningPolicy()["planning_attempts"] == 10
+    assert facade.jointPlanningPolicy()["planning_time_sec"] == 0.5
+    try:
+        facade.setJointPlanningPolicy("unknown", 5, 5.0)
+    except ValueError as exc:
+        assert "not configured" in str(exc)
+    else:
+        raise AssertionError("unknown planner accepted")
+
+
 def test_free_space_leg_is_replanned_independently_when_the_planner_returns_no_route():
     """S6-LIVE-01 2026-10-05: a single sampling call misses an existing route ~1 in 30."""
     import DENTORobotWorkflowFacade as module

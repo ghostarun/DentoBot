@@ -17,9 +17,15 @@ from dentobot_workflow.widget_robot_placement import RobotPlacementWidgetMixin
 
 
 from dentobot_workflow.widget_robot_scene import RobotSceneWidgetMixin
+from dentobot_workflow.widget_step6_branch_config import Step6BranchConfigWidgetMixin
 
 
-class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotShellWidgetMixin):
+class RobotWidgetMixin(
+    RobotSceneWidgetMixin,
+    RobotPlacementWidgetMixin,
+    RobotShellWidgetMixin,
+    Step6BranchConfigWidgetMixin,
+):
     def _manualJogIdentityCurrent(self) -> bool:
         facade = getattr(self, "_robotWorkflowFacade", None)
         if facade is None:
@@ -1307,33 +1313,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             if not ok:
                 return False, message
         return True, ""
-
-    def onImportStep6PlanningContext(self, checked: bool = False) -> None:
-        del checked
-        if not self._parameterNode or not self.logic:
-            return
-        try:
-            if self._caseBundleRobotProfileCompatible is False:
-                raise ValueError(
-                    _(
-                        "The installed URDF/SRDF/mesh/MoveIt resources do not "
-                        "match this case package. Reconcile the robot profile "
-                        "before importing the case into Step 6."
-                    )
-                )
-            if not self._confirmStep6SceneSwitch("case"):
-                return
-            report = self.logic.importStep6PlanningContext(self._parameterNode)
-            try:
-                self._applyTaskJointLimitsToJointSpinboxes()
-            except ValueError:
-                pass
-            self._applyStep6RecommendedView()
-            self.onFrameStep6CaseScene()
-            self._updateStep6PlanningUi(report.message)
-        except (RuntimeError, ValueError) as exc:
-            self._updateStep6PlanningUi(str(exc), error=True)
-            slicer.util.errorDisplay(str(exc))
 
     def onLockRobotBaseMount(self, checked: bool = False) -> None:
         del checked

@@ -7453,3 +7453,78 @@ sensitive or fails/is not recommended. Tracked as P0 `S6-ADVISOR-GUI-01`, starti
 after the 5-case S6-MULTI-TARGET-01 conclusion.
 **Why:** Until now Diagnose only suggests levers; applying them and confirming success was
 done off-GUI by scripts and agent analysis, so the module alone cannot assist an operator.
+
+## 2026-10-06 — Planner adjustment priority order (operator)
+
+When planning fails, adjustments are tried in this order, each only if all earlier ones
+fail: (1) Base translation **lateral only** (forehead-plane u, patient left/right);
+(2) Base lateral + **vertical** (v), least vertical movement first; (3) lip-barrier model
+adjustments (research: lip-line margin, slab thickness, portal enlargement; aerotor stem
+may touch the lip, the spindle housing never); (4) mouth opening, the minimum above the
+case value, <= 46 mm, 0.5 mm resolution; (5) Base depth; (6) Base yaw, last resort.
+Every candidate is confirmed by MoveIt/Diagnose. Applies to the advisor and its GUI
+version (P0 S6-ADVISOR-GUI-01); current Find Reachable Base L2/L3 rank u/v/depth/yaw
+together by cost and do not yet follow this order.
+
+**6 October weekly deck production:** Tarun supersedes the earlier PPTX deferral: proceed now with the five recorded cases, FDI34 as the unresolved failure, using the agreed simple template. Do not wait for further FDI34 results or launch tests. Preserve cycle-success versus acceptance distinctions and lower-tooth audit caveats.
+
+## 2026-10-06 — FDI34 resumes through the existing advisor; one 42 mm confirmation (operator)
+
+**Operator:** extend the existing `feasibility_advisor.py` and its runner (no new standalone
+search pipeline); classify setup_error / unreachable / endpoint_collision / route_failure
+separately; stop candidates on invalid Home, stale confirmation or scene mismatch; keep the
+agreed order (lateral → lateral+vertical → approved bounded lip variants → opening ≤ 46 mm
+at 0.5 mm → depth → yaw last); reuse only identity-checked records; never infer failure for
+untested states; never disable the barrier. Candidate evaluation: prerequisites/scene →
+stroke → authoritative PreEntry → adaptive-corridor clearance → full Diagnose P1–P3;
+endpoint success alone is not success; 1 mm corridor minimum and collision rules unchanged;
+capture the first failure and stop. Next runtime is ONE confirmation (42.0 mm, Base u=+15,
+v=depth=yaw=0, default gum-line barrier 2/8/+5, saved Home freshly validated, RRTConnect
+5 attempts/5 s, existing re-plans, spindle–template allowance OFF) on an isolated scratch
+branch, with jaw-local trajectory and template geometry checks. S6-AUDIT-D-01 must be
+resolved before acceptance; do not assume 0.5 mm padding. 41.0 mm stays "untested —
+template build failed"; no minimum-opening or optimal-Base claim.
+**Technical decisions (Claude, same turn):** (1) the P1 corridor measurement is one facade
+method (`_measure_approach_corridor`) used by P1 and the read-only
+`checkApproachCorridorClearance()`, so the advisor screen cannot drift from the P1 rule;
+(2) Diagnose plans with the facade policy (default 5 attempts / 10 s), not the panel's, so
+the advisor sets it with `setJointPlanningPolicy()` and records `jointPlanningPolicy()`;
+(3) approved lip variants are the recorded endpoint values only (margin 0, slab 4, portal
+10 and combinations); the stem rule is not generated (no housing/stem split);
+(4) opening ladder uses the absolute 0.5 mm grid (40.0/40.06 → 40.5 …); (5) depth and yaw
+stages are generated at the baseline opening (open question); (6) contact pairs are parsed
+from MoveIt's full `contacts=A<->B, …` list, since object ids contain spaces.
+
+**6 October evidence-slide expansion:** Tarun authorizes six additional slides exclusively for visual evidence, inserted with context, showing three success cases and one failure. This supersedes the six-slide count for this deck only. Selected FDI14/FDI11/FDI31 cycle-success evidence and FDI34 failure evidence; FDI31's open collision-audit qualification remains visible. Weekly overview first and questions last remain unchanged.
+
+
+**6 October weekly deck v3:** operator requests a final blend of v2 coverage and visual evidence with less text. Presentation-only choice: 14 slides, text-only overview first, prerequisite work with contextual images, six dedicated evidence slides, discussion last; details and evidence boundaries in notes. This supersedes prior deck counts for v3 only and makes no planner-policy or acceptance change.
+
+## 2026-10-07 — P0 items implemented before the five-tooth conclusion; one combined campaign (operator)
+
+**Operator:** "agreed and approved" (2026-10-07): implement S6-MULTI-JAW-STALE-01 and S6-ADVISOR-GUI-01 now
+(supersedes "start after the 5-case conclusion" in the backlog), then test everything — including FDI34 — in one
+combined, serialized campaign. Order: (1) S6-AUDIT-D-01 read-only dump first (done, logbook 2026-10-07: audit defect,
+not a collision defect); (2) S6-MULTI-JAW-STALE-01 (lower-jaw frame staleness + per-branch working configurations);
+(3) S6-ADVISOR-GUI-01 (advisor search inside DENTOWorkflow; operator review for clinically sensitive levers);
+(4) campaign: pure/container tests → fixed audit agreement FDI14/31/34/42 → branch switching without false stale
+marks → GUI advisor on FDI34 → full Diagnose per tooth; (5) 3-run/6-cycle series per tooth only after (4), each with
+operator approval. A near-PreEntry FDI34 Home still needs operator review of the assisted joint limits (or an
+advisor step that proposes Homes for approval). Runtime sessions remain explicitly approved, one at a time.
+Added 2026-10-07 (operator): **S6-FRAME-SYNC-01** — an additional, layered Slicer↔ROS/MoveIt coordinate-sync
+verification layer — joins the P0 pass; implemented alongside S6-MULTI-JAW-STALE-01 (shared lower-jaw frame) and
+required to pass in the combined campaign before any per-tooth series.
+
+## 2026-10-07 — PreparedBranches bind to the opening-independent Case Foundation identity (operator, amends 2026-09-11)
+
+**Operator:** S6-MULTI-JAW-STALE-01 acceptance (2026-10-06): "Step 6 opening changes never invalidate a branch";
+P0 implementation approved 2026-10-07.
+Amends 2026-09-11 "Every current PreparedBranch and its Step 5C evidence bind the planning-pose fingerprint": they
+now bind the Case Foundation identity **without the mouth opening** (source volume/segmentation, landmarks and
+review, hinge schema, opening-invariant jaw configuration). Rationale: a branch is rigidly attached to its jaw
+and every Step 4C/5C check is same-jaw, so the opening cannot change its validity. Provenance (trajectory,
+insertion, dock frame) is recorded in the owning-jaw frame; construction uses current world geometry. An opening
+change still invalidates Step 6 runtime state (task confirmation, Base, workspace). Legacy records migrate only
+when provably recorded at the current opening; Step 5C verification is carried over only if it matched under the
+old rules — never re-verified or relaxed silently. Each branch also stores its own Step 6 working configuration
+(opening, Base, Task Home, policy) in the dentocase; restoring stages Task Home only (no motion).

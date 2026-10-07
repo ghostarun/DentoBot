@@ -155,7 +155,7 @@
           "returns": "None"
         },
         "_invalidateCaseFoundationPoseDependents": {
-          "arguments": "self, parameterNode, reason: str",
+          "arguments": "self, parameterNode, reason: str, *, openingOnly: bool=False",
           "decorators": [],
           "returns": "None"
         },
@@ -394,7 +394,7 @@
           "returns": "dict[str, float]"
         },
         "_trajectoryRegistryGeometryFingerprint": {
-          "arguments": "self, trajectoryNode",
+          "arguments": "self, trajectoryNode, *, legacyWorld: bool=False",
           "decorators": [],
           "returns": "str"
         },
@@ -2069,7 +2069,7 @@
           "returns": "None"
         },
         "syncDentoCaseTrajectoryRegistry": {
-          "arguments": "self, parameterNode",
+          "arguments": "self, parameterNode, *, legacyProvenance: bool=False",
           "decorators": [],
           "returns": "dict[str, object]"
         },
@@ -4002,10 +4002,8 @@
           "returns": "qt.QIcon"
         },
         "_trajectoryGeometrySnapshot": {
-          "arguments": "trajectoryNode",
-          "decorators": [
-            "staticmethod"
-          ],
+          "arguments": "self, trajectoryNode",
+          "decorators": [],
           "returns": "dict"
         },
         "_trajectoryGeometrySnapshotsMatch": {

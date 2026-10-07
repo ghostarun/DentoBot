@@ -1091,6 +1091,7 @@ class Step6SceneLogicMixin:
         self._invalidateCaseFoundationPoseDependents(
             parameterNode,
             _("Case Foundation opening changed."),
+            openingOnly=True,
         )
         return transform, model, gapLine, {
             "angleDeg": angle,

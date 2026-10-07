@@ -13,6 +13,10 @@ scene node that the dentocase save/restore carries:
 the existing GUI owners (Step 6 opening, 6.1 Base review/accept, 6.2 Home, 6.3 policy,
 Confirm) so the working conditions can be checked and previewed after a restore.
 Simulation only.
+
+Superseded 2026-10-07 by the product feature (S6-MULTI-JAW-STALE-01):
+``dentobot_workflow/step6_working_config.py`` + 6.1 "Save/Restore Branch Step 6
+Config"; entries in this research store are adopted on case load.
 """
 
 from __future__ import annotations

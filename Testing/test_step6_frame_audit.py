@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -62,3 +63,97 @@ def test_axis_angles_ignore_column_norm_drift():
     b = np.eye(4)
     b[:3, :3] *= (1.0 - 4e-10)
     assert max(fa.axis_angles_deg(a, b)) < 1e-6
+
+
+# ---- exact mesh separation (S6-AUDIT-D-01, 2026-10-06) ------------------------
+def _triangle(z, size=10.0, shift=(0.0, 0.0)):
+    v = np.array([[0, 0, z], [size, 0, z], [0, size, z]], float)
+    v[:, 0] += shift[0]
+    v[:, 1] += shift[1]
+    return v, np.array([[0, 1, 2]])
+
+
+def test_exact_separation_of_parallel_triangles_is_the_gap():
+    va, fa_ = _triangle(0.0)
+    vb, fb = _triangle(2.0, shift=(1.0, 1.0))
+    out = fa.exact_mesh_separation(va, fa_, vb, fb)
+    assert math.isclose(out["distance_mm"], 2.0, abs_tol=1e-9) and not out["intersecting"]
+
+
+def test_exact_separation_finds_edge_edge_contact_that_vertex_sampling_misses():
+    # Two long thin triangles crossing like an X, 0.3 mm apart at the middle of both edges.
+    va = np.array([[-10, 0, 0], [10, 0, 0], [0, -0.01, -5]], float)
+    vb = np.array([[0, -10, 0.3], [0, 10, 0.3], [0.01, 0, 5]], float)
+    faces = np.array([[0, 1, 2]])
+    out = fa.exact_mesh_separation(va, faces, vb, faces)
+    assert math.isclose(out["distance_mm"], 0.3, abs_tol=1e-6)
+    sampled = min(np.linalg.norm(p - q) for p in va for q in vb)
+    assert sampled > 5.0  # vertex-to-vertex sampling sees > 5 mm where the true gap is 0.3 mm
+
+
+def test_exact_separation_reports_intersection_and_out_of_range():
+    va, fa_ = _triangle(0.0)
+    vb = np.array([[2, 2, -1], [2, 2, 1], [3, 3, 1]], float)
+    out = fa.exact_mesh_separation(va, fa_, vb, np.array([[0, 1, 2]]))
+    assert out["intersecting"] and out["distance_mm"] == 0.0
+    far_v, far_f = _triangle(10.0)
+    far = fa.exact_mesh_separation(va, fa_, far_v, far_f, search_mm=3.0)
+    assert far["distance_mm"] is None and far["search_mm"] == 3.0
+
+
+def test_stl_mesh_reader_returns_triangles(tmp_path):
+    import struct
+
+    data = bytearray(80) + struct.pack("<I", 2)
+    for tri in (((0, 0, 0), (1, 0, 0), (0, 1, 0)), ((1, 0, 0), (1, 1, 0), (0, 1, 0))):
+        data += struct.pack("<3f", 0, 0, 1) + b"".join(struct.pack("<3f", *v) for v in tri) + b"\0\0"
+    path = tmp_path / "m.stl"
+    path.write_bytes(bytes(data))
+    vertices, triangles = fa.read_binary_stl_mesh(path)
+    assert vertices.shape == (4, 3) and triangles.shape == (2, 3)
+    assert np.allclose(vertices[triangles[1]], [[1, 0, 0], [1, 1, 0], [0, 1, 0]])
+    assert np.array_equal(fa.read_binary_stl(path), vertices)
+
+
+def test_moveit_pairs_are_parsed_exactly_not_by_substring():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "DENTOWorkflow" / "Resources" / "Python"))
+    template = "[Step 5C] DENTO Final Printable Template"
+    reason = (f"MoveIt rejected the explicit static joint state; contacts={template}<->burr, "
+              "dentobot_mouth_barrier_lip_slab<->pneumatic_spindle-Copy (and 2 more)")
+    pairs = fa.moveit_pairs(reason)
+    assert pairs == [sorted([template, "burr"]), ["dentobot_mouth_barrier_lip_slab", "pneumatic_spindle-Copy"]]
+    # Substring presence would report spindle<->template; the exact pairs do not.
+    assert "Template" in reason and "pneumatic_spindle" in reason
+    assert not any(any("Template" in b for b in p) and any(b.startswith("pneumatic_spindle") for b in p) for p in pairs)
+    wrapped = f"Approach corridor unavailable (axial corridor blocked 0.73 mm: x; contacts={template}<->pneumatic_spindle-Copy); direct"
+    assert fa.moveit_pairs(wrapped) == [sorted([template, "pneumatic_spindle-Copy"])]
+
+
+def test_model_world_polydata_applies_the_parent_jaw_transform():
+    # S6-AUDIT-D-01 root cause: a lower-jaw template sits under the mouth-opening
+    # transform; check D used its raw (closed-jaw) polydata.
+    vtk = pytest.importorskip("vtk")
+
+    source = vtk.vtkSphereSource()
+    source.Update()
+
+    class Parent:
+        def GetTransformToWorld(self, transform):
+            shift = vtk.vtkTransform()
+            shift.Translate(0.0, 0.0, 24.0)
+            transform.Concatenate(shift)
+
+    class Model:
+        def __init__(self, parent):
+            self.parent = parent
+
+        def GetPolyData(self):
+            return source.GetOutput()
+
+        def GetParentTransformNode(self):
+            return self.parent
+
+    raw = np.array(fa.model_world_polydata(Model(None)).GetCenter())
+    opened = np.array(fa.model_world_polydata(Model(Parent())).GetCenter())
+    assert np.allclose(opened - raw, [0.0, 0.0, 24.0])
+    assert np.allclose(np.array(source.GetOutput().GetCenter()), raw)  # source untouched

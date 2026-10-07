@@ -29,6 +29,9 @@ class PatientShellLogicMixin:
     def canonicalInsertionGeometryJson(cls, geometry) -> str:
         """Normalize current and legacy insertion snapshots for identity checks only."""
 
+        if isinstance(geometry, Mapping) and isinstance(geometry.get("geometryJson"), str):
+            # A direction summary: compare its owning-jaw identity, not its world points.
+            geometry = geometry["geometryJson"]
         if isinstance(geometry, str):
             try:
                 geometry = json.loads(geometry)
@@ -268,14 +271,21 @@ class PatientShellLogicMixin:
             "approachRas": points[0],
             "seatRas": points[1],
         }
+        parameterNode = self.getParameterNode()
+        jawFrameGeometry = {
+            "approachRas": self.owningJawFrameControlPoint(parameterNode, lineNode, 0),
+            "seatRas": self.owningJawFrameControlPoint(parameterNode, lineNode, 1),
+        }
         return {
             **geometry,
             "lengthMm": length,
             "insertionDirectionRas": tuple(float(value) for value in insertion),
             "removalDirectionRas": tuple(float(value) for value in removal),
-            # Construction uses the full-precision points above. This field is
-            # provenance identity only and is intentionally reload-stable.
-            "geometryJson": self.canonicalInsertionGeometryJson(geometry),
+            # Construction uses the full-precision world points above. This field is
+            # provenance identity only: reload-stable and recorded in the owning-jaw
+            # frame so a mouth-opening change does not alter it (S6-MULTI-JAW-STALE-01).
+            "geometryJson": self.canonicalInsertionGeometryJson(jawFrameGeometry),
+            "legacyWorldGeometryJson": self.canonicalInsertionGeometryJson(geometry),
             "rawGeometryJson": json.dumps(geometry, sort_keys=True, separators=(",", ":")),
             "sourceSurface": lineNode.GetNodeReference(
                 self.TEMPLATE_INSERTION_DIRECTION_SOURCE_SURFACE_REFERENCE_ROLE

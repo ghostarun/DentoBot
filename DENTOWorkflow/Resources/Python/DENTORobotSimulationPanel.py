@@ -22,8 +22,13 @@ class DENTORobotSimulationPanel:
     # routine Step 6 owner and cannot be invoked from this panel.
     ACTION_OWNER_SUBSTEP = {
         "connect": 1,
-        "disconnect": 1,
+        # Disconnecting is always the safe direction; a stale or desynchronised
+        # substep after a dentocase reopen must not turn it into a silent no-op
+        # (S6-MULTI-JAW-STALE-01).
+        "disconnect": (0, 1, 2, 3, 4),
         "load_fallback": 1,
+        "save_branch_config": (1, 3),
+        "restore_branch_config": 1,
         "refresh": 1,
         "sync_collision": 1,
         "check_state": 1,
@@ -225,9 +230,38 @@ class DENTORobotSimulationPanel:
         placement_actions.addWidget(self.placementReviewButton, 1, 0)
         placement_actions.addWidget(self.displayButton, 1, 1)
         placement_actions.addWidget(self.setupToolsButton, 2, 0, 1, 2)
+        # S6-MULTI-JAW-STALE-01: each PreparedBranch keeps its own Step 6 working
+        # configuration (opening, Base, Task Home, planning policy) in the dentocase.
+        self.saveBranchConfigButton = qt.QPushButton(
+            "Save Branch Step 6 Config", self.step61PlacementPage
+        )
+        self.saveBranchConfigButton.objectName = "DENTOBOTStep6SaveBranchConfigButton"
+        self.saveBranchConfigButton.toolTip = (
+            "Store this PreparedBranch's current mouth opening, robot Base, Task Home and "
+            "planning policy with the branch (saved in the dentocase). Simulation only."
+        )
+        self.restoreBranchConfigButton = qt.QPushButton(
+            "Restore Branch Step 6 Config", self.step61PlacementPage
+        )
+        self.restoreBranchConfigButton.objectName = "DENTOBOTStep6RestoreBranchConfigButton"
+        self.restoreBranchConfigButton.toolTip = (
+            "Re-apply this PreparedBranch's saved opening, Base and planning policy. The "
+            "saved Task Home is only staged as the 6.2 jog draft; nothing moves until you "
+            "review and accept it."
+        )
+        placement_actions.addWidget(self.saveBranchConfigButton, 3, 0)
+        placement_actions.addWidget(self.restoreBranchConfigButton, 3, 1)
         placement_actions.setColumnStretch(0, 1)
         placement_actions.setColumnStretch(1, 1)
         self.step61PlacementLayout.addLayout(placement_actions)
+
+        self.branchConfigStatusLabel = qt.QLabel(
+            "No saved Step 6 configuration for this branch.", self.step61PlacementPage
+        )
+        self.branchConfigStatusLabel.objectName = "DENTOBOTStep6BranchConfigStatusLabel"
+        self.branchConfigStatusLabel.wordWrap = True
+        self.branchConfigStatusLabel.setProperty("dentobotRole", "status")
+        self.step61PlacementLayout.addWidget(self.branchConfigStatusLabel)
 
         self.visualizationStatusLabel = qt.QLabel(
             "No CBCT renderer or provisional proxy is created automatically.",
@@ -1772,6 +1806,12 @@ class DENTORobotSimulationPanel:
         )
         self.disconnectButton.clicked.connect(
             lambda checked=False: self._invoke("disconnect")
+        )
+        self.saveBranchConfigButton.clicked.connect(
+            lambda checked=False: self._invoke("save_branch_config")
+        )
+        self.restoreBranchConfigButton.clicked.connect(
+            lambda checked=False: self._invoke("restore_branch_config")
         )
         self.loadFallbackButton.clicked.connect(
             lambda checked=False: self._invoke("load_fallback")
@@ -4243,6 +4283,16 @@ class DENTORobotSimulationPanel:
             "planning_attempts": self._planningAttempts,
             "planning_time_sec": self._planningTimeSec,
         }
+
+    def setPlanningPolicy(self, planner_id: str, planning_attempts: int, planning_time_sec: float) -> None:
+        """Apply a PreparedBranch's saved policy for this session (operator defaults untouched)."""
+        self._plannerId = str(planner_id or self._plannerId)
+        self._planningAttempts = max(1, min(10, int(planning_attempts)))
+        self._planningTimeSec = max(0.5, min(60.0, float(planning_time_sec)))
+
+    def showBranchConfigStatus(self, text: str, state: str = "status") -> None:
+        self.branchConfigStatusLabel.text = str(text)
+        self.branchConfigStatusLabel.setProperty("dentobotRole", state)
 
     def showPlanningPolicyDialog(self) -> None:
         if self._activeSubstep != 3:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from .runtime import *
+from . import jaw_frame
 
 
 def _canonical_case_foundation_landmark_positions(
@@ -596,6 +597,7 @@ class CaseFoundationLogicMixin:
             "source_volume_fingerprint": snapshot.source_volume_fingerprint,
             "source_segmentation_fingerprint": snapshot.source_segmentation_fingerprint,
             "planning_pose_fingerprint": snapshot.planning_pose_fingerprint,
+            "branch_foundation_fingerprint": self.caseFoundationBranchFingerprint(parameterNode, snapshot),
             "base_setup_fingerprint": snapshot.base_setup_fingerprint,
             "foundation_fingerprint": snapshot.foundation_fingerprint,
         }
@@ -786,9 +788,19 @@ class CaseFoundationLogicMixin:
             "articulatorProvenance": result.provenance,
         }
 
-    def _invalidateCaseFoundationPoseDependents(self, parameterNode, reason: str) -> None:
+    def _invalidateCaseFoundationPoseDependents(
+        self, parameterNode, reason: str, *, openingOnly: bool = False
+    ) -> None:
+        """Invalidate everything bound to the Case Foundation pose.
+
+        ``openingOnly``: only the mouth opening changed. PreparedBranches move
+        rigidly with their jaw and every Step 4C/5C check is same-jaw, so Step 5C
+        verification is kept; Step 6 task/Base/workspace state is still
+        invalidated because it depends on the opened pose (S6-MULTI-JAW-STALE-01).
+        """
+
         for model in slicer.util.getNodesByClass("vtkMRMLModelNode"):
-            if self.isFinalPrintableTemplateModelNode(model):
+            if not openingOnly and self.isFinalPrintableTemplateModelNode(model):
                 model.SetAttribute("DENTOBOT.VerificationState", "NotVerified")
                 model.SetAttribute("DENTOBOT.VerificationJson", None)
                 model.SetAttribute("DENTOBOT.Step5CStaleReason", str(reason))
@@ -915,6 +927,7 @@ class CaseFoundationLogicMixin:
         self._invalidateCaseFoundationPoseDependents(
             parameterNode,
             _("Case Foundation opening changed."),
+            openingOnly=True,
         )
         return {
             **self.evaluateCaseFoundationEligibility(parameterNode),
@@ -949,6 +962,65 @@ class CaseFoundationLogicMixin:
         if targetSegmentId in groups["upper"]:
             return "FixedUpper"
         return ""
+
+    # ---- owning-jaw provenance frame (S6-MULTI-JAW-STALE-01) -------------------
+    def nodeJawOwner(self, parameterNode, node) -> str:
+        owner = str(node.GetAttribute("DENTOBOT.JawOwner") or "")
+        if owner in {"MovingLower", "FixedUpper"}:
+            return owner
+        return self._targetJawOwner(
+            parameterNode,
+            str(
+                node.GetAttribute("DENTOBOT.TargetSegmentID")
+                or node.GetAttribute("DENTOBOT.TargetSegmentId")  # Step 4C dock nodes
+                or node.GetAttribute(self.LINEAGE_TARGET_SEGMENT_ATTRIBUTE)
+                or ""
+            ),
+        )
+
+    def owningJawWorldMatrix(self, parameterNode, node):
+        """Current world matrix of the jaw owning ``node``; None for the fixed upper jaw."""
+
+        if self.nodeJawOwner(parameterNode, node) != "MovingLower":
+            return None
+        transform = parameterNode.step6CaseJawTransform
+        if transform is None:
+            raise ValueError(_("A mandibular node requires the Case Foundation jaw transform."))
+        matrix = vtk.vtkMatrix4x4()
+        transform.GetMatrixTransformToWorld(matrix)
+        return [[matrix.GetElement(row, column) for column in range(4)] for row in range(4)]
+
+    def owningJawFrameControlPoint(self, parameterNode, node, index: int) -> list[float]:
+        """A control point in its owning-jaw frame (closed-mouth pose for the lower jaw).
+
+        Nodes parented to the jaw transform return their local coordinates exactly,
+        so the value never depends on the current mouth opening.
+        """
+
+        point = [0.0, 0.0, 0.0]
+        if self.nodeJawOwner(parameterNode, node) != "MovingLower":
+            node.GetNthControlPointPositionWorld(index, point)
+            return [float(value) for value in point]
+        transform = parameterNode.step6CaseJawTransform
+        if transform is not None and node.GetParentTransformNode() is transform:
+            node.GetNthControlPointPosition(index, point)
+            return [float(value) for value in point]
+        node.GetNthControlPointPositionWorld(index, point)
+        return jaw_frame.to_owning_jaw_frame(
+            {"originRas": point}, self.owningJawWorldMatrix(parameterNode, node)
+        )["originRas"]
+
+    def caseFoundationBranchFingerprint(self, parameterNode, snapshot=None) -> str:
+        """Case Foundation identity a PreparedBranch binds to; the mouth opening is excluded."""
+
+        snapshot = snapshot or self.buildCaseFoundationSnapshot(parameterNode)
+        try:
+            preparation = json.loads(
+                str(parameterNode.step6CaseJawPreparationJson or "") or "{}"
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            preparation = {}
+        return jaw_frame.branch_foundation_fingerprint(snapshot.to_dict(), preparation)
 
     def caseFoundationPlanningSurfaceCopy(
         self,
@@ -1027,6 +1099,10 @@ class CaseFoundationLogicMixin:
         node.SetAttribute(
             "DENTOBOT.PlanningPoseFingerprint",
             foundation["planning_pose_fingerprint"],
+        )
+        node.SetAttribute(
+            jaw_frame.BRANCH_FOUNDATION_ATTRIBUTE,
+            foundation["branch_foundation_fingerprint"],
         )
         return jawOwner
 

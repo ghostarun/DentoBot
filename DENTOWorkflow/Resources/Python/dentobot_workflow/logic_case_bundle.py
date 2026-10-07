@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from .runtime import *
+from . import jaw_frame
+from . import step6_working_config
 from .logic_case_validation import CaseValidationLogicMixin
+from DENTOStep6State import REGISTRY_PROVENANCE_FRAME_KEY
 
 
 class CaseBundleLogicMixin(CaseValidationLogicMixin):
@@ -28,24 +31,275 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
 
         return [round(float(value), 9) for value in point]
 
-    def _trajectoryRegistryGeometryFingerprint(self, trajectoryNode) -> str:
+    def _trajectoryRegistryGeometryFingerprint(self, trajectoryNode, *, legacyWorld: bool = False) -> str:
+        """Trajectory identity in its owning-jaw frame (opening-invariant).
+
+        ``legacyWorld`` reproduces the pre-2026-10-07 world-RAS identity so a saved
+        registry is recognised as unchanged on first load (no transient staleness).
+        """
+
+        parameterNode = self.getParameterNode()
         points = []
         for index in range(trajectoryNode.GetNumberOfDefinedControlPoints()):
-            point = [0.0, 0.0, 0.0]
-            trajectoryNode.GetNthControlPointPositionWorld(index, point)
+            if legacyWorld:
+                point = [0.0, 0.0, 0.0]
+                trajectoryNode.GetNthControlPointPositionWorld(index, point)
+            else:
+                point = self.owningJawFrameControlPoint(parameterNode, trajectoryNode, index)
             points.append(self._registryWorldPoint(point))
         return fingerprint(
             {
                 "targetSegmentId": str(
                     trajectoryNode.GetAttribute("DENTOBOT.TargetSegmentID") or ""
                 ),
-                "pointsWorldRasMm": points,
+                ("pointsWorldRasMm" if legacyWorld else "pointsOwningJawRasMm"): points,
                 "creationMethod": str(
                     trajectoryNode.GetAttribute("DENTOBOT.TrajectoryCreationMethod")
                     or "manual"
                 ),
             }
         )
+
+    def _migrateBranchProvenanceToOwningJawFrame(
+        self,
+        parameterNode,
+        finalModel,
+        trajectories: list,
+        nodes: list,
+        insertionDirection,
+    ) -> list[str]:
+        """Re-stamp legacy world-RAS provenance in the owning-jaw frame (S6-MULTI-JAW-STALE-01).
+
+        A legacy record is converted only when it equals the CURRENT geometry under
+        the legacy world-RAS rule, which proves it was recorded at the current
+        mouth opening. Anything else is left untouched and stays stale, as before.
+        """
+
+        def dumps(value) -> str:
+            return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+        migrated: list[str] = []
+        try:
+            jawJson = dumps(self.canonicalTrajectoryGeometry(trajectories))
+            legacyJson = dumps(self.legacyWorldTrajectoryGeometry(trajectories))
+        except (RuntimeError, ValueError, TypeError, KeyError):
+            return migrated
+        unique = []
+        for node in nodes:
+            if node is not None and node not in unique:
+                unique.append(node)
+        for node in list(unique):
+            if self.isTargetDockingAssemblyModelNode(node):
+                plane = node.GetNodeReference(self.TARGET_DOCKING_REFERENCE_PLANE_REFERENCE_ROLE)
+                if plane is not None and plane not in unique:
+                    unique.append(plane)
+        for node in unique:
+            stored = node.GetAttribute("DENTOBOT.TrajectoryGeometryJson")
+            if stored and jawJson != legacyJson and stored == legacyJson:
+                node.SetAttribute("DENTOBOT.TrajectoryGeometryJson", jawJson)
+                migrated.append(f"{node.GetID()}:TrajectoryGeometryJson")
+        for node in unique:
+            frameJson = node.GetAttribute("DENTOBOT.FrameJson")
+            if (
+                frameJson
+                and node.GetAttribute(jaw_frame.PROVENANCE_FRAME_ATTRIBUTE)
+                != jaw_frame.OWNING_JAW_FRAME
+                and node.GetAttribute("DENTOBOT.TrajectoryGeometryJson") == jawJson
+            ):
+                # Its trajectory record matches now, so the frame was captured at this pose.
+                node.SetAttribute(
+                    "DENTOBOT.FrameJson",
+                    dumps(
+                        jaw_frame.to_owning_jaw_frame(
+                            json.loads(frameJson),
+                            self.owningJawWorldMatrix(parameterNode, node),
+                        )
+                    ),
+                )
+                node.SetAttribute(
+                    jaw_frame.PROVENANCE_FRAME_ATTRIBUTE, jaw_frame.OWNING_JAW_FRAME
+                )
+                migrated.append(f"{node.GetID()}:FrameJson")
+        if insertionDirection is not None:
+            try:
+                insertion = self.getTemplateInsertionDirectionSummary(insertionDirection)
+            except (RuntimeError, ValueError, json.JSONDecodeError):
+                insertion = None
+            if insertion and insertion["geometryJson"] != insertion["legacyWorldGeometryJson"]:
+                for node in slicer.util.getNodesByClass("vtkMRMLModelNode"):
+                    stored = node.GetAttribute("DENTOBOT.InsertionGeometryJson")
+                    if not stored:
+                        continue
+                    try:
+                        canonical = self.canonicalInsertionGeometryJson(stored)
+                    except ValueError:
+                        continue
+                    if canonical == insertion["legacyWorldGeometryJson"]:
+                        node.SetAttribute("DENTOBOT.InsertionGeometryJson", insertion["geometryJson"])
+                        migrated.append(f"{node.GetID()}:InsertionGeometryJson")
+        if not finalModel.GetAttribute(jaw_frame.BRANCH_FOUNDATION_ATTRIBUTE):
+            foundation = self.evaluateCaseFoundationEligibility(parameterNode)
+            if (
+                foundation["pose"]["eligible"]
+                and str(finalModel.GetAttribute("DENTOBOT.PlanningPoseFingerprint") or "")
+                == foundation["planning_pose_fingerprint"]
+            ):
+                finalModel.SetAttribute(
+                    jaw_frame.BRANCH_FOUNDATION_ATTRIBUTE,
+                    foundation["branch_foundation_fingerprint"],
+                )
+                migrated.append(f"{finalModel.GetID()}:BranchFoundationFingerprint")
+        if migrated:
+            logging.info("DENTOBOT owning-jaw provenance migration: %s", ", ".join(migrated))
+        return migrated
+
+    @staticmethod
+    def _upgradeLegacyStep5CVerification(
+        finalModel,
+        *,
+        legacyRevision: str,
+        branchRevision: str,
+        planningPoseFingerprint: str,
+        branchFoundationFingerprint: str,
+    ) -> bool:
+        """Carry a Step 5C verification over to the opening-independent binding.
+
+        Only a verification that matched this branch under the legacy rules (same
+        legacy revision and planning pose) is upgraded; nothing is re-verified or
+        relaxed. The legacy identity is kept in ``provenanceUpgrade``.
+        """
+
+        try:
+            verification = json.loads(finalModel.GetAttribute("DENTOBOT.VerificationJson") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+        if (
+            not isinstance(verification, dict)
+            or not verification
+            or "branchFoundationFingerprint" in verification
+            or not branchFoundationFingerprint
+            or not planningPoseFingerprint
+            or verification.get("preparedBranchRevision") != legacyRevision
+            or verification.get("planningPoseFingerprint") != planningPoseFingerprint
+        ):
+            return False
+        upgraded = dict(
+            verification,
+            preparedBranchRevision=branchRevision,
+            branchFoundationFingerprint=branchFoundationFingerprint,
+            provenanceUpgrade={
+                "from": "WorldRASmm provenance + planning-pose binding",
+                "to": jaw_frame.OWNING_JAW_FRAME + " provenance + Case Foundation binding",
+                "legacyPreparedBranchRevision": legacyRevision,
+                "upgradedUtc": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        finalModel.SetAttribute(
+            "DENTOBOT.VerificationJson",
+            json.dumps(upgraded, sort_keys=True, separators=(",", ":")),
+        )
+        return True
+
+    # ---- per-branch Step 6 working configuration (S6-MULTI-JAW-STALE-01) ------
+    def preparedBranchFinalTemplate(self, parameterNode, branchId: str = ""):
+        """(branch id, registry branch, final-template node) of ``branchId`` or the selected branch."""
+
+        registry = parse_trajectory_registry(str(parameterNode.step6TrajectoryRegistryJson or ""))
+        branchId = str(branchId or registry.get("selected_branch_id") or "")
+        branch = registry["prepared_branches"].get(branchId)
+        node = (
+            slicer.mrmlScene.GetNodeByID(str(branch.get("template_node_id") or ""))
+            if branch else None
+        )
+        return branchId, branch, node
+
+    def step6WorkingConfiguration(self, parameterNode, branchId: str = "") -> dict | None:
+        _branchId, _branch, node = self.preparedBranchFinalTemplate(parameterNode, branchId)
+        if node is None:
+            return None
+        return step6_working_config.loads(node.GetAttribute(step6_working_config.ATTRIBUTE))
+
+    def captureStep6WorkingConfiguration(
+        self, parameterNode, *, plannerPolicy: dict, corridorMarginSamples: int
+    ) -> dict:
+        """The live Step 6 configuration of the active branch (not stored)."""
+
+        matrix = vtk.vtkMatrix4x4()
+        parameterNode.robotBaseTransform.GetMatrixTransformToWorld(matrix)
+        home = self.taskHomeRecord(parameterNode)
+        return step6_working_config.normalize(
+            {
+                "mouth_opening_mm": float(parameterNode.step6CaseJawTargetGapMm),
+                "base_world_mm": [
+                    [matrix.GetElement(row, column) for column in range(4)] for row in range(4)
+                ],
+                "task_home_si": (
+                    dict(zip(home.joint_names, home.joint_positions_si)) if home else None
+                ),
+                "planner_id": str(plannerPolicy.get("planner_id") or ""),
+                "planning_attempts": int(plannerPolicy.get("planning_attempts", 5)),
+                "planning_time_sec": float(plannerPolicy.get("planning_time_sec", 5.0)),
+                "corridor_margin_samples": int(corridorMarginSamples),
+                "allow_spindle_guide_contact": bool(
+                    getattr(parameterNode, "step6AllowSpindleGuideContact", False)
+                ),
+            }
+        )
+
+    def storeStep6WorkingConfiguration(self, parameterNode, record: dict) -> dict:
+        """Store ``record`` on the active, VALID PreparedBranch's final template."""
+
+        eligibility = self.evaluatePreparedBranchEligibility(parameterNode)
+        if eligibility["reason"] != "VALID":
+            raise ValueError(eligibility["message"])
+        branchId, branch, node = self.preparedBranchFinalTemplate(
+            parameterNode, eligibility["branch_id"]
+        )
+        if node is None:
+            raise ValueError(_("The active PreparedBranch has no final template."))
+        stored = step6_working_config.normalize(
+            {
+                **record,
+                "branch_id": branchId,
+                "branch_foundation_fingerprint": branch.get("branch_foundation_fingerprint", ""),
+                "recorded_utc": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        node.SetAttribute(step6_working_config.ATTRIBUTE, step6_working_config.dumps(stored))
+        return stored
+
+    def importResearchStep6WorkingConfigurations(self, parameterNode) -> list[str]:
+        """Adopt pre-2026-10-07 research-store entries for branches that have none."""
+
+        store = next(
+            (
+                node
+                for node in slicer.util.getNodesByClass("vtkMRMLScriptedModuleNode")
+                if node.GetName() == step6_working_config.RESEARCH_NODE_NAME
+            ),
+            None,
+        )
+        if store is None:
+            return []
+        imported = []
+        prefix = step6_working_config.RESEARCH_ATTRIBUTE_PREFIX
+        for name in store.GetAttributeNames() or ():
+            if not name.startswith(prefix):
+                continue
+            branchId = name[len(prefix):]
+            _branchId, branch, node = self.preparedBranchFinalTemplate(parameterNode, branchId)
+            if node is None or node.GetAttribute(step6_working_config.ATTRIBUTE):
+                continue
+            try:
+                record = step6_working_config.from_research_entry(
+                    {**json.loads(store.GetAttribute(name)), "branch_id": branchId},
+                    branch.get("branch_foundation_fingerprint", ""),
+                )
+            except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+                continue
+            node.SetAttribute(step6_working_config.ATTRIBUTE, step6_working_config.dumps(record))
+            imported.append(branchId)
+        return imported
 
     def ensureDentoCaseTrajectoryIdentity(
         self,
@@ -120,8 +374,17 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
             if node.GetNthNodeReference(role, index)
         ]
 
-    def syncDentoCaseTrajectoryRegistry(self, parameterNode) -> dict[str, object]:
-        """Reconcile portable identities with MRML, which remains geometry authority."""
+    def syncDentoCaseTrajectoryRegistry(
+        self, parameterNode, *, legacyProvenance: bool = False
+    ) -> dict[str, object]:
+        """Reconcile portable identities with MRML, which remains geometry authority.
+
+        ``legacyProvenance`` rebuilds with the pre-2026-10-07 world-RAS semantics
+        and planning-pose binding; it exists only to validate a saved legacy
+        registry on load. Normal syncs record owning-jaw provenance, bind branches
+        to the opening-independent Case Foundation identity and migrate legacy
+        records that provably match the current geometry (S6-MULTI-JAW-STALE-01).
+        """
 
         try:
             previous = parse_trajectory_registry(
@@ -136,6 +399,8 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
             if slot.get("trajectory_id")
         }
         registry = empty_trajectory_registry()
+        if legacyProvenance:
+            registry.pop(REGISTRY_PROVENANCE_FRAME_KEY, None)
         trajectories = [
             node
             for node in slicer.util.getNodesByClass("vtkMRMLMarkupsLineNode")
@@ -173,7 +438,7 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
                     association["targetRecord"],
                 )
                 geometryFingerprint = self._trajectoryRegistryGeometryFingerprint(
-                    trajectoryNode
+                    trajectoryNode, legacyWorld=legacyProvenance
                 )
                 trajectoryNode.SetAttribute(
                     self.REGISTRY_TRAJECTORY_FINGERPRINT_ATTRIBUTE,
@@ -196,7 +461,17 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
                     slot=slot,
                 )
                 prior = priorSlots.get(trajectoryId)
-                if prior and prior.get("trajectory_fingerprint") != geometryFingerprint:
+                if (
+                    prior
+                    and prior.get("trajectory_fingerprint") != geometryFingerprint
+                    and (
+                        legacyProvenance
+                        or prior.get("trajectory_fingerprint")
+                        != self._trajectoryRegistryGeometryFingerprint(
+                            trajectoryNode, legacyWorld=True
+                        )
+                    )
+                ):
                     registry = stale_trajectory_record(
                         registry,
                         trajectoryId,
@@ -330,10 +605,21 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
                 finalModel.GetAttribute("DENTOBOT.PairingIntent")
                 or ("Single" if len(trajectoryIds) == 1 else "LegacyUnverified")
             )
+            if not legacyProvenance:
+                self._migrateBranchProvenanceToOwningJawFrame(
+                    parameterNode,
+                    finalModel,
+                    sourceTrajectories,
+                    [*ownedNodes, *sourceTrajectories],
+                    insertionDirection,
+                )
             planningPoseFingerprint = str(
                 finalModel.GetAttribute("DENTOBOT.PlanningPoseFingerprint") or ""
             )
-            insertionGeometry = ""
+            branchFoundationFingerprint = str(
+                finalModel.GetAttribute(jaw_frame.BRANCH_FOUNDATION_ATTRIBUTE) or ""
+            )
+            insertionGeometry = legacyInsertionGeometry = ""
             if insertionDirection:
                 try:
                     insertionSummary = self.getTemplateInsertionDirectionSummary(
@@ -342,34 +628,66 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
                     insertionGeometry = self.canonicalInsertionGeometryJson(
                         insertionSummary
                     )
+                    legacyInsertionGeometry = insertionSummary["legacyWorldGeometryJson"]
                 except (RuntimeError, ValueError, json.JSONDecodeError):
                     pass
-            branchRevision = fingerprint(
+            relatedRecords = [
+                {
+                    "id": node.GetID(),
+                    "role": node.GetAttribute("DENTOBOT.ModelRole") or "",
+                    "state": node.GetAttribute("DENTOBOT.GeometryState") or "",
+                    "orientation": node.GetAttribute("DENTOBOT.OrientationState") or "",
+                    "updated": node.GetAttribute("DENTOBOT.UpdatedUtc") or "",
+                }
+                for node in related
+            ]
+
+            def revisionOf(trajectoryFingerprints, insertion, poseKey, poseValue) -> str:
+                return fingerprint(
+                    relatedRecords
+                    + [
+                        {
+                            "trajectoryIds": trajectoryIds,
+                            "trajectoryFingerprints": trajectoryFingerprints,
+                            "primaryTrajectoryId": primaryTrajectoryId,
+                            "pairingIntent": pairingIntent,
+                            "insertionGeometry": insertion,
+                            poseKey: poseValue,
+                        }
+                    ]
+                )
+
+            legacyRevision = revisionOf(
                 [
-                    {
-                        "id": node.GetID(),
-                        "role": node.GetAttribute("DENTOBOT.ModelRole") or "",
-                        "state": node.GetAttribute("DENTOBOT.GeometryState") or "",
-                        "orientation": node.GetAttribute("DENTOBOT.OrientationState") or "",
-                        "updated": node.GetAttribute("DENTOBOT.UpdatedUtc") or "",
-                    }
-                    for node in related
-                ]
-                + [
-                    {
-                        "trajectoryIds": trajectoryIds,
-                        "trajectoryFingerprints": [
-                            node.GetAttribute(self.REGISTRY_TRAJECTORY_FINGERPRINT_ATTRIBUTE)
-                            or ""
-                            for node in sourceTrajectories
-                        ],
-                        "primaryTrajectoryId": primaryTrajectoryId,
-                        "pairingIntent": pairingIntent,
-                        "insertionGeometry": insertionGeometry,
-                        "planningPoseFingerprint": planningPoseFingerprint,
-                    }
-                ]
+                    self._trajectoryRegistryGeometryFingerprint(node, legacyWorld=True)
+                    for node in sourceTrajectories
+                ],
+                legacyInsertionGeometry,
+                "planningPoseFingerprint",
+                planningPoseFingerprint,
             )
+            branchRevision = (
+                legacyRevision
+                if legacyProvenance
+                else revisionOf(
+                    [
+                        node.GetAttribute(self.REGISTRY_TRAJECTORY_FINGERPRINT_ATTRIBUTE)
+                        or ""
+                        for node in sourceTrajectories
+                    ],
+                    insertionGeometry,
+                    "branchFoundationFingerprint",
+                    branchFoundationFingerprint,
+                )
+            )
+            if not legacyProvenance:
+                self._upgradeLegacyStep5CVerification(
+                    finalModel,
+                    legacyRevision=legacyRevision,
+                    branchRevision=branchRevision,
+                    planningPoseFingerprint=planningPoseFingerprint,
+                    branchFoundationFingerprint=branchFoundationFingerprint,
+                )
             finalModel.SetAttribute(self.REGISTRY_BRANCH_REVISION_ATTRIBUTE, branchRevision)
             trajectoryStates = {
                 slot.get("trajectory_id"): slot.get("state")
@@ -379,6 +697,7 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
             guideState = finalModel.GetAttribute("DENTOBOT.GeometryState") or "Stale"
             if (
                 not planningPoseFingerprint
+                or (not legacyProvenance and not branchFoundationFingerprint)
                 or any(trajectoryStates.get(value) == "Stale" for value in trajectoryIds)
             ):
                 guideState = "Stale"
@@ -413,6 +732,9 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
                 ),
                 verification_revision=verificationRevision,
                 planning_pose_fingerprint=planningPoseFingerprint,
+                branch_foundation_fingerprint=(
+                    None if legacyProvenance else branchFoundationFingerprint
+                ),
                 state=guideState,
             )
         selectedBranchId = str(previous.get("selected_branch_id") or "")
@@ -455,10 +777,17 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
         foundation = self.evaluateCaseFoundationEligibility(parameterNode)
         if not foundation["pose"]["eligible"]:
             return result("FOUNDATION_MISMATCH", foundation["pose"]["message"], branch)
-        if branch.get("planning_pose_fingerprint") != foundation["planning_pose_fingerprint"]:
+        # Bound to the opening-independent Case Foundation identity: a Step 6
+        # mouth-opening change moves a branch rigidly with its jaw and never
+        # invalidates it (S6-MULTI-JAW-STALE-01).
+        if (
+            not branch.get("branch_foundation_fingerprint")
+            or branch.get("branch_foundation_fingerprint")
+            != foundation["branch_foundation_fingerprint"]
+        ):
             return result(
                 "FOUNDATION_MISMATCH",
-                _("PreparedBranch belongs to another Case Foundation pose."),
+                _("PreparedBranch belongs to another Case Foundation."),
                 branch,
             )
         trajectoryIds = list(branch.get("trajectory_ids", []))
@@ -535,8 +864,8 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
             or verification.get("overall") != finalSummary["verificationState"]
             or verification.get("preparedBranchId") != branchId
             or verification.get("preparedBranchRevision") != branch.get("revision")
-            or verification.get("planningPoseFingerprint")
-            != branch.get("planning_pose_fingerprint")
+            or verification.get("branchFoundationFingerprint")
+            != branch.get("branch_foundation_fingerprint")
             or not branch.get("verification_revision")
         ):
             return result("STEP5C_MISMATCH", _("Step 5C verification does not match this PreparedBranch revision."), branch)
@@ -618,13 +947,28 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
                 raise CaseBundleError(
                     _("The saved Step 6 environment or trajectory registry is invalid.")
                 ) from exc
-        rebuiltRegistry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
+        # A registry saved before 2026-10-07 carries world-RAS provenance and a
+        # planning-pose binding. It is validated against a rebuild with those same
+        # legacy semantics, then upgraded by a normal sync (S6-MULTI-JAW-STALE-01).
+        legacySavedRegistry = bool(
+            savedRegistry is not None
+            and REGISTRY_PROVENANCE_FRAME_KEY not in savedRegistry
+        )
+        rebuiltRegistry = self.syncDentoCaseTrajectoryRegistry(
+            parameterNode, legacyProvenance=legacySavedRegistry
+        )
         rebuiltEnvironment = self.buildDentoCaseRobotEnvironment(parameterNode)
         if packageSchemaVersion == DENTOCASE_STATE_SCHEMA_VERSION and savedRegistry is not None and canonical_json(savedRegistry) != canonical_json(
             rebuiltRegistry
         ):
             raise CaseBundleError(
                 _("The saved trajectory registry does not match authoritative MRML geometry.")
+            )
+        if legacySavedRegistry:
+            rebuiltRegistry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
+            parameterNode.step6SchemaMigrationPending = True
+            logging.info(
+                "Upgraded the saved trajectory registry to owning-jaw provenance."
             )
         if savedEnvironment is not None and canonical_json(
             savedEnvironment.to_dict()

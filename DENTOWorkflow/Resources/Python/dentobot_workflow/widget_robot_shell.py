@@ -32,6 +32,8 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 "connect": self._onShellConnectRobot,
                 "disconnect": self._onShellDisconnectRobot,
                 "load_fallback": self._onShellLoadFallbackRobot,
+                "save_branch_config": self.onSaveStep6WorkingConfiguration,
+                "restore_branch_config": self.onRestoreStep6WorkingConfiguration,
                 "set_tcp_drag_enabled": self._onShellSetTcpDragEnabled,
                 "nudge_tcp_goal": self._onShellNudgeTcpGoal,
                 "solve_ik": self._onShellSolveIk,

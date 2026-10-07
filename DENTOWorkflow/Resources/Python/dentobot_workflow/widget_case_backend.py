@@ -824,6 +824,11 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
         registry = self.logic.syncDentoCaseTrajectoryRegistry(
             self._parameterNode
         )
+        imported = self.logic.importResearchStep6WorkingConfigurations(self._parameterNode)
+        if imported:
+            logging.info(
+                "Adopted research Step 6 working configurations for %s", ", ".join(imported)
+            )
         foundationOnly = bool(
             foundation["pose"]["eligible"]
             and foundation["base"]["eligible"]

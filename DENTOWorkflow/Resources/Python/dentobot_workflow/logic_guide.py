@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from . import jaw_frame
 
 
 from dentobot_workflow.logic_docking import DockingLogicMixin
@@ -401,6 +402,13 @@ class GuideLogicMixin(DockingLogicMixin):
                     "DENTOBOT.PlanningPoseFingerprint",
                     foundation["planning_pose_fingerprint"],
                 )
+                modelNode.SetAttribute(
+                    jaw_frame.BRANCH_FOUNDATION_ATTRIBUTE,
+                    foundation["branch_foundation_fingerprint"],
+                )
+                modelNode.SetAttribute(
+                    jaw_frame.PROVENANCE_FRAME_ATTRIBUTE, jaw_frame.OWNING_JAW_FRAME
+                )
                 modelNode.SetNodeReferenceID(
                     self.TEMPLATE_FINAL_GUIDE_PATIENT_SHELL_REFERENCE_ROLE,
                     patientShell.GetID(),
@@ -480,6 +488,13 @@ class GuideLogicMixin(DockingLogicMixin):
             finalModel.SetAttribute(
                 "DENTOBOT.PlanningPoseFingerprint",
                 foundation["planning_pose_fingerprint"],
+            )
+            finalModel.SetAttribute(
+                jaw_frame.BRANCH_FOUNDATION_ATTRIBUTE,
+                foundation["branch_foundation_fingerprint"],
+            )
+            finalModel.SetAttribute(
+                jaw_frame.PROVENANCE_FRAME_ATTRIBUTE, jaw_frame.OWNING_JAW_FRAME
             )
             finalModel.SetNodeReferenceID(
                 self.TEMPLATE_FINAL_GUIDE_PATIENT_SHELL_REFERENCE_ROLE,
@@ -1150,6 +1165,7 @@ class GuideLogicMixin(DockingLogicMixin):
             "preparedBranchId": branch["branch_id"],
             "preparedBranchRevision": branch["revision"],
             "planningPoseFingerprint": branch["planning_pose_fingerprint"],
+            "branchFoundationFingerprint": branch.get("branch_foundation_fingerprint", ""),
             "checks": checks,
         }
         wasModifying = finalModel.StartModify()

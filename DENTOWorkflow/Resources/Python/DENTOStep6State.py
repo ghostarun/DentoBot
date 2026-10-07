@@ -26,6 +26,11 @@ LEGACY_ROBOT_ENVIRONMENT_SCHEMA_VERSION = "1.0"
 ATTEMPT_CONTEXT_SCHEMA_VERSION = "1.0"
 TRAJECTORY_REGISTRY_SCHEMA_VERSION = "3.0"
 LEGACY_TRAJECTORY_REGISTRY_SCHEMA_VERSIONS = ("1.0", "2.0")
+# Registries written since 2026-10-07 record trajectory/branch provenance in the
+# owning-jaw frame and bind branches to the opening-independent Case Foundation
+# identity (S6-MULTI-JAW-STALE-01). A registry without this key is legacy (world RAS).
+REGISTRY_PROVENANCE_FRAME_KEY = "provenance_frame"
+REGISTRY_PROVENANCE_FRAME = "OwningJawRASmm"
 TRAJECTORY_SLOTS_PER_TOOTH = 3
 DENTAL_FDI_TOOTH_IDS = tuple(
     f"FDI{quadrant}{tooth}"
@@ -914,6 +919,7 @@ def empty_trajectory_registry() -> dict[str, object]:
         },
         "prepared_branches": {},
         "selected_branch_id": "",
+        REGISTRY_PROVENANCE_FRAME_KEY: REGISTRY_PROVENANCE_FRAME,
     }
 
 
@@ -922,6 +928,7 @@ def parse_trajectory_registry(payload: str | Mapping[str, object]) -> dict[str, 
     schema = data.get("schema_version")
     if schema == "1.0":
         migrated = empty_trajectory_registry()
+        migrated.pop(REGISTRY_PROVENANCE_FRAME_KEY)  # legacy world-RAS provenance
         migrated["teeth"] = data.get("teeth", {})
         for tooth in migrated["teeth"].values():
             legacy_tooth_guide = tooth.pop("guide_set", None)
@@ -1051,6 +1058,8 @@ def parse_trajectory_registry(payload: str | Mapping[str, object]) -> dict[str, 
             raise ValueError("prepared branch has invalid state")
         if not isinstance(branch.get("planning_pose_fingerprint", ""), str):
             raise ValueError("prepared branch planning-pose identity is invalid")
+        if not isinstance(branch.get("branch_foundation_fingerprint", ""), str):
+            raise ValueError("prepared branch Case Foundation identity is invalid")
         for trajectory_id in referenced:
             owner_tooth = trajectory_owners[trajectory_id][0]
             slot = next(
@@ -1136,6 +1145,7 @@ def upsert_guide_set(
     insertion_direction_node_id: str = "",
     verification_revision: str = "",
     planning_pose_fingerprint: str = "",
+    branch_foundation_fingerprint: str | None = None,
     state: str = "Current",
 ) -> dict[str, object]:
     data = parse_trajectory_registry(registry)
@@ -1171,6 +1181,8 @@ def upsert_guide_set(
         "state": str(state),
         "stale_reason": "",
     }
+    if branch_foundation_fingerprint is not None:
+        record["branch_foundation_fingerprint"] = str(branch_foundation_fingerprint)
     for owner in data["teeth"].values():
         for slot_record in owner["trajectory_set"]["slots"]:
             slot_record["prepared_branch_ids"] = [
