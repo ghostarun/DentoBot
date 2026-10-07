@@ -458,3 +458,83 @@ def test_node_audit_rejects_changed_legacy_lineage(field, value):
         record["attributes"][field] = value
     with pytest.raises(ValueError, match="Trajectory lineage does not match"):
         audit(record, postHydration=True)
+
+
+def _restore_sync_methods():
+    path = LOGIC / "logic_case_bundle.py"
+    tree = ast.parse(path.read_text())
+    methods = [n for cls in tree.body if isinstance(cls, ast.ClassDef)
+               for n in cls.body if isinstance(n, ast.FunctionDef)
+               and n.name in {"syncDentoCaseTrajectoryRegistry", "hydrateDentoCaseStateAfterLoad"}]
+    environment = SimpleNamespace(to_dict=lambda: {})
+    namespace = {"json": json, "canonical_json": state.canonical_json,
+                 "parse_trajectory_registry": state.parse_trajectory_registry,
+                 "empty_trajectory_registry": state.empty_trajectory_registry,
+                 "REGISTRY_PROVENANCE_FRAME_KEY": state.REGISTRY_PROVENANCE_FRAME_KEY,
+                 "parse_robot_environment_snapshot": lambda payload: environment,
+                 "LEGACY_DENTOCASE_STATE_SCHEMA_VERSIONS": {"1.0", "2.0"},
+                 "DENTOCASE_STATE_SCHEMA_VERSION": "3.0", "CaseBundleError": ValueError,
+                 "logging": SimpleNamespace(info=lambda *a: None, warning=lambda *a: None),
+                 "_": lambda text: text,
+                 "slicer": SimpleNamespace(util=SimpleNamespace(getNodesByClass=lambda cls: []))}
+    module = ast.fix_missing_locations(ast.Module(body=methods, type_ignores=[]))
+    exec(compile(module, str(path), "exec"), namespace)
+    class Parameter:
+        step6EnvironmentJson = "{}"
+        def __getattr__(self, name):
+            return None
+    parameter = Parameter()
+    legacy = state.empty_trajectory_registry()
+    legacy.pop(state.REGISTRY_PROVENANCE_FRAME_KEY)
+    parameter.step6TrajectoryRegistryJson = state.canonical_json(legacy)
+    logic = SimpleNamespace(_caseBundleRestoreDepth=1,
+                            buildDentoCaseRobotEnvironment=lambda node: environment,
+                            isStep6CaseJawTransformNode=lambda node: False,
+                            isRobotBaseTransformNode=lambda node: False)
+    sync = namespace["syncDentoCaseTrajectoryRegistry"]
+    logic.syncDentoCaseTrajectoryRegistry = lambda node, **kw: sync(logic, node, **kw)
+    return namespace, parameter, legacy, logic
+
+
+def test_queued_readiness_sync_cannot_migrate_before_hydration_proof():
+    namespace, parameter, legacy, logic = _restore_sync_methods()
+    # Default GUI/readiness calls inside the barrier preserve the saved bytes.
+    assert logic.syncDentoCaseTrajectoryRegistry(parameter) == legacy
+    assert parameter.step6TrajectoryRegistryJson == state.canonical_json(legacy)
+    namespace["hydrateDentoCaseStateAfterLoad"](logic, parameter, "3.0")
+    before, after = logic._caseBundleRegistryMigrationAudit
+    assert before == state.canonical_json(legacy)
+    assert state.REGISTRY_PROVENANCE_FRAME_KEY in state.parse_trajectory_registry(after)
+    assert logic._caseBundleRegistryMigrationAllowed is False
+    # Once hydrated, ordinary callbacks keep the current provenance.
+    assert state.REGISTRY_PROVENANCE_FRAME_KEY in logic.syncDentoCaseTrajectoryRegistry(parameter)
+
+
+def test_normal_sync_outside_restore_still_migrates_legacy_registry():
+    _namespace, parameter, _legacy, logic = _restore_sync_methods()
+    logic._caseBundleRestoreDepth = 0
+    assert state.REGISTRY_PROVENANCE_FRAME_KEY in logic.syncDentoCaseTrajectoryRegistry(parameter)
+
+
+def test_restore_barrier_mirrors_nested_depth_and_ignores_obsolete_end():
+    path = LOGIC / "widget_case_backend.py"
+    tree = ast.parse(path.read_text())
+    methods = [n for cls in tree.body if isinstance(cls, ast.ClassDef)
+               for n in cls.body if isinstance(n, ast.FunctionDef)
+               and n.name in {"_beginCaseBundleRestore", "_endCaseBundleRestore"}]
+    namespace = {"logging": SimpleNamespace(warning=lambda *a: None)}
+    module = ast.fix_missing_locations(ast.Module(body=methods, type_ignores=[]))
+    exec(compile(module, str(path), "exec"), namespace)
+    widget = SimpleNamespace(_caseBundleRestoreDepth=0, _caseBundleRestoreGeneration=0,
+                             _restoreStageExclusiveInteractionLocks=lambda: None,
+                             logic=SimpleNamespace(), _parameterNode=None)
+    begin = lambda: namespace["_beginCaseBundleRestore"](widget)
+    end = lambda generation: namespace["_endCaseBundleRestore"](widget, generation)
+    one, two = begin(), begin()
+    assert widget.logic._caseBundleRestoreDepth == 2
+    end(one)
+    assert widget.logic._caseBundleRestoreDepth == 2
+    end(two)
+    assert widget.logic._caseBundleRestoreDepth == 1
+    end(two)
+    assert widget.logic._caseBundleRestoreDepth == 0

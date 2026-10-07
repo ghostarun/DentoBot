@@ -413,6 +413,7 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
     def _beginCaseBundleRestore(self) -> int:
         self._restoreStageExclusiveInteractionLocks()
         self._caseBundleRestoreDepth += 1
+        self.logic._caseBundleRestoreDepth = self._caseBundleRestoreDepth
         self._caseBundleRestoreGeneration += 1
         return self._caseBundleRestoreGeneration
 
@@ -427,6 +428,7 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
             0,
             self._caseBundleRestoreDepth - 1,
         )
+        self.logic._caseBundleRestoreDepth = self._caseBundleRestoreDepth
         if self._caseBundleRestoreDepth == 0 and self._parameterNode:
             self._updateStageExclusiveInteractionLocks(
                 int(self.ui.workflowStageComboBox.currentIndex)

@@ -2988,3 +2988,8 @@ The operator-approved single diagnostic finished: initial legacy registry exactl
 ### S6-FRAME-SYNC-01 — corrected run result, 8 October
 
 One newly authorized corrected B execution passed initial legacy validation and hydration, then stopped at the migrated trajectory-node fingerprint comparison. Implemented frozen-migration-backed expected fingerprint translation only, with identity/geometry strict. Focus52PASS; matrix791PASS/two baseline failures. Zero runtime stages/save-reopen still NOT_RUN; cleanupPASS. All earlier failures preserved. Corrected source must be synchronized and a new bounded case execution separately authorized; full-case, MoveIt and operator acceptance remain open.
+
+
+### S6-FRAME-SYNC-01 — shared callback barrier correction, 8 October
+
+The sixth specifically authorized actual case run stopped because UI callbacks migrated before hydration could record the legacy proof. Shared registry entrypoint now follows restore depth, permitting migration only inside validated hydration. Focus55PASS; matrix794PASS/two baseline shell failures. Runtime not accepted/save-reopen NOT_RUN. A/B environment, source5064165 and both desktop preflights PASS; command package14files identical. Next bounded case run must be explicitly approved, previous history retained.

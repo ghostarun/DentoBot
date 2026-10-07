@@ -392,6 +392,13 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
             )
         except (TypeError, ValueError, json.JSONDecodeError):
             previous = empty_trajectory_registry()
+        # Queued GUI readiness callbacks can run inside the widget restore
+        # barrier. They must not migrate legacy provenance before hydration has
+        # independently validated it and captured the original registry.
+        if (getattr(self, "_caseBundleRestoreDepth", 0) > 0
+                and REGISTRY_PROVENANCE_FRAME_KEY not in previous
+                and not getattr(self, "_caseBundleRegistryMigrationAllowed", False)):
+            legacyProvenance = True
         priorSlots = {
             str(slot.get("trajectory_id")): slot
             for tooth in previous["teeth"].values()
@@ -967,7 +974,11 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
                 _("The saved trajectory registry does not match authoritative MRML geometry.")
             )
         if legacySavedRegistry:
-            rebuiltRegistry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
+            self._caseBundleRegistryMigrationAllowed = True
+            try:
+                rebuiltRegistry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
+            finally:
+                self._caseBundleRegistryMigrationAllowed = False
             parameterNode.step6SchemaMigrationPending = True
             logging.info(
                 "Upgraded the saved trajectory registry to owning-jaw provenance."

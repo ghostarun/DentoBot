@@ -7634,3 +7634,8 @@ The specifically approved instrumented B run proved that legacy integrity initia
 ### 8 October — post-hydration trajectory provenance proof
 
 The authorized corrected run passed legacy pre-bind validation and migrated branches as Current, then rejected the expected node-fingerprint provenance change. Translate only that one derived attribute using the exact frozen original/migrated registry proof, matching original trajectory/target/slot/node trace identity; retain every geometric check. Host52 checks PASS and required pure matrix791 PASS/two baseline shell failures; no runtime acceptance yet. A/B data parity also includes the six external EndoPlanner source/resources (66total datafiles). Normalize A's GPU override to the versioned CUDA profile, preserving its original file, and keep unmodeled overrides blocked.
+
+
+### 8 October — share the restore barrier with registry callbacks
+
+The approved5064165 run established that queued readiness syncs migrate the registry before hydration captures its original form. Mirror widget restore depth into logic and preserve legacy semantics at the shared sync entrypoint until strict hydration authorizes exactly its migration call; close permission in finally. This protects every callback caller without per-control patches. Behavioral focus55PASS and matrix794PASS/two baseline failures; case runtime/save-reopen still pending. Repeated failures and individually consumed approvals remain recorded, not reset.
