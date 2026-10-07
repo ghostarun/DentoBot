@@ -2,12 +2,16 @@
 
 ## 2026-10-08 — finish the original T3/Git handoff before expanding runtime work
 
-Execution clarification: existing B-hosted thread is sufficient for the bounded
-B-local continuation check; shell commands do not require creating a new
-conversation. Git roundtrip and both destination preflights PASS, launcher-only
-check PASS. A-hosted T3 continuation remains a UI gate because A's packaged
-Electron app has no discovered `t3 project add` CLI. Preserve that distinction;
-do not add a server, change authentication or conflate SSH with T3 hosting.
+Execution correction (fresh-thread closeout): native authenticated T3
+orchestration supports project/thread creation and turn start. Parent created
+fresh B thread `30241a1d-091b-44ac-a744-a7cc4bff5caa`; it captured a clean
+local `45f072b` proof before A access. A's packaged server CLI supports
+short-lived session issuance despite no `t3` launcher on PATH. Native A thread
+`a6060eac-a37b-4ef4-8ad7-6c1e9f9a4dcc` then completed a bounded Luna Max local proof
+at the selected A worktree/same HEAD. The original source/thread handoff subgate
+is complete. Keep physical offline, process migration, full S6/operator,
+pinned-mode reload and Drive acceptance separate; no robot-stack rerun.
+`dentobot open` remains CLI-dependent, while A's return project is registered.
 
 Operator flags the prolonged thread and reaffirms shared A/B workspace with
 easy inbuilt-T3/Git handoffs, then requests the recommended next-step plan and

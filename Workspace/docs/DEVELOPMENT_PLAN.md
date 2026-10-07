@@ -1,3 +1,12 @@
+## 8 October — PLAT-U-07 original T3/Git handoff subgate complete
+
+Clean Git A→B→A preparation and actual fresh B/A native T3 continuations are
+recorded at `45f072b` in TASKS and today's logbook. Reuse passed shared runtime,
+case/save-reopen and cleanup evidence; no runtime rerun. This closes only the
+source/thread handoff subgate. The sole backlog retains broader operator/cutover,
+optional physical A-offline observation, separate pinned-mode reload and Drive
+obligations. Host OS/GPU/backend differences remain local.
+
 ## 7 October — Step B layered frame-sync source checkpoint
 
 `S6-FRAME-SYNC-01` L1–L6 are implemented at source/pure level in separate

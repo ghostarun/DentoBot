@@ -2,29 +2,41 @@
 
 ## 8 October — `PLAT-U-07` bounded A/B handoff closeout
 
-**Execution result:** published checkpoint `cc494f9` synchronized to both
-original checkouts;14installed helper files hash-identical. All8runtime lock
-categories and both desktop/source/backend/data preflights PASS. Existing
-helpers prepared clean, stable, remotely verified A→B and B→A worktrees; both
-destination preflights PASS. Current B-hosted thread executed its read-only
-destination continuation without accessing A. Both command configurations now
-point to the corresponding selected worktrees, including remote source paths.
-The separate launcher-only check PASS, unchanged container identity, stopped
-container and host/container process counts0. No new Slicer/case/MoveIt run.
+**Completed subgate — native T3/Git A→B→A handoff:** original helper,
+8-category runtime parity, desktop preflight, clean Git worktree preparation
+and both destination checks PASS at application checkpoint `cc494f9`.
+The final incoming docs checkpoint was
+`45f072b4694cebf31a5e7cf95325e597a09460bc`; both fresh destination-hosted
+threads proved that exact HEAD and clean status. No runtime tests were repeated.
 
-The handoff worktrees are:
+The selected worktrees remain:
+
 - B: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot-handoff-20261007T213102Z-3952c66c74094b8596877959a6adc048`
 - A: `/home/tarun/dentobot/ros2_ws/src/DentoBot-handoff-20261007T213258Z-ebf146c5fa0944a3a2603b51114c4652`
 
-B project registered in T3 as **DentoBot B — handoff closeout**. Operator
-correctly notes this existing thread already runs on B; its local continuation
-is demonstrated. A-local return commands were invoked over SSH, not in an
-A-hosted T3 thread. A has a packaged `t3code` Electron app but no `t3` CLI,
-so `dentobot open`/CLI project registration is unavailable there; use A's
-Add Project UI for the selected return path. Separate T3-thread roundtrip and
-actual A-offline observation remain unverified; no application-auth bypass or
-conversation/process migration is claimed. Evidence:
-`data/dentobot-runs/2026-10-07/PLAT-U-07-handoff-closeout-20261007T212502Z/closeout-summary.json`.
+Fresh B T3 thread `30241a1d-091b-44ac-a744-a7cc4bff5caa`, project
+`9f73c26e-01fd-44a4-91e6-a74fc66225c6`, captured local hostname/pwd/HEAD/clean
+status before accessing A. The parent released execution ownership. Native A
+return thread `a6060eac-a37b-4ef4-8ad7-6c1e9f9a4dcc`, project `23121e64-c2be-4aa7-a11d-8202bdbf14a1`
+(**DentoBot A — handoff return**), then completed its sole read-only command
+on `tarun-Legion` using `gpt-6-luna` / `max`; no B access or file/runtime work.
+Coordinator retains closeout ownership; the A proof worker has finished.
+
+**Capability correction:** native authenticated `project.create`,
+`thread.create` and `thread.turn.start` work. The parent used them to create
+this fresh B thread; this coordinator used A's packaged server CLI to mint a
+short-lived bearer and dispatch the native A return. No database/auth bypass
+or second server. A lacks a `t3` launcher on PATH, but its packaged server CLI
+is callable with `ELECTRON_RUN_AS_NODE=1`; the blanket unavailable claim was
+false. `dentobot open` still requires `t3 app`; select the registered A project
+in T3. Thread creation is not conversation/process migration.
+
+Evidence: `data/dentobot-runs/2026-10-07/PLAT-U-07-thread-finalize-20261007T214331Z/B-local-proof.json`,
+`A-native-dispatch-result.jsonl`, `A-return-thread-snapshot.json`;
+parent closeout evidence retains parity, both handoff manifests and launcher
+PASS. Physical A-offline observation remains unperformed (operator-controlled).
+Full S6/operator/cutover acceptance, any new pinned-mode reload campaign and
+oversized Drive uploads retain separate gates in the sole backlog row.
 
 Operator asks whether the thread has entered a rabbit hole, then directs:
 “yes make the plan for next steps as per recommendation, and use luna max
@@ -82,7 +94,7 @@ The existing B-local private-Xvfb harness provides isolated GUI verification
 without taking over A's desktop. Cross-PC interactive desktop control is a
 separate optional capability, not a handoff acceptance condition.
 
-**Separate unfinished launcher item:** the `b2dfda6` actual B
+**Historical launcher item — resolved by the passed closeout check:** the `b2dfda6` actual B
 `dentobot launch --check-only` failed before container start with
 `TypeError: validate_container() got an unexpected keyword argument
 'allow_idle_running'`. A read-only stdin import reproduced caller-CWD
@@ -92,7 +104,7 @@ Give one Luna worker only the minimal explicit selected-import-path fix.
 Use relevant host/shell checks first, then propose one bounded launcher-only
 check. `--check-only` may start the verified idle container despite opening no
 Slicer. Stop at the first new causal failure; do not expand into case/MoveIt
-testing. The entrypoint stays unverified until actual evidence passes.
+testing. The actual cc494f9 launcher-only check subsequently passed; reuse its recorded evidence. Production-menu reload under this new pinned mode is a separate unrun gate.
 
 **Staffing and execution boundary:** two `gpt-6-luna` / `max` read-only workers
 collect current state and exact existing command semantics; no recursive

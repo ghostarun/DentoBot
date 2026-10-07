@@ -12,13 +12,29 @@ preflights passed atcc494f9; private host CPU/CUDA/display paths remain local.
 Source/desktop preflight and pinned launcher-only check are separate from
 the accepted63551f8 representative offline Slicer load/save/reopen evidence.
 
-On B, T3's `t3 project add` registered DentoBot B — handoff closeout. A's
-installed fork exposes packaged Electron `t3code`, without a discovered `t3`
-project CLI; add the path from `dentobot path` through A's T3 Add Project UI.
-The helper `dentobot open` requires `t3 app` and currently works only where
-that CLI exists. Neither Git checkpoint transfer nor SSH commands migrate a
-T3 conversation or live Slicer process. See TASKS bounded PLAT-U-07 closeout
-for exact returned paths, passed checks and remaining UI/offline gate.
+B project **DentoBot B — handoff closeout** and A project **DentoBot A —
+handoff return** are registered at the selected worktrees. Fresh native B/A
+threads completed hostname/pwd/HEAD/clean-status proofs at `45f072b`.
+A's packaged personal T3 v0.0.4503 includes a server CLI despite no `t3`
+launcher on PATH. The observed native entrypoint is:
+
+```bash
+ELECTRON_RUN_AS_NODE=1 \
+  /home/tarun/.local/opt/t3code-personal/0.0.4503/squashfs-root/t3code \
+  /home/tarun/.local/opt/t3code-personal/0.0.4503/squashfs-root/resources/app.asar/apps/server/dist/bin.mjs \
+  project --help
+```
+
+That installed version exposes `auth session issue` and `project add`.
+Authenticated `/api/orchestration/dispatch` accepts native `project.create`,
+`thread.create` and `thread.turn.start`; short-lived tokens stay in memory.
+Use the registered A project in the T3 environment/project selector for future
+returns. `dentobot open` still expects `t3 app`; its packaged-app fallback is
+not implemented. Do not install a second server or edit app/auth databases.
+Neither Git nor fresh-thread creation migrates a live process or conversation.
+Both hosts must be online for destination preparation; after selection B has
+its own source/runtime/data. Real physical A-offline operation is unobserved.
+Evidence: `data/dentobot-runs/2026-10-07/PLAT-U-07-thread-finalize-20261007T214331Z`.
 
 ## Destination source update — 3 October 2026
 
