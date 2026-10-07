@@ -87,8 +87,15 @@ the installer refuses to terminate running processes itself.
 New Codex threads must use the Switcher proxy for live connection telemetry and
 account preference. The personal check verifies the managed top-level Codex
 proxy setting at port 18080 and flags the temporary model-list-test bypass.
+It also flags T3-owned Codex backends started before the config changed, or
+using custom/home/environment overrides that need independent verification.
+This conservative check may require a restart after an unrelated config edit;
+it never treats the new file as proof of an old backend's routing.
 Existing directly connected threads retain their original connection until
 restarted/resumed; changing config does not migrate them into the proxy.
+T3's named managed ChatGPT providers intentionally use T3-owned credentials;
+use its native Codex provider for Switcher's account pool. The repaired personal
+T3 installer retains routing on launches and detached restarts for this exact pair.
 
 The check also verifies the running T3 process inherited the personal Switcher
 launcher. If a future T3 update regenerates its launcher and loses those

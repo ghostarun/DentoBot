@@ -2123,3 +2123,9 @@ source checkpoint `4dcb714`, protocol 1. Claude usage/quota is below Codex
 accounts on Dashboard and Accounts and uses each PC's existing local Claude
 Code login. T3 remains 0.0.4503; both personal compatibility checks pass. The
 0.7.16 baseline above remains the minimum pairing-compatible build.
+
+2026-10-08 personal T3 routing repair: both PCs now use the reviewed paired
+installer script at ~/.local/share/t3code-personal/install.py; prior scripts
+are retained as install.py.before-switcher-routing-20261008. Installed app
+version stays 0.0.4503. Safe T3 restart/resume is required for old native Codex
+backends to inherit the restored proxy route. See PERSONAL_TWO_PC_TOOLS.md.

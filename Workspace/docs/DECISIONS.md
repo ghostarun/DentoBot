@@ -7164,3 +7164,11 @@ routing for new Codex threads on both PCs, superseding the temporary T3
 model-list-test bypass. Explicitly restart Legion T3 after installation to
 activate the personal launcher. Existing directly connected threads are not
 migrated by the config change. No robotics or model-selection policy change.
+
+2026-10-08 PER-TOOLS-01 routing diagnosis: file-level proxy configuration cannot
+establish the effective route of an already-running Codex app-server. Require
+safe restart/resume when its startup predates config changes; treat custom
+provider/home/environment overrides as unverified. Preserve explicit overrides
+and managed T3 credentials. Personal launcher defaults apply only to the exact
+two approved Tailscale addresses with pairing enabled. No proxy process restart
+is required for this repair.

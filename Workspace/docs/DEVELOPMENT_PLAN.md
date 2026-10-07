@@ -1756,3 +1756,9 @@ and T3 versions match; fresh paired authentication and the personal compatibilit
 check pass. Default accounts currently differ. Concurrent user-thread behavior
 remains representative acceptance under the same backlog ID; the six isolated
 pairing tests cover both incumbent directions and fallback.
+
+PER-TOOLS-01 routing evidence correction (2026-10-08): the earlier compatibility
+PASS established installed configuration, not routing of pre-existing T3
+backends. Updated check distinguishes these states. Fresh Codex requests pass
+through both proxies on distinct accounts; existing ThinkStation backend
+restart/resume and representative thread fallback remain runtime acceptance.

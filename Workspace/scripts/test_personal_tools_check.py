@@ -17,6 +17,10 @@ class PersonalToolsCheck(unittest.TestCase):
         self.assertEqual(self.report(nodes),[])
     def test_offline_peer_is_unverified(self):
         self.assertTrue(any('unverified' in p for p in self.report({'100.104.44.67':self.node('100.95.7.78')})))
+    def test_config_on_disk_does_not_prove_old_backend_routing(self):
+        nodes={a:self.node(next(b for b in m.PCS if b!=a)) for a in m.PCS}
+        nodes['100.104.44.67']['codex_backends_need_restart_or_verification']=[123]
+        self.assertTrue(any('backends predate routing changes' in p for p in self.report(nodes)))
     def test_mismatch_and_running_old_version(self):
         nodes={a:self.node(next(b for b in m.PCS if b!=a)) for a in m.PCS}
         nodes['100.95.7.78']['t3']='0.0.4504'

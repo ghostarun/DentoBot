@@ -2559,3 +2559,15 @@ Codex proxy routing with backups following explicit operator confirmation.
 Representative concurrent-thread/operator acceptance remains in backlog.md;
 these passes establish deployment/interoperability, not observation of live
 user sessions in both incumbent directions.
+
+PER-TOOLS-01 routing regression (2026-10-08): operator reports Switcher UI swaps
+but T3 backend does not. Three ThinkStation Codex app-servers predate restoration
+of proxy config and still connect directly to ChatGPT; the Legion client can
+use that remote environment. Patched the personal T3 installer to retain proxy
+and launcher environment for this exact pair on launch/restart. Installed the
+script on both PCs, with backups. The personal check now flags pre-change or
+custom T3 Codex backends instead of passing solely from config on disk. Focused
+checks: installer 5 passed, personal checker 6 passed; fresh ephemeral Codex
+requests on both PCs returned ROUTING_OK via proxy WebSockets on distinct
+accounts. Existing T3 backend migration awaits a safe ThinkStation restart;
+representative quota fallback remains unaccepted under the same backlog ID.

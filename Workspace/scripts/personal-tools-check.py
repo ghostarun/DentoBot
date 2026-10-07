@@ -29,11 +29,33 @@ fresh=activity_path.exists() and time.time()-activity_path.stat().st_mtime<=20
 build=read(h/'.codex-switcher/installed-build.json')
 local=activity.get('local',{}) if fresh else {}
 running_t3=[]; t3_launcher_correct=False; switcher_running=False; running_hashes=set()
+stale_codex_backends=[]
+boot=time.time()-float(Path('/proc/uptime').read_text().split()[0])
+def t3_owned(p):
+ for _ in range(12):
+  try:
+   if '/t3code-personal/' in os.readlink(p/'exe'): return True
+   parent=int((p/'stat').read_text().rsplit(')',1)[1].split()[1])
+   if parent<=1: return False
+   p=Path('/proc')/str(parent)
+  except OSError: return False
+ return False
 for p in Path('/proc').iterdir():
  if not p.name.isdigit(): continue
  try:
   if p.stat().st_uid!=os.getuid(): continue
   exe=os.readlink(p/'exe')
+  argv=(p/'cmdline').read_text().split('\0')
+  if exe.removesuffix(' (deleted)').endswith('/codex') and 'app-server' in argv and t3_owned(p):
+   env=dict(x.split('=',1) for x in (p/'environ').read_text().split('\0') if '=' in x)
+   config=Path(env.get('CODEX_HOME',str(h/'.codex')))/'config.toml'
+   launched=boot+int((p/'stat').read_text().rsplit(')',1)[1].split()[19])/os.sysconf('SC_CLK_TCK')
+   explicit=env.get('OPENAI_BASE_URL') in ('http://127.0.0.1:18080/v1','http://localhost:18080/v1')
+   # A file changed after spawn cannot establish the running runtime's route.
+   # Custom/managed launch overrides also need independent verification.
+   custom=(bool(env.get('OPENAI_BASE_URL')) and not explicit) or any('model_provider=' in a or 'openai_base_url=' in a for a in argv)
+   if custom or (not explicit and (config!=h/'.codex/config.toml' or not config.exists() or launched<config.stat().st_mtime)):
+    stale_codex_backends.append(int(p.name))
   if exe.removesuffix(' (deleted)').endswith('/codex-switcher'):
    switcher_running=True
    if build.get('sha256'):
@@ -51,7 +73,8 @@ print(json.dumps({'t3':t3,'t3_running':sorted(set(running_t3)),'t3_launcher_corr
  'switcher':local.get('switcher_version') or build.get('version'),
  'switcher_running':switcher_running,'proxy_running':local.get('proxy_running',False),'switcher_installed':build.get('version'),
  'switcher_binary_matches':running_hashes=={build['sha256']} if switcher_running and build.get('sha256') else None,
- 'codex_proxy_routed':routed,'pair_connected':bool(activity.get('peer')) if fresh else False,'protocol':local.get('protocol_version') or build.get('protocol_version'),
+ 'codex_proxy_routed':routed,'codex_backends_need_restart_or_verification':stale_codex_backends,
+ 'pair_connected':bool(activity.get('peer')) if fresh else False,'protocol':local.get('protocol_version') or build.get('protocol_version'),
  'pair_enabled':activity.get('enabled',False) if fresh else None,
  'peer_ip':activity.get('peer_ip') if fresh else None,'activity_fresh':fresh}))
 '''
@@ -102,6 +125,7 @@ def evaluate(nodes, releases=None):
         if not n.get('peer_ip'): problems.append(label+': pairing peer is not configured')
         elif n['peer_ip']!=expected: problems.append(label+': pairing points outside the two approved PCs')
         if not n.get('codex_proxy_routed'): problems.append(label+': new Codex threads bypass Switcher; restore the local proxy setting after the model-list test')
+        if n.get('codex_backends_need_restart_or_verification'): problems.append(label+': running T3 Codex backends predate routing changes or use custom settings; restart/resume after safe handoff and verify the effective proxy route')
         if not n.get('switcher_running') or not n.get('proxy_running'): problems.append(label+': Switcher proxy is stopped; account activity is unverified')
         if n.get('switcher_binary_matches') is False: problems.append(label+': running Switcher differs from the installed build; restart after safe handoff')
         if not n.get('pair_connected'): problems.append(label+': authenticated peer activity is unavailable; verify matching secrets and port 18082')
