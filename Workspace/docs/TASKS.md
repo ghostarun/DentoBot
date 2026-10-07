@@ -40,6 +40,57 @@ as Goal 2 evidence.
   A's display being used. Screen evidence must come from a Wayland-capable
   capture or Slicer's own screenshots, not `x11grab` of `:0`.
 
+**Prototype status (8 October, A-hosted Claude):** the SSH dispatch route is
+prototyped outside the repo in `~/dentobot/tmp/b-visible-case/`
+(`request-from-a.sh` → B `run.py --sha` → rsync back to A). Three
+A-initiated runs at `ab6953e` passed 13/13 checks with byte-identical
+screenshots. The operator confirmed in Remmina that he saw runs `225200Z` and
+`230920Z`; `230525Z` was not watched. The acceptance behaviour has been
+observed with the prototype only. It is not in the repo and Goal 2 stays open
+until it is productized.
+
+**Operator decisions (Tarun, 8 October ~05:00 IST):**
+
+1. Completion notice uses (a) and (c):
+   - (a) The A agent runs `request-from-a.sh` as a background job and keeps
+     developing. It is notified when the job exits, and by then the evidence
+     is already on A.
+   - (c) B also writes the result folder plus a done marker under
+     `data/dentobot-runs/`, so A can collect it later if it went offline
+     mid-run.
+2. Every handoff names the agent explicitly. The initiating agent runs
+   `handoff-thread.py --list` on the target host and presents Tarun the
+   options:
+   - Agent: Codex (`gpt-6-sol`, effort `low`, the AGENTS.md default) or Claude
+     (`claude-opus-5-5`).
+   - Subagents: `none` (default), `one-readonly-verifier` or
+     `one-implementation-worker`.
+
+   It gets his confirmation before dispatching with explicit
+   `--agent/--model/--subagents` flags; the script refuses to run without
+   them. The new thread's first message carries the selection and must
+   restate it and get confirmation before any runtime work. Enabled base
+   instances: A `claude-work`, `codex`; B `claudeAgent`, `codex`.
+3. No B-side agent for routine tests; B is script-only. A read-only B
+   diagnosis thread is created only for a failure A cannot explain from the
+   evidence.
+
+Standing rules:
+- B tests only a pushed SHA and never A's working tree. Work in progress goes
+  on a throwaway `test/…` branch.
+- Results are labelled "verified at X". Before reusing one at a later HEAD,
+  check `git diff X..HEAD` over the covered files and rerun if they changed.
+- B produces evidence, not code. If B must ever change code, it uses its own
+  `b/…` branch and A merges deliberately.
+- The A agent is the single writer of controlled docs.
+
+**Remaining work (only after the operator says go):**
+- Add the done marker and collect-later mode to `run.py`/`request-from-a.sh`.
+- Fold the prototype into `Workspace/scripts/workstation/`, with tests, an
+  install refresh on both hosts, and the proposed screenshot fixes (target
+  framing; hold screenshots that show something new or are dropped). These
+  fixes still need the operator's approval.
+
 ## 8 October — `PLAT-U-07` bounded A/B handoff closeout
 
 **Completed subgate — native T3/Git A→B→A handoff:** original helper,

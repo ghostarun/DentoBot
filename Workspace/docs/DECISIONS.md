@@ -1,5 +1,40 @@
 # Dentobot Technical Decisions
 
+## 2026-10-08 — A-orchestrated B testing: completion notice, explicit agent choice, script-only B (`PLAT-U-07` Goal 2)
+
+Operator decisions (Tarun, about 05:00 IST, relayed by the B-hosted Claude
+thread and recorded by the A-hosted docs writer):
+
+1. **Completion notice:** the A agent runs the B visible-Slicer request as a
+   background job and keeps developing. It is notified on exit, by which time
+   the evidence is already on A. B also writes a done marker beside the result
+   under `data/dentobot-runs/`, so A can collect it later if it went offline.
+2. **Explicit agent choice for every handoff:** before dispatching a thread,
+   the initiating agent lists the target host's enabled T3 instances
+   (`handoff-thread.py --list`). It presents the options and gets Tarun's
+   confirmation:
+   - Agent: Codex `gpt-6-sol`/`low` (the AGENTS.md default) or Claude
+     `claude-opus-5-5`.
+   - Subagent policy: `none` (default), `one-readonly-verifier` or
+     `one-implementation-worker`.
+
+   Dispatch requires explicit `--agent/--model/--subagents` flags. The new
+   thread restates the selection and gets confirmation before any runtime
+   work.
+3. **B is script-only for routine tests.** A read-only B diagnosis thread is
+   created only for a failure A cannot explain from the returned evidence.
+
+Standing rules:
+- B tests only origin-pushed SHAs, never A's working tree; work in progress
+  goes on a throwaway `test/…` branch.
+- Results are labelled "verified at X". Reuse at a later HEAD requires
+  `git diff X..HEAD` over the covered files, and a rerun if they changed.
+- B produces evidence, not code. Any B code change goes on a `b/…` branch
+  that A merges deliberately; nothing is auto-merged.
+- The A agent is the single controlled-docs writer.
+
+Implementation follows only after the operator says go.
+
 ## 2026-10-08 — finish the original T3/Git handoff before expanding runtime work
 
 Execution correction (fresh-thread closeout): native authenticated T3
