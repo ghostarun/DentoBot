@@ -2356,6 +2356,26 @@ acceptance still requires a complete zero-exit whole-run recording. See the
 
 ### `PLAT-U-07` — Multi-workstation Git and saved-case exchange
 
+- **2026-10-07 command/verification continuation:** operator explicitly requests
+  B-hosted handoff and runtime verification while A is offline. Install the
+  selected-checkout commands, checkpoint the seven owned harness/controlled
+  files locally, then validate one fresh pinned B no-case five-reload run.
+  Reuse `runtime.slicer_reload`, one private display and serialized resources;
+  no case/planner/build scope or Git publication. Latest published A source
+  remains the base; offline unpublished state, image/case parity and operator
+  migration acceptance remain open. Evidence: [7 October logbook](logbook/2026-10-07.md).
+
+- **2026-10-07 B bounded reload result:** selected runtime checkout on
+  `runtime/B-20261007T160641Z-2313be5a`, published `a0733d25`; sole runtime
+  owner while A offline. Harness-only More-menu correction; 11 host tests PASS.
+  One no-case private-Xvfb run: source/startup PASS, five reloads PASS, actual
+  Slicer0 and launcher0, stopped owned container and exact Slicer count0.
+  Prior attempt retains startup PASS / pre-reload hidden-button harness failure /
+  Slicer1 versus launcher0. B image differs from A; cases/operator/migration
+  acceptance remain open. Source/test edits uncommitted, no publication.
+  Evidence: [/home/light-tarun/dentobot/data/dentobot-runs/2026-10-07/PLAT-U-07-B-reload-20261007T170938Z/diagnostics.md](/home/light-tarun/dentobot/data/dentobot-runs/2026-10-07/PLAT-U-07-B-reload-20261007T170938Z/diagnostics.md),
+  [7 October logbook](logbook/2026-10-07.md).
+
 - **2026-10-03 destination launcher result:** Operator requested testing.
   50 focused launcher/profile tests, syntax/self-check and real check-only
   preflight PASS; all3packages built from the updated sources. Normal startup

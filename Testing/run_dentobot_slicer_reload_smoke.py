@@ -1,4 +1,4 @@
-"""Headless Slicer smoke test for the developer module-reload button."""
+"""Headless Slicer smoke test for More > Reload Module (Dev)."""
 
 from __future__ import annotations
 
@@ -20,6 +20,15 @@ def fail(message: str) -> None:
     slicer.util.exit(1)
 
 
+def reload_action(widget):
+    # Match the production menu's aboutToShow readiness synchronization.
+    widget._syncWorkflowMoreMenu()
+    action = getattr(widget, "_workflowReloadMenuAction", None)
+    if action is None or not action.visible or not action.enabled:
+        raise RuntimeError("developer reload menu action is missing, hidden or disabled")
+    return action
+
+
 def verify_reload(
     cycle: int,
     old_widget_id: int,
@@ -28,12 +37,12 @@ def verify_reload(
 ) -> None:
     try:
         new_widget = slicer.util.getModuleWidget(MODULE_NAME)
-        button = new_widget.ui.reloadDENTOWorkflowButton
+        action = reload_action(new_widget)
         sentinel = slicer.util.getFirstNodeByName(SENTINEL_NAME)
         new_helper_id = id(sys.modules["DENTOROS2Bridge"])
         new_internal_id = id(sys.modules["dentobot_workflow.widget_robot"])
         report = {
-            "button_visible": bool(button.visible),
+            "reload_action_available": bool(action.visible and action.enabled),
             "helper_module_reloaded": new_helper_id != old_helper_id,
             "internal_module_reloaded": new_internal_id != old_internal_id,
             "module_reload_success": id(new_widget) != old_widget_id,
@@ -71,30 +80,34 @@ def verify_reload(
 
 
 def reload_once(cycle: int) -> None:
-    old_widget = slicer.util.getModuleWidget(MODULE_NAME)
-    button = old_widget.ui.reloadDENTOWorkflowButton
-    old_helper_id = id(sys.modules["DENTOROS2Bridge"])
-    old_internal_id = id(sys.modules["dentobot_workflow.widget_robot"])
-    old_widget_id = id(old_widget)
-    button.click()
-    qt.QTimer.singleShot(
-        3000,
-        lambda: verify_reload(
-            cycle,
-            old_widget_id,
-            old_helper_id,
-            old_internal_id,
-        ),
-    )
+    try:
+        old_widget = slicer.util.getModuleWidget(MODULE_NAME)
+        action = reload_action(old_widget)
+        old_helper_id = id(sys.modules["DENTOROS2Bridge"])
+        old_internal_id = id(sys.modules["dentobot_workflow.widget_robot"])
+        old_widget_id = id(old_widget)
+        action.trigger()
+        qt.QTimer.singleShot(
+            3000,
+            lambda: verify_reload(
+                cycle,
+                old_widget_id,
+                old_helper_id,
+                old_internal_id,
+            ),
+        )
+    except Exception as exc:
+        fail(str(exc))
 
 
 def run() -> None:
     slicer.util.selectModule(MODULE_NAME)
     slicer.app.processEvents()
     old_widget = slicer.util.getModuleWidget(MODULE_NAME)
-    button = old_widget.ui.reloadDENTOWorkflowButton
-    if button is None or not button.visible:
-        fail("developer reload button is missing or hidden")
+    try:
+        reload_action(old_widget)
+    except Exception as exc:
+        fail(str(exc))
         return
     sentinel = slicer.mrmlScene.AddNewNodeByClass(
         "vtkMRMLScriptedModuleNode",

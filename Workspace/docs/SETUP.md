@@ -2151,3 +2151,33 @@ The simulation handoff now routes shared watchdog output directly under
 Set `DENTOBOT_WATCHDOG_LOG_DIR` to an explicit run-local directory to override it.
 New handoffs bypass the old root alias; already running shells retain their old
 paths until stopped. No container/mount or dependency change.
+
+### 7 October 2026 — B-only runtime handoff checkpoint (`PLAT-U-07`)
+
+For this bounded continuation, selected checkout is
+`/home/light-tarun/dentobot/ros2_ws/src/DentoBot-runtime-20261007T160641Z-2313be5a`
+on `runtime/B-20261007T160641Z-2313be5a`, published source `a0733d25`.
+B pinned image is
+`sha256:544c5b759ccef7ce6c41157bbd7bd8b602657de367f1f6b71352de054c81b019`;
+A image differs, and offline unpublished source/cases are unknown. No rebuild,
+image transfer or workstation-wide checkout switch occurred. Private Xvfb
+no-case five-reload smoke passed through production More > Reload Module (Dev),
+actual Slicer/launcher0; owned container stopped and exact host/container Slicer
+count0. Retain earlier hidden-button harness failure/Slicer1. Recorded command,
+loaded path/hash, screenshots/video, results and cleanup:
+[/home/light-tarun/dentobot/data/dentobot-runs/2026-10-07/PLAT-U-07-B-reload-20261007T170938Z/diagnostics.md](/home/light-tarun/dentobot/data/dentobot-runs/2026-10-07/PLAT-U-07-B-reload-20261007T170938Z/diagnostics.md).
+This establishes B-local startup/reload/shutdown only, not cross-host or case
+parity, normal-window usability, performance or migration acceptance.
+
+### 7 October — selected-checkout commands on B (`PLAT-U-07`)
+
+Command configuration is `~/.config/dentobot/commands.json` (mode0600), selecting
+the B runtime worktree above and pinning B's local image separately from A.
+Entry point `~/.local/bin/dentobot` uses the helpers under
+`~/.local/share/dentobot-handoff/`. `path`, `status`, `use`, `check` and `open`
+select/inspect the checkout; `smoke` prepares a fresh dated runtime plan and
+`smoke --run` executes the no-case private-Xvfb five-reload contract.
+`from-a`/`to-a` prepare exact-commit handoffs once both machines are online.
+Existing checkouts are preserved; `use` explicitly re-pins after a checkpoint.
+Runbook: `/home/light-tarun/.t3/projects/iitm-thinkstation-repair/COMMANDS.md`.
+The commands do not establish cross-host image/data parity or operator acceptance.

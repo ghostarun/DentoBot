@@ -7574,3 +7574,30 @@ unsigned surface separation is not penetration depth, and agreement PASS is
 not collision-free or motion acceptance. Missing/truncated/unexamined native
 contacts fail explicitly. Terminal burr/target contact is labelled under the
 existing guard policy only; no policy relaxation. Runtime remains NOT RUN.
+
+## 2026-10-07 — B-only bounded reload harness continuation (`PLAT-U-07`)
+
+Operator makes this thread sole runtime owner while A is offline and authorizes
+one no-case private-Xvfb five-reload rerun after the stale harness correction.
+Use selected runtime checkout/published a0733d25; this supersedes older dated
+checkout routing for this bounded task, not A unpublished state or migration
+acceptance. Agent implementation uses the production More-menu QAction and
+readiness synchronization, re-acquiring it after reload; no application/UI,
+guard, geometry or native build change. Eleven host tests and one synthetic
+five-reload run pass; startup/source, reload and actual Slicer0/launcher0 are
+separate results. Earlier harness failure/Slicer1 is preserved. Stop after owned
+cleanup; no planner/full-cycle continuation, Git publication or Drive sync.
+Evidence and limits: [7 October logbook](logbook/2026-10-07.md).
+
+## 2026-10-07 — reusable B runtime commands (`PLAT-U-07`)
+
+Operator: "Lets setup the commands meanwhile before A comes online", then
+"Handoff work to other pc/to pc B / Run testing and runtime verification on B".
+This explicitly resumes B-local bounded runtime verification after command
+installation. B already holds the latest published A checkpoint; offline A's
+unpublished state cannot be fetched. Checkpoint the completed harness/controlled
+records locally, then verify one fresh no-case five-reload run through the new
+CLI. Reuse the production menu and pinned B image; no case, MoveIt, build or
+hardware scope is added. Source identity and separate Slicer/launcher exits,
+recording integrity and owned teardown are required. Source commit and runtime
+evidence do not imply Git publication, A/B parity or operator acceptance.
