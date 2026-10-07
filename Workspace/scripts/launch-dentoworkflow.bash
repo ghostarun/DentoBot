@@ -111,14 +111,25 @@ if [[ ${use_installed_runtime} == true ]]; then
   python3 "${repository_root}/Workspace/scripts/workstation/runtime_sync.py" \
     --repo "${repository_root}"
   PYTHONPATH="${repository_root}/Workspace/scripts/workstation${PYTHONPATH:+:${PYTHONPATH}}" \
-    python3 - <<'PY_RUNTIME_OWNERS'
-import subprocess
+    python3 - "${repository_root}" <<'PY_RUNTIME_OWNERS'
+import json, os, sys
+from pathlib import Path
 import smoke_runtime
+from runtime_preflight import parse_env_file, effective_config
+repo = Path(sys.argv[1])
+workspace = repo.parents[2]
+lock = json.loads((repo / "Workspace/runtime-lock.json").read_text())
+values, errors = parse_env_file(Path(os.environ.get("DENTOBOT_WORKSPACE_CONFIG", workspace / ".dentobot.env")))
+if errors:
+    raise SystemExit("Invalid workspace configuration")
+config, _ = effective_config(values, dict(os.environ))
+backend = Path(config["DENTOBOT_BACKEND_PYTHON"]).parent.parent.resolve()
 smoke_runtime.assert_no_owners(container=False)
-state = subprocess.check_output(
-    ["docker", "inspect", "--format", "{{.State.Running}}", "dentobot-slicerros2"], text=True).strip()
-if state == "true":
+info = smoke_runtime.inspect_container()
+if info.get("Running"):
     smoke_runtime.assert_no_owners(container=True)
+smoke_runtime.validate_container(info, lock["image_id"], lock["image_name"], workspace,
+                                 backend, os.getuid(), os.getgid(), allow_idle_running=True)
 PY_RUNTIME_OWNERS
 fi
 
@@ -709,6 +720,12 @@ compose_command=(
   --project-directory "${workspace_root}"
   -f "${compose_file}"
 )
+# Reconcile the current named container's project, not renamed rollback
+# containers that retain the old default project's Compose labels.
+compose_project="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "${container_name}" 2>/dev/null || true)"
+if [[ ${compose_project} =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+  compose_command+=(--project-name "${compose_project}")
+fi
 if [[ ${graphics_mode} == "wslg" ]]; then
   compose_command+=(-f "${compose_wslg_file}")
 fi
@@ -729,9 +746,11 @@ fi
 export DENTOBOT_RENDER_DEVICE="${render_device}"
 export DENTOBOT_GRAPHICS_MODE="${graphics_mode}"
 "${compose_command[@]}" config -q
-prepare_host_uid_runtime
+if [[ ${use_installed_runtime} == false ]]; then
+  prepare_host_uid_runtime
+fi
 
-if docker inspect "${container_name}" >/dev/null 2>&1; then
+if [[ ${use_installed_runtime} == false ]] && docker inspect "${container_name}" >/dev/null 2>&1; then
   container_status="$(docker inspect --format '{{.State.Status}}' "${container_name}")"
   if [[ ${container_status} == "paused" ]]; then
     printf 'Unpausing %s...\n' "${container_name}"
@@ -804,12 +823,24 @@ if docker inspect "${container_name}" >/dev/null 2>&1; then
 else
   container_needs_recreate=true
 fi
-if [[ ${container_needs_recreate} == true ]]; then
+if [[ ${use_installed_runtime} == true ]]; then
+  if [[ ${container_needs_recreate} == true ]]; then
+    printf 'Pinned runtime container configuration differs; explicit setup is required.\n' >&2
+    exit 2
+  fi
+  # Compose project labels can still belong to a renamed rollback container.
+  # Use the already validated runtime by name without reconciling that project.
+  if [[ "$(docker inspect --format '{{.State.Running}}' "${container_name}")" != true ]]; then
+    docker start "${container_name}" >/dev/null
+  fi
+elif [[ ${container_needs_recreate} == true ]]; then
   "${compose_command[@]}" up -d --force-recreate
 else
   "${compose_command[@]}" up -d
 fi
-reclaim_bind_mount_ownership
+if [[ ${use_installed_runtime} == false ]]; then
+  reclaim_bind_mount_ownership
+fi
 
 if [[ ${graphics_mode} == "nvidia" ]]; then
   if ! container_nvidia_devices="$(timeout 10s docker exec \

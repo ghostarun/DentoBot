@@ -123,6 +123,14 @@ class SmokeRuntimeTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaisesRegex(smoke.SmokeError, message):
                 smoke.validate_container({**info, **change}, self.image_id, "dentobot/slicerros2:test",
                                          self.workspace, backend, os.getuid(), os.getgid())
+        running = {**info, "Running": True, "Status": "running"}
+        self.assertEqual(smoke.validate_container(
+            running, self.image_id, "dentobot/slicerros2:test", self.workspace, backend,
+            os.getuid(), os.getgid(), allow_idle_running=True)["id"], "container-id")
+        with self.assertRaisesRegex(smoke.SmokeError, "sleep infinity"):
+            smoke.validate_container({**running, "Status": "paused"}, self.image_id,
+                                     "dentobot/slicerros2:test", self.workspace, backend,
+                                     os.getuid(), os.getgid(), allow_idle_running=True)
         wrong_destination = [dict(mount, Destination="/home/slicer") if mount["Destination"] == "/home/dentobot" else mount
                              for mount in mounts]
         with self.assertRaisesRegex(smoke.SmokeError, "mount is missing"):

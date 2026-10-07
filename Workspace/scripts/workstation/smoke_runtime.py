@@ -72,10 +72,11 @@ def inspect_data(text):
         raise SmokeError("Docker inspect returned invalid metadata") from exc
 
 
-def validate_container(info, image_id, image_name, workspace, backend_dir, uid, gid):
-    if info.get("Running"):
+def validate_container(info, image_id, image_name, workspace, backend_dir, uid, gid, *, allow_idle_running=False):
+    if info.get("Running") and not allow_idle_running:
         raise SmokeError("refusing to use a running container; preserve its current owner")
-    if info.get("Status") != "exited" or info.get("ConfigCmd") != ["sleep", "infinity"]:
+    expected_status = "running" if info.get("Running") else "exited"
+    if info.get("Status") != expected_status or info.get("ConfigCmd") != ["sleep", "infinity"]:
         raise SmokeError("container is not a stopped sleep infinity development container")
     if info.get("Image") != image_id or info.get("ConfigImage") != image_name or info.get("ConfigUser") != f"{uid}:{gid}":
         raise SmokeError("container image or configured host user does not match this smoke request")

@@ -7644,3 +7644,8 @@ The approved5064165 run established that queued readiness syncs migrate the regi
 ### 8 October — representative restore/save-reopen accepted at software runtime level
 
 The specifically approved63551f8 B run passes six known-transform stages including real save/reopen, selected-branch persistence and strict identity/geometry audits, with Slicer0/launcher0 and complete owned cleanup. The original immutable case is unchanged; the new saved bundle was checksum-transferred to A. This bounded offline result does not accept MoveIt/full-case/physical/operator gates. New pinned launch mode reuses the verified installed packages and refuses existing owners; robot/MoveIt source hashes prevent hidden stale installs. Exclude native scripted-test autoload artifacts using retained backups, consistent with the existing production build policy; no shared image/native library change.
+
+
+### 8 October — avoid Compose rollback-label reconciliation
+
+An actual pinned launch check found the old renamed B rollback's retained default-project labels caused Compose to replace it before a name conflict with the untouched current container. Record that original B container rollback is lost (old image and bound file backups retained). Pinned startup now validates and directly starts only the current named container; no Compose restart/reconfiguration or ownership/build mutations. The existing explicit build path follows the named current container's Compose project label. Zero-owner checks precede idle-running reuse; the smoke harness remains stopped-only by default.
