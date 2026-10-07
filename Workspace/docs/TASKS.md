@@ -1,5 +1,45 @@
 # DENTOBOT Tasks
 
+## 8 October — `PLAT-U-07` Goal 2: A-orchestrated visible B Slicer runtime (open)
+
+**Operator clarification (Tarun, 8 October, confirmed "yes" to Claude's
+summary):** the original request had two goals. Goal 1, a sequential A→B→A
+handoff by Git with destination-hosted T3 threads, is the completed subgate
+below. Goal 2 was never built: while A is on, the orchestrating agent thread
+stays on A and only headed Slicer GUI testing runs on B, visible on B's GNOME
+desktop (operator watches through Remmina RDP of B), with results returned to
+A so A's development continues without its screen being taken over. Operator
+wording (7 October): "just perform slicer GUI testing on system B while agent
+runs in system A".
+
+**Gap evidence:** every B runtime so far was started by a B-hosted thread; the
+only remote command, `ssh dentobot-b 'dentobot smoke --run'`, uses private
+Xvfb. T3 Device hub/Device hosts manage iOS Simulators/Android Emulators only
+(`device_list`/`device_open` contract), so they cannot stream a Linux Slicer
+window. A Claude B-local headed fixture run at `ab6953e` passed its test logic
+(six stages, save/reopen) but its ffmpeg `x11grab` of rootless Xwayland `:0`
+recorded black frames, so on-screen visibility is unproven; it does not count
+as Goal 2 evidence.
+
+**Contract (design pending; not yet implemented):**
+
+- Outcome: from an A-hosted thread, one command or dispatched B turn runs a
+  pinned-SHA headed Slicer session on B's GNOME `:0`, visible in Remmina, and
+  returns verdict JSON, screenshots and logs to A.
+- Candidate building blocks: existing `dentobot launch`/smoke/fixture harness
+  over SSH; Slicer 5.10 built-in WebServer module (present in image
+  `33a9e1e`) bound to container localhost and reached from A only through an
+  SSH tunnel, for screenshots and driven steps; native T3 `thread.turn.start`
+  to a B-hosted thread as the alternative dispatch route.
+- Invariants: B runs only an origin-published SHA that A names; parity check
+  first; serialized runtime ownership and existing cleanup checks; scoped
+  `xhost` grant revoked afterwards; no MoveIt motion or hardware; WebServer
+  exec never exposed beyond loopback/SSH.
+- Acceptance: operator sees the B Slicer window in Remmina during an
+  A-initiated run, and A receives the PASS/FAIL result plus screenshots without
+  A's display being used. Screen evidence must come from a Wayland-capable
+  capture or Slicer's own screenshots, not `x11grab` of `:0`.
+
 ## 8 October — `PLAT-U-07` bounded A/B handoff closeout
 
 **Completed subgate — native T3/Git A→B→A handoff:** original helper,
