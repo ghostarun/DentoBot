@@ -238,5 +238,29 @@
   {
     "path": "Slicer_Saved/SampleCBCT/Oct6-multitarget/dentobot-case_5tooth-sample-final_fdi11-14-31-34-42.dentocase",
     "sha256": "be58b2431c4829c3101a2dd732c3dcfde823013461a399b0e9f071f0f34f7e54"
+  },
+  {
+    "path": "SlicerEndoPlanner-main/PulpChamberOpenPlanning/PulpChamberOpenPlanning.py",
+    "sha256": "14cd2e2f2d0f332ef44c9e097ea4bc838223645463631b08c37e11605efabf97"
+  },
+  {
+    "path": "SlicerEndoPlanner-main/PulpChamberOpenPlanning/CMakeLists.txt",
+    "sha256": "1211522e97cb1437ba0522c4c4d4788609706923e50cc94e99ccc3946188ef93"
+  },
+  {
+    "path": "SlicerEndoPlanner-main/PulpChamberOpenPlanning/Testing/CMakeLists.txt",
+    "sha256": "d9c3bfc88caed927945007b50e9c5e271f84110b5dd9341eb4ea6e7089bcd713"
+  },
+  {
+    "path": "SlicerEndoPlanner-main/PulpChamberOpenPlanning/Testing/Python/CMakeLists.txt",
+    "sha256": "4aeb38df4a301834206ede95b527340b600c5ddc1613e10a2068828742a60ede"
+  },
+  {
+    "path": "SlicerEndoPlanner-main/PulpChamberOpenPlanning/Resources/Icons/PulpChamberOpenPlanning.png",
+    "sha256": "c5dce7789a327ea75fa2740873d2f6aa3f49cf2b22106daa1763730ff34b2ef0"
+  },
+  {
+    "path": "SlicerEndoPlanner-main/PulpChamberOpenPlanning/Resources/UI/PulpChamberOpenPlanning.ui",
+    "sha256": "1a57cf696ec5802d0e8fb704fb9e98435345a26d1cf15d404431701efc956b0c"
   }
 ]

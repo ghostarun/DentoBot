@@ -459,6 +459,36 @@ class CaseValidationLogicMixin:
             raise CaseBundleError("No validated registry migration matches this package.")
         return parse_trajectory_registry(migration[1]), False
 
+    def _caseBundleNodeRecordForAudit(self, record, expectedRegistry, *, postHydration):
+        """Translate only a trajectory fingerprint proved by legacy migration."""
+        attributes = record.get("attributes", {})
+        fingerprintKey = self.REGISTRY_TRAJECTORY_FINGERPRINT_ATTRIBUTE
+        if (not postHydration or not isinstance(expectedRegistry, dict)
+                or REGISTRY_PROVENANCE_FRAME_KEY in expectedRegistry
+                or fingerprintKey not in attributes):
+            return record
+        migrated, _ = self._caseBundleRegistryForAudit(expectedRegistry, postHydration=True)
+        trajectoryId = attributes.get(self.REGISTRY_TRAJECTORY_ID_ATTRIBUTE)
+
+        def slots(registry):
+            return [slot for tooth in registry["teeth"].values()
+                    for slot in tooth["trajectory_set"]["slots"]
+                    if trajectoryId and slot.get("trajectory_id") == trajectoryId]
+
+        before, after = slots(expectedRegistry), slots(migrated)
+        if (len(before) != 1 or len(after) != 1
+                or attributes[fingerprintKey] != before[0].get("trajectory_fingerprint")
+                or record.get("id") != before[0].get("trajectory_node_id")
+                or attributes.get(self.REGISTRY_TARGET_ID_ATTRIBUTE) != before[0].get("target_id")
+                or attributes.get(self.REGISTRY_TRAJECTORY_SLOT_ATTRIBUTE) != str(before[0].get("slot"))
+                or after[0].get("target_id") != before[0].get("target_id")
+                or after[0].get("slot") != before[0].get("slot")
+                or not after[0].get("trajectory_fingerprint")):
+            raise CaseBundleError("Trajectory lineage does not match the validated registry migration.")
+        result = copy.deepcopy(record)
+        result["attributes"][fingerprintKey] = after[0]["trajectory_fingerprint"]
+        return result
+
     def validateLoadedCaseBundleWorkflow(
         self,
         parameterNode,
@@ -481,6 +511,13 @@ class CaseValidationLogicMixin:
             )
         if str(expected.get("caseLabel") or "") != str(parameterNode.caseName or ""):
             raise CaseBundleError(_("The loaded case label does not match the manifest."))
+        expectedStep6 = expected.get("step6")
+        if not isinstance(expectedStep6, dict):
+            raise CaseBundleError(_("The Step 6 package-lineage record is invalid."))
+        registryForAudit, legacyProvenance = self._caseBundleRegistryForAudit(
+            expectedStep6.get("trajectoryRegistry"),
+            postHydration=allowDerivedEnvironmentMismatch,
+        )
         expectedRecords = expected.get("nodes")
         if not isinstance(expectedRecords, list):
             raise CaseBundleError(_("The workflow-lineage node inventory is invalid."))
@@ -498,7 +535,10 @@ class CaseValidationLogicMixin:
             actualRecord = self._caseBundleNodeRecord(fieldName, node)
             # MRML IDs are recorded for traceability but may be remapped when a
             # process-owned singleton is retained across scene replacement.
-            expectedComparable = dict(expectedRecord)
+            expectedComparable = dict(self._caseBundleNodeRecordForAudit(
+                expectedRecord, expectedStep6.get("trajectoryRegistry"),
+                postHydration=allowDerivedEnvironmentMismatch,
+            ))
             actualComparable = dict(actualRecord)
             expectedComparable.pop("id", None)
             actualComparable.pop("id", None)
@@ -528,13 +568,6 @@ class CaseValidationLogicMixin:
                         "%1", mismatchField
                     )
                 )
-        expectedStep6 = expected.get("step6")
-        if not isinstance(expectedStep6, dict):
-            raise CaseBundleError(_("The Step 6 package-lineage record is invalid."))
-        registryForAudit, legacyProvenance = self._caseBundleRegistryForAudit(
-            expectedStep6.get("trajectoryRegistry"),
-            postHydration=allowDerivedEnvironmentMismatch,
-        )
         currentStep6 = self._caseBundleWorkflowSummary(
             parameterNode, legacyProvenance=legacyProvenance
         )["step6"]

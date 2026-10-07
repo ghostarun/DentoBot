@@ -7629,3 +7629,8 @@ Restore investigation: use the actual protected application barrier and case wri
 ### 8 October — legacy restore audit before readiness
 
 The specifically approved instrumented B run proved that legacy integrity initially matches, then derived readiness synchronizes current provenance before comparison. Defer readiness only in the private legacy audit summary; retain strict identity/geometry/registry comparisons and the public save-summary contract. No fixture edit, stale-to-valid promotion, ROS connection or safety relaxation. Regression11 PASS; matrix785 PASS plus two recorded baseline failures. The diagnostic did not reach save/reopen; further runtime requires new operator direction after the retry ceiling.
+
+
+### 8 October — post-hydration trajectory provenance proof
+
+The authorized corrected run passed legacy pre-bind validation and migrated branches as Current, then rejected the expected node-fingerprint provenance change. Translate only that one derived attribute using the exact frozen original/migrated registry proof, matching original trajectory/target/slot/node trace identity; retain every geometric check. Host52 checks PASS and required pure matrix791 PASS/two baseline shell failures; no runtime acceptance yet. A/B data parity also includes the six external EndoPlanner source/resources (66total datafiles). Normalize A's GPU override to the versioned CUDA profile, preserving its original file, and keep unmodeled overrides blocked.

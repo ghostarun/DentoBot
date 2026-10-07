@@ -2983,3 +2983,8 @@ The known-transform case still fails initial strict pre-bind branch revision val
 ### S6-FRAME-SYNC-01 / PLAT-U-07 — 8 October instrumented follow-up
 
 The operator-approved single diagnostic finished: initial legacy registry exactly matches, then summary readiness performs a second current-provenance sync before comparison. MRML IDs unchanged. Implemented deferred readiness during the private legacy integrity audit; regression11 PASS and pure-profile union785 PASS with two historical shell failures. Runtime/save-reopen remain NOT ACCEPTED, zero stages, full cleanup PASS. Evidence and approval boundary: logbook2026-10-08 instrumented restore section. Prepared corrected bounded offline case execution requires new operator direction; independent A/B source and runtime parity synchronization continues.
+
+
+### S6-FRAME-SYNC-01 — corrected run result, 8 October
+
+One newly authorized corrected B execution passed initial legacy validation and hydration, then stopped at the migrated trajectory-node fingerprint comparison. Implemented frozen-migration-backed expected fingerprint translation only, with identity/geometry strict. Focus52PASS; matrix791PASS/two baseline failures. Zero runtime stages/save-reopen still NOT_RUN; cleanupPASS. All earlier failures preserved. Corrected source must be synchronized and a new bounded case execution separately authorized; full-case, MoveIt and operator acceptance remain open.

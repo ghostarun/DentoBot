@@ -326,7 +326,14 @@ def run_preflight(args, environ: dict[str, str] | None = None) -> dict:
     required = launcher.is_file() and compose.is_file() and module.is_dir()
     ck("required_files", required, "launcher, compose file, and DENTOWorkflow directory are present" if required else
        "required launcher, compose file, or DENTOWorkflow directory is missing")
-    ck("compose_override", not override.exists(), "no compose override is active" if not override.exists() else
+    managed_cuda_override = (
+        override.is_symlink()
+        and override.resolve() == (repo / "Workspace/compose.cuda.yaml").resolve()
+        and override.is_file()
+    )
+    ck("compose_override", not override.exists() or managed_cuda_override,
+       "versioned CUDA override selected" if managed_cuda_override else
+       "no compose override is active" if not override.exists() else
        "compose.override.yaml is not modeled by this preflight")
     file_values, config_errors = parse_env_file(workspace / ".dentobot.env")
     config_exists = (workspace / ".dentobot.env").is_file()

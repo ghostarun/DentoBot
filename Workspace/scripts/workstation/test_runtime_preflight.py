@@ -237,6 +237,16 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertEqual(checks["container_mounts"]["status"], "blocked")
         self.assertFalse(result["preflight_passed"])
 
+    def test_versioned_cuda_override_symlink_is_supported(self):
+        cuda = self.fixture["repo"] / "Workspace/compose.cuda.yaml"
+        cuda.write_text("services: {}\n")
+        git(self.fixture["repo"], "add", str(cuda))
+        git(self.fixture["repo"], "commit", "-m", "CUDA fixture")
+        self.fixture["args"].expected_sha = git(self.fixture["repo"], "rev-parse", "HEAD")
+        (self.fixture["workspace"] / "compose.override.yaml").symlink_to(cuda)
+        result, _ = self.run_mocked()
+        self.assertTrue(result["preflight_passed"], result["checks"])
+
     def test_workspace_compose_override_is_blocked(self):
         (self.fixture["workspace"] / "compose.override.yaml").write_text("services: {}\n")
         result, _ = self.run_mocked()

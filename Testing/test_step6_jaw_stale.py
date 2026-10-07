@@ -392,3 +392,69 @@ def test_case_summary_does_not_migrate_legacy_registry_during_integrity_audit(le
     assert calls == ([("sync", True)] if legacy
                      else [("sync", False), ("freshness",)])
     assert summary["freshnessIssuesAtSave"] == (None if legacy else ["not ready"])
+
+
+def _migration_node_audit_fixture():
+    import copy
+    path = LOGIC / "logic_case_validation.py"
+    tree = ast.parse(path.read_text())
+    methods = [n for cls in tree.body if isinstance(cls, ast.ClassDef)
+               for n in cls.body if isinstance(n, ast.FunctionDef)
+               and n.name in {"_caseBundleRegistryForAudit", "_caseBundleNodeRecordForAudit"}]
+    namespace = {"copy": copy, "REGISTRY_PROVENANCE_FRAME_KEY": state.REGISTRY_PROVENANCE_FRAME_KEY,
+                 "canonical_json": state.canonical_json,
+                 "parse_trajectory_registry": state.parse_trajectory_registry,
+                 "CaseBundleError": ValueError}
+    module = ast.fix_missing_locations(ast.Module(body=methods, type_ignores=[]))
+    exec(compile(module, str(path), "exec"), namespace)
+    legacy = state.empty_trajectory_registry()
+    legacy.pop(state.REGISTRY_PROVENANCE_FRAME_KEY)
+    tooth = legacy["teeth"]["FDI11"]
+    tooth["target_id"] = "target-11"
+    tooth["segment_id"] = "segment-11"
+    tooth["trajectory_set"]["slots"][0].update(
+        trajectory_id="trajectory-11", target_id="target-11", state="Current",
+        trajectory_node_id="line-11", trajectory_fingerprint="old-world-fingerprint")
+    migrated = copy.deepcopy(legacy)
+    migrated[state.REGISTRY_PROVENANCE_FRAME_KEY] = state.REGISTRY_PROVENANCE_FRAME
+    migrated["teeth"]["FDI11"]["trajectory_set"]["slots"][0]["trajectory_fingerprint"] = "new-jaw-fingerprint"
+    logic = SimpleNamespace(
+        REGISTRY_TRAJECTORY_FINGERPRINT_ATTRIBUTE="fingerprint",
+        REGISTRY_TRAJECTORY_ID_ATTRIBUTE="trajectory_id",
+        REGISTRY_TARGET_ID_ATTRIBUTE="target_id",
+        REGISTRY_TRAJECTORY_SLOT_ATTRIBUTE="slot",
+        _caseBundleRegistryMigrationAudit=(state.canonical_json(legacy), state.canonical_json(migrated)),
+    )
+    logic._caseBundleRegistryForAudit = lambda *a, **kw: namespace["_caseBundleRegistryForAudit"](logic, *a, **kw)
+    record = {"field": "trajectoryLine", "id": "line-11",
+              "controlPointsWorldRasMm": [[1, 2, 3], [4, 5, 6]],
+              "attributes": {"fingerprint": "old-world-fingerprint", "trajectory_id": "trajectory-11",
+                             "target_id": "target-11", "slot": "1", "unrelated": "unchanged"}}
+    audit = lambda value, **kw: namespace["_caseBundleNodeRecordForAudit"](logic, value, legacy, **kw)
+    return logic, record, audit
+
+
+def test_node_audit_translates_only_frozen_validated_trajectory_fingerprint():
+    import copy
+    logic, record, audit = _migration_node_audit_fixture()
+    original = copy.deepcopy(record)
+    assert audit(record, postHydration=False) is record
+    expected = copy.deepcopy(record)
+    expected["attributes"]["fingerprint"] = "new-jaw-fingerprint"
+    assert audit(record, postHydration=True) == expected
+    assert record == original
+    logic._caseBundleRegistryMigrationAudit = None
+    with pytest.raises(ValueError, match="No validated registry migration"):
+        audit(record, postHydration=True)
+
+
+@pytest.mark.parametrize("field,value", [("fingerprint", "tampered"), ("trajectory_id", "other"),
+                                         ("target_id", "other"), ("slot", "2"), ("id", "other")])
+def test_node_audit_rejects_changed_legacy_lineage(field, value):
+    _logic, record, audit = _migration_node_audit_fixture()
+    if field == "id":
+        record[field] = value
+    else:
+        record["attributes"][field] = value
+    with pytest.raises(ValueError, match="Trajectory lineage does not match"):
+        audit(record, postHydration=True)

@@ -46,3 +46,13 @@ ssh dentobot-b '~/.local/bin/dentobot smoke --run'
 ```
 
 The five-reload smoke uses private Xvfb and recording. It requires clean pinned source, common runtime parity, stopped configured container, no existing runtime owners and exclusive locks. It never starts MoveIt or hardware. Case/frame/save-reopen evidence is a distinct bounded campaign. Artifacts are dated under `data/dentobot-runs`. A may go offline once destination Git, required case/runtime checks and destination thread ownership are confirmed; a Git-ready handoff alone does not establish runtime or conversation continuity.
+
+For A desktop checks over SSH, the current session uses the GDM Xauthority file:
+
+```bash
+ssh dentobot-a 'PATH="$HOME/.local/bin:$PATH" ~/.local/bin/dentobot check --display :0 --xauthority /run/user/1000/gdm/Xauthority'
+```
+
+Authentication paths may change after logging out. A's GPU override points to the selected checkout's versioned `Workspace/compose.cuda.yaml`; other local overrides are refused by preflight. Both data locks now include EndoPlanner source/resources.
+
+The lock describes installed runtime bytes. The ordinary Slicer launcher currently rebuilds native/robot packages; after an intentional rebuild, inspect and refresh the shared runtime snapshot before handing off. A passing Git handoff does not automatically distribute new native binaries or accept case save/reopen.
