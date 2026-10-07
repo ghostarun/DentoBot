@@ -336,3 +336,59 @@ def test_case_registry_audit_preserves_legacy_and_requires_matching_migration():
     returned, _ = audit(logic, legacy, postHydration=True)
     returned["selected_branch_id"] = "changed-after-hydration"
     assert audit(logic, legacy, postHydration=True) == (migrated, False)
+
+
+@pytest.mark.parametrize("legacy", [True, False])
+def test_case_summary_does_not_migrate_legacy_registry_during_integrity_audit(legacy):
+    path = LOGIC / "logic_case_validation.py"
+    tree = ast.parse(path.read_text())
+    method = next(n for cls in tree.body if isinstance(cls, ast.ClassDef)
+                  for n in cls.body if isinstance(n, ast.FunctionDef)
+                  and n.name == "_caseBundleWorkflowSummary")
+    namespace = {"json": json, "DENTOCASE_STATE_SCHEMA_VERSION": "3.0"}
+    module = ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[]))
+    exec(compile(module, str(path), "exec"), namespace)
+
+    class Parameter:
+        teethSegmentation = None
+        dentoCaseSchemaVersion = "3.0"
+        step6TrajectoryRegistryJson = ""
+
+        def __getattr__(self, name):
+            return "" if name.endswith("Json") else 0
+
+    parameter = Parameter()
+    fields = next(n.value for n in method.body if isinstance(n, ast.Assign)
+                  and any(isinstance(t, ast.Name) and t.id == "fields" for t in n.targets))
+    for field in ast.literal_eval(fields):
+        setattr(parameter, field, None)
+    registry = state.empty_trajectory_registry()
+    if legacy:
+        registry.pop(state.REGISTRY_PROVENANCE_FRAME_KEY)
+    calls = []
+
+    def sync(node, *, legacyProvenance=False):
+        calls.append(("sync", legacyProvenance))
+        node.step6TrajectoryRegistryJson = state.canonical_json(registry)
+        return registry
+
+    def freshness(node):
+        calls.append(("freshness",))
+        # Reproduce the production readiness helper's current-provenance sync.
+        node.step6TrajectoryRegistryJson = state.canonical_json(state.empty_trajectory_registry())
+        return ["not ready"]
+
+    logic = SimpleNamespace(
+        evaluateCaseFoundationEligibility=lambda node: {
+            "pose": {"eligible": False}, "base": {"eligible": False}},
+        syncDentoCaseTrajectoryRegistry=sync,
+        robotBaseFingerprint=lambda node: "",
+        isStep6CaseJawTransformNode=lambda node: False,
+        step6PlanningContextFreshnessIssues=freshness,
+    )
+    summary = namespace["_caseBundleWorkflowSummary"](
+        logic, parameter, legacyProvenance=legacy)["step6"]
+    assert summary["trajectoryRegistry"] == registry
+    assert calls == ([("sync", True)] if legacy
+                     else [("sync", False), ("freshness",)])
+    assert summary["freshnessIssuesAtSave"] == (None if legacy else ["not ready"])

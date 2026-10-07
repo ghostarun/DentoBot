@@ -312,8 +312,12 @@ class CaseValidationLogicMixin:
                     "trajectoryOpacity": float(parameterNode.step6TrajectoryOpacity),
                     "foreheadProxyOpacity": float(parameterNode.step6ForeheadProxyOpacity),
                 },
-                "freshnessIssuesAtSave": self.step6PlanningContextFreshnessIssues(
-                    parameterNode
+                # Legacy integrity must finish before readiness evaluation,
+                # which synchronizes the registry using current provenance.
+                # This derived field is excluded from the lineage comparison.
+                "freshnessIssuesAtSave": (
+                    None if legacyProvenance
+                    else self.step6PlanningContextFreshnessIssues(parameterNode)
                 ),
                 "runtimeRestorePolicy": "never-auto-connect",
                 "environment": (
