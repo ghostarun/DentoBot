@@ -2,7 +2,17 @@
 
 ## 7 October — `S6-FRAME-SYNC-01` Step B implementation contract
 
-**B continuation:** latest published A branch confirmed at a0733d2; B's frame
+**B isolated fixture runtime (latest):** A online, clean published a0733d2
+confirmed; recorded five-tooth SampleCBCT case copied with SHA256 parity and no
+serialized ROS nodes. Nine loaded code paths/hashes match. One native
+`test_DENTOWorkflowFrameSyncKnownTransforms` execution FAILS during hydration:
+`ValueError: guide set has no matching tooth target`. Zero transform stages
+ran. Actual Slicer1/launcher0, complete recording, stopped owned container/count0.
+No automatic retry or application/fixture mutation. Review protected production
+load/bind versus raw fixture load and saved target references; cause unproven.
+[Evidence](/home/light-tarun/dentobot/data/dentobot-runs/2026-10-07/S6-FRAME-SYNC-01-B-20261007T175644Z/fixture-20261007T180503Z/diagnostics.md).
+
+**Earlier B continuation (before A returned online):** latest published A branch confirmed at a0733d2; B's frame
 production/tests match exactly. `pure.frame_sync` **95PASS** on B (4.77s),
 owned container stopped/count0. Isolated known-transform runtime awaits the
 explicit approved runtime-free multi-branch fixture path; full case/runtime/operator

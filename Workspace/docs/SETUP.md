@@ -2181,3 +2181,15 @@ select/inspect the checkout; `smoke` prepares a fresh dated runtime plan and
 Existing checkouts are preserved; `use` explicitly re-pins after a checkpoint.
 Runbook: `/home/light-tarun/.t3/projects/iitm-thinkstation-repair/COMMANDS.md`.
 The commands do not establish cross-host image/data parity or operator acceptance.
+
+**A online synchronization (7 October):** SSH verified Legion checkout clean at
+a0733d2 on p0/jaw-frame-sync-2026-10-07. Installed `dentobot` entry/config on A
+and synchronized all five helper files to B's exact hashes; A config0600 selects
+its original checkout and local image ID. Prior A preflight preserved as
+`~/.local/share/dentobot-handoff/runtime_preflight-before-command-sync.py`.
+`dentobot status` verified on A; original source checkout untouched. The
+`from-a`/`to-a` shortcuts execute on B; A can invoke B's command over SSH.
+Copied only the recorded five-tooth SampleCBCT case into the dated B fixture
+run's `input/source.dentocase`; SHA256 matches A before/after transfer. No mirror,
+image replacement or cross-host native parity claim. Fixture runtime result is
+recorded in the 7 October logbook under S6-FRAME-SYNC-01.

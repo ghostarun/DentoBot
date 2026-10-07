@@ -7601,3 +7601,18 @@ CLI. Reuse the production menu and pinned B image; no case, MoveIt, build or
 hardware scope is added. Source identity and separate Slicer/launcher exits,
 recording integrity and owned teardown are required. Source commit and runtime
 evidence do not imply Git publication, A/B parity or operator acceptance.
+
+## 2026-10-07 — A online / B isolated frame fixture continuation
+
+Operator reports A online after explicitly requesting latest P0 source testing
+on B. SSH verifies clean a0733d2. Agent uses the recorded SampleCBCT five-tooth
+campaign bundle (five Current branches, serialized ROS false), copied individually
+with checksum/source-stability verification; no private/raw folder mirror.
+Reuse existing B runtime ownership/locks and the specific offline known-transform
+test, preserving A's primary checkout and both local image pins. Installed
+command helpers synchronized by hashes; no source/native build/guard/schema
+change. One fixture execution fails during hydration before any transform stage;
+retain actual Slicer1 separately from launcher0. Stop the runtime path at its
+first unresolved failure and saved GUI result; inspect protected production
+restore/bind versus raw fixture loading and saved references without inferring
+a cause, acceptance or automatic retry. Evidence: 7 October logbook.
