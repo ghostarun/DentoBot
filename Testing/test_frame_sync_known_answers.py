@@ -33,5 +33,37 @@ def test_runtime_regression_requires_fixture_and_includes_each_known_edit():
         assert label in source
     assert 'canonicalTrajectoryGeometry' in source
     assert 'activateDentoCasePreparedBranch' in source
-    assert 'saveScene' in source and 'loadScene' in source
+    assert '_createCaseBundle' in source and 'restore_offline_scene' in source
     assert 'syncStep6MoveItPlanningScene' not in source
+
+
+def test_restore_barrier_covers_load_hydration_and_releases_on_error(monkeypatch):
+    import pytest
+    events = []
+    parameter = object()
+    widget = SimpleNamespace(_parameterNode=parameter)
+    widget._beginCaseBundleRestore = lambda: events.append("begin") or 1
+    widget._endCaseBundleRestore = lambda generation: events.append(("end", generation))
+    widget._bindAndValidateRestoredCase = lambda workflow: events.append("bind")
+    widget.setParameterNode = lambda node: events.append("set_parameter")
+    widget._validateHydratedCaseBundle = lambda workflow: events.append("audit")
+    widget.logic = SimpleNamespace(
+        getParameterNode=lambda: parameter,
+        hydrateDentoCaseStateAfterLoad=lambda node, schema: events.append("hydrate"),
+    )
+    fake = SimpleNamespace(
+        util=SimpleNamespace(getModuleWidget=lambda name: widget,
+                             loadScene=lambda path, options: events.append("load") or True),
+        app=SimpleNamespace(processEvents=lambda: events.append("events")),
+    )
+    monkeypatch.setitem(sys.modules, "slicer", fake)
+    assert known.restore_offline_scene("fixture.mrb", {}, "3.0") == (widget.logic, parameter)
+    assert events == ["begin", "load", "bind", "set_parameter", "events", "hydrate", "audit", ("end", 1)]
+    def fail(node, schema):
+        raise ValueError("invalid registry")
+    widget.logic.hydrateDentoCaseStateAfterLoad = fail
+    events.clear()
+    with pytest.raises(ValueError, match="invalid registry"):
+        known.restore_offline_scene("fixture.mrb", {}, "3.0")
+    assert events[-1] == ("end", 1)
+    assert "audit" not in events

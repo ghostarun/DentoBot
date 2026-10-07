@@ -35,6 +35,26 @@ def source_to_base_rows(logic, parameter):
     return rows
 
 
+def restore_offline_scene(scene_path, workflow, schema_version):
+    """Use the application restore barrier and audits without auto-connecting ROS."""
+    import slicer
+
+    widget = slicer.util.getModuleWidget("DENTOWorkflow")
+    generation = widget._beginCaseBundleRestore()
+    try:
+        if not slicer.util.loadScene(str(scene_path), {"clear": True}):
+            raise ValueError("Could not load the explicitly supplied frame-sync fixture.")
+        widget._bindAndValidateRestoredCase(workflow)
+        widget.setParameterNode(widget.logic.getParameterNode())
+        slicer.app.processEvents()
+        parameter = widget._parameterNode
+        widget.logic.hydrateDentoCaseStateAfterLoad(parameter, schema_version)
+        widget._validateHydratedCaseBundle(workflow)
+        return widget.logic, parameter
+    finally:
+        widget._endCaseBundleRestore(generation)
+
+
 def run_known_answers(case_path, out_dir, logic_factory):
     """Load isolated approved fixture, apply known edits, save/reopen, retain results."""
     import slicer
@@ -44,10 +64,9 @@ def run_known_answers(case_path, out_dir, logic_factory):
 
     destination=Path(out_dir); destination.mkdir(parents=True,exist_ok=False)
     scene_path,inspection=extract_scene_mrb(case_path,destination/'fixture')
-    if not slicer.util.loadScene(str(scene_path), {'clear':True}):
-        raise ValueError('Could not load the explicitly supplied frame-sync fixture.')
-    logic=logic_factory(); parameter=logic.getParameterNode()
-    logic.hydrateDentoCaseStateAfterLoad(parameter,str(inspection.manifest['schemaVersion']))
+    logic, parameter = restore_offline_scene(
+        scene_path, inspection.workflow, str(inspection.manifest['schemaVersion'])
+    )
     registry=logic.syncDentoCaseTrajectoryRegistry(parameter)
     valid=[bid for bid in registry['prepared_branches']
            if logic.evaluatePreparedBranchEligibility(parameter,bid,registry=registry).get('eligible')]
@@ -98,11 +117,16 @@ def run_known_answers(case_path, out_dir, logic_factory):
     other=next(bid for bid in valid if bid!=lower[0])
     logic.activateDentoCasePreparedBranch(parameter,other);capture('branch_switch')
     logic.prepareDentoCaseSchema3ForSave(parameter)
-    saved=destination/'known-answers.mrb'
-    if not slicer.util.saveScene(str(saved)):raise AssertionError('Fixture save failed.')
-    if not slicer.util.loadScene(str(saved),{'clear':True}):raise AssertionError('Fixture reopen failed.')
-    logic=logic_factory();parameter=logic.getParameterNode()
-    logic.hydrateDentoCaseStateAfterLoad(parameter,str(inspection.manifest['schemaVersion']))
+    # Exercise the real bundle writer as well as protected reopening. The source
+    # fixture stays immutable; all save/restore output belongs to this run.
+    widget = slicer.util.getModuleWidget("DENTOWorkflow")
+    saved = destination / "known-answers.dentocase"
+    saved_inspection = widget._createCaseBundle(saved)
+    saved_scene, saved_inspection = extract_scene_mrb(saved, destination / "reopen")
+    logic, parameter = restore_offline_scene(
+        saved_scene, saved_inspection.workflow, str(saved_inspection.manifest['schemaVersion'])
+    )
+    base = parameter.robotBaseTransform
     selected=parse_trajectory_registry(parameter.step6TrajectoryRegistryJson)['selected_branch_id']
     if selected!=other:raise AssertionError('Selected branch changed across save/reopen.')
     capture('save_reopen')
