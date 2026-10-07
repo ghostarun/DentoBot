@@ -36,14 +36,6 @@
       "sha256": "b5dcf8205ba5ee505cd6a5fdf1a0f64185269b183fae8a38f19a68976e4f9530"
     },
     {
-      "path": "lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.py",
-      "sha256": "675e1d8d211b0d37bee05760b4bdab477f3215b703dd4a5219da7e3685a03537"
-    },
-    {
-      "path": "lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.pyc",
-      "sha256": "5d6a6f79ff692441c1b17cb327d018b8078ec4372ccf00afe279e5737f0e767f"
-    },
-    {
       "path": "lib/Slicer-5.10/qt-scripted-modules/Resources/Icons/ROS2MotionControl.png",
       "sha256": "1edce4b57159ae0995ad96f7f53629f21ba39fa379e7ca4461c42fe31be58ae4"
     },
@@ -666,6 +658,156 @@
     {
       "path": "dentobot_moveit_config/share/dentobot_moveit_config/package.zsh",
       "sha256": "e0583a1cebbb16be15aa8a3caadc0e7f514f6244f1cd531607799113354e7b1d"
+    }
+  ],
+  "ros_source_files": [
+    {
+      "path": "dentobot_description/CMakeLists.txt",
+      "sha256": "30d1526b8a256fd54bdf1729ff279548b511c4a78ee2417acd16f70de61987a8"
+    },
+    {
+      "path": "dentobot_description/README.md",
+      "sha256": "1562689161fbc3321357c3525bdff4647cb6e22f590d509753781869b4b4a2c9"
+    },
+    {
+      "path": "dentobot_description/launch/description.launch.py",
+      "sha256": "72a949ceb00714611d33ce07e55f1a1777475cbf3ed16496e560325aeaeff7f9"
+    },
+    {
+      "path": "dentobot_description/launch/manual.launch.py",
+      "sha256": "5109327023b06a9e7c0de55f506c4b1f35617ee47cde97163ec772b01562825e"
+    },
+    {
+      "path": "dentobot_description/meshes/Step 6 DENTO Robot burr.stl",
+      "sha256": "a44ee228ae2a4911d27ddec63a2f159aca3e5fdf1d47bf7793c96c8d65f9fed2"
+    },
+    {
+      "path": "dentobot_description/meshes/Step 6 DENTO Robot link-1.stl",
+      "sha256": "283490712ff8140bc79a02a6ed1de439433a9d8b48ffb470e75188b0119b047c"
+    },
+    {
+      "path": "dentobot_description/meshes/Step 6 DENTO Robot link-2.stl",
+      "sha256": "4b5ffb5a65c01017a32421cfde111a00a448ded0946d476a0c76aac644894f2f"
+    },
+    {
+      "path": "dentobot_description/meshes/Step 6 DENTO Robot link-3.stl",
+      "sha256": "62532433d23e4d6ffebc372ca5b28cde7e9f6c7c77e9552d8af425f69d0b9341"
+    },
+    {
+      "path": "dentobot_description/meshes/Step 6 DENTO Robot link-4.stl",
+      "sha256": "ef30ef7d0e2fccc10c3ca821c97d31d9776faed3c19e30774970ec5dbe5f55c2"
+    },
+    {
+      "path": "dentobot_description/meshes/Step 6 DENTO Robot link-5.stl",
+      "sha256": "91b4a74ccd92b85faa4b1b7879df0610e87d358165b7da25cd7d4ab2aeff9458"
+    },
+    {
+      "path": "dentobot_description/meshes/Step 6 DENTO Robot pneumatic_spindle-Copy.stl",
+      "sha256": "81035cc9d09d65db4079f748698d59857ba93cb6519a336a82643af3f73a0558"
+    },
+    {
+      "path": "dentobot_description/meshes/burr.stl",
+      "sha256": "7ed794505b0440aed9092ac6a5522a9235e078410f6e5d43ba161b3c2768a51b"
+    },
+    {
+      "path": "dentobot_description/meshes/burr_simulation_1mm.stl",
+      "sha256": "469c4ddc223253c534488fd00b4e31727a8ee6ffcb2be3be87c358b92a968cec"
+    },
+    {
+      "path": "dentobot_description/meshes/link-1.stl",
+      "sha256": "a71a9bc70fd0562da915e06b84c8cec7fe827191da34e4d93156e7fed1484353"
+    },
+    {
+      "path": "dentobot_description/meshes/link-2.stl",
+      "sha256": "2b72f4d2b09e00a7461fca00870f396904bdfe41c868fc92b733ccfdc7911c97"
+    },
+    {
+      "path": "dentobot_description/meshes/link-3.stl",
+      "sha256": "5d691e382dc6c9a4e855e4536665e00ceac4e120737321d0ccc9a2225d992219"
+    },
+    {
+      "path": "dentobot_description/meshes/link-4.stl",
+      "sha256": "d720fdc8a2a8e50828a010c5e5d789ad5f4aa5095411e95fbdbf2eedbd31bb24"
+    },
+    {
+      "path": "dentobot_description/meshes/link-5.stl",
+      "sha256": "7c81574d081316358cd6fc94b5d7e9d2534b7883971cfb8c1dacaf53a5e67d25"
+    },
+    {
+      "path": "dentobot_description/meshes/pneumatic_spindle-Copy.stl",
+      "sha256": "85c45db85a70a4eb2ab568d300348d05af715608f5c046aaf4c3000d1bc478fb"
+    },
+    {
+      "path": "dentobot_description/package.xml",
+      "sha256": "b30317bc82d0f974ca366f85aafd22931f93e74262fc06816021e08f64bc9f19"
+    },
+    {
+      "path": "dentobot_description/rviz/dentobot_description.rviz",
+      "sha256": "9a7ac07af15cb879f26256f8fbee47b27d51de2e5cd5cd422cbf3e81a0ff2257"
+    },
+    {
+      "path": "dentobot_description/scripts/manual_joint_state_publisher.py",
+      "sha256": "458b883620857b887a7bf9615dea473bc92bb29f73ec1a0336e10c67b1b47dd9"
+    },
+    {
+      "path": "dentobot_description/scripts/neutral_joint_state_publisher.py",
+      "sha256": "c88b701b0f344174d8246a78bdb7729e31351b086b6cfe4e81f488d4b0f308a8"
+    },
+    {
+      "path": "dentobot_description/scripts/simulation_status_publisher.py",
+      "sha256": "c6783b3c4ce757f709cce411449baacbb765f0e47c0958ea7798c903db822a79"
+    },
+    {
+      "path": "dentobot_description/scripts/slicer_joint_state_publisher.py",
+      "sha256": "b39feae856f9d1c9a7f517aba15a7b15d35ae485470f7cc3969e47c4bbfa15ed"
+    },
+    {
+      "path": "dentobot_description/test/runtime_kinematics_probe.py",
+      "sha256": "5ec6c940049dfe2d88bab08a1f4e79329048f259cb080f722e40ff7b5fc774bb"
+    },
+    {
+      "path": "dentobot_description/test/test_description.py",
+      "sha256": "b402f10cdf2563944d4af24b043d5d05587713f2272980ee6590cd5625a30e2c"
+    },
+    {
+      "path": "dentobot_description/urdf/dentobot.diagnostic-no-spindle-collision.urdf",
+      "sha256": "980192c3d4239876ad31948671117acc368816317a814d9433db4c101f0b6995"
+    },
+    {
+      "path": "dentobot_description/urdf/dentobot.urdf",
+      "sha256": "3638f919e5a853b1c72d851f8bf61d4aaff8942aaa767c476face0108daedf8a"
+    },
+    {
+      "path": "dentobot_moveit_config/CMakeLists.txt",
+      "sha256": "d4d200376a13e1345e2e9bd7f9e633b2099169d56efb3457e37229aa99ff6c2e"
+    },
+    {
+      "path": "dentobot_moveit_config/config/dentobot.srdf",
+      "sha256": "11d5151bb89e5530a488ec5d4ee3035e71215d30884f2b04e3919db61a8f4d71"
+    },
+    {
+      "path": "dentobot_moveit_config/config/joint_limits.yaml",
+      "sha256": "7ae207ef5c86337b369dad9b20d23bc295af7952a2ee15b651d514248ecf13f3"
+    },
+    {
+      "path": "dentobot_moveit_config/config/kinematics.yaml",
+      "sha256": "a5d4cbd78751dfce3b947f30780cc3a78c68798de54daeb8be1f38a0454678e9"
+    },
+    {
+      "path": "dentobot_moveit_config/config/ompl_planning.yaml",
+      "sha256": "9acb46e12a30dcf198d2fe415f10446b8f340fe57b9051de7a9ad91cbab5e7b3"
+    },
+    {
+      "path": "dentobot_moveit_config/launch/simulation.launch.py",
+      "sha256": "549c63b9a791aac8d2cb1785aa7e42b72eb2a27caddef3aa0f704d142bbe7eeb"
+    },
+    {
+      "path": "dentobot_moveit_config/package.xml",
+      "sha256": "a670f3b13f1febf2fda9050c95270e00a8c9ca343e30573830de535387a09b4b"
+    },
+    {
+      "path": "dentobot_moveit_config/src/collision_guard.cpp",
+      "sha256": "c296201c06261a560f05f5f11bcd28ba4298e6b085ebf6d8f8f60993cd59f5f4"
     }
   ]
 }

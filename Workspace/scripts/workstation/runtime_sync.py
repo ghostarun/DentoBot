@@ -80,12 +80,13 @@ def _load_manifest(path: Path) -> tuple[dict | None, str | None]:
         native_files = _entries(raw.get("native_files"), "native_files")
         data_files = _entries(raw.get("data_files"), "data_files")
         ros_files = _entries(raw["ros_files"], "ros_files") if "ros_files" in raw else None
+        ros_source_files = _entries(raw["ros_source_files"], "ros_source_files") if "ros_source_files" in raw else None
     except ValueError as exc:
         return None, str(exc)
     return {
         "image_id": image_id.lower(), "image_name": image_name,
         "native_sha": native_sha.lower(), "native_files": native_files,
-        "data_files": data_files, "ros_files": ros_files,
+        "data_files": data_files, "ros_files": ros_files, "ros_source_files": ros_source_files,
     }, None
 
 
@@ -201,6 +202,8 @@ def parity(repo: str | Path) -> dict:
     checks["data_files"] = _hash_files(workspace / "data", manifest["data_files"])
     if manifest["ros_files"] is not None:
         checks["ros_files"] = _hash_files(workspace / "ros2_ws" / "install", manifest["ros_files"])
+    if manifest["ros_source_files"] is not None:
+        checks["ros_source_files"] = _hash_files(checkout, manifest["ros_source_files"])
     report["passed"] = all(check["passed"] for check in checks.values())
     return report
 

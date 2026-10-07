@@ -55,3 +55,27 @@ class CommandTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LaunchTests(unittest.TestCase):
+    def setUp(self):
+        CommandTests.setUp(self)
+        self.repo = Path(self.temp.name) / 'repo'
+        (self.repo / 'Workspace').mkdir(parents=True)
+        (self.repo / 'Workspace/runtime-lock.json').write_text('{}')
+        self.data['machines']['B']['repo'] = str(self.repo)
+        dentobot.write_config(self.config, self.data)
+
+    def test_launch_uses_selected_checkout_and_preserves_installed_runtime(self):
+        state = {'dirty': False, 'sha': 'a' * 40}
+        with patch.object(dentobot.handoff, 'collect', return_value=state), \
+             patch.object(dentobot.subprocess, 'run', return_value=type('Result', (), {'returncode': 0})()) as run:
+            self.assertEqual(dentobot.main([*self.args, 'launch', '--check-only']), 0)
+        self.assertEqual(run.call_args.args[0], ['bash', str(self.repo / 'Workspace/scripts/launch-dentoworkflow.bash'),
+                                                '--use-installed-runtime', '--check-only'])
+
+    def test_uncommitted_source_cannot_launch_as_a_pinned_checkpoint(self):
+        with patch.object(dentobot.handoff, 'collect', return_value={'dirty': True, 'sha': 'a' * 40}), \
+             patch.object(dentobot.subprocess, 'run') as run, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(dentobot.main([*self.args, 'launch']), 2)
+        run.assert_not_called()

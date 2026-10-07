@@ -68,6 +68,8 @@ def parser():
     case.add_argument("--to", choices=("A", "B"), required=True)
     case.add_argument("--replace", action="store_true", help="retain a backup before updating a different destination")
     commands.add_parser("open", help="open the selected checkout in the local T3 desktop")
+    launch = commands.add_parser("launch", help="launch the selected checkout using its verified installed runtime")
+    launch.add_argument("--check-only", action="store_true", help="run launcher checks without opening Slicer")
     smoke = commands.add_parser("smoke", help="prepare a fresh no-case smoke; --run executes it")
     smoke.add_argument("--expected-sha")
     smoke.add_argument("--image-id")
@@ -121,6 +123,17 @@ def main(argv=None):
             if not result["passed"]:
                 print(json.dumps(result, indent=2))
                 return 2
+        if args.command == "launch":
+            if not (Path(machine.repo) / "Workspace/runtime-lock.json").is_file():
+                raise RuntimeError("launch requires a versioned runtime lock")
+            state = handoff.collect(machine)
+            if state["dirty"] or state["sha"] != selected.get("expected_sha"):
+                raise RuntimeError("launch requires the clean selected checkpoint; commit then explicitly dentobot use")
+            command = ["bash", str(Path(machine.repo) / "Workspace/scripts/launch-dentoworkflow.bash"),
+                       "--use-installed-runtime"]
+            if args.check_only:
+                command.append("--check-only")
+            return subprocess.run(command, check=False).returncode
         if args.command in ("from-a", "to-a"):
             if active != "B":
                 raise RuntimeError("from-a/to-a shortcuts run on B; use dentobot-handoff on A")

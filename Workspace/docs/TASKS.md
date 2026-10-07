@@ -2993,3 +2993,8 @@ One newly authorized corrected B execution passed initial legacy validation and 
 ### S6-FRAME-SYNC-01 — shared callback barrier correction, 8 October
 
 The sixth specifically authorized actual case run stopped because UI callbacks migrated before hydration could record the legacy proof. Shared registry entrypoint now follows restore depth, permitting migration only inside validated hydration. Focus55PASS; matrix794PASS/two baseline shell failures. Runtime not accepted/save-reopen NOT_RUN. A/B environment, source5064165 and both desktop preflights PASS; command package14files identical. Next bounded case run must be explicitly approved, previous history retained.
+
+
+### S6-FRAME-SYNC-01 / PLAT-U-07 — representative offline runtime acceptance, 8 October
+
+The operator-approved63551f8 run PASS on B for initial legacy restore, baseline/opening/Base translation/Baseyaw/branch switch/actual save-reopen,18geometry rows, eleven loaded identities, immutable fixture, video checksum/decode and complete cleanup. New saved case checksum transferred to A. Original restore blocker is resolved for this supplied fixture. Full S6 MoveIt/kinematics/collision/case matrix and operator acceptance remain open; PLAT oversized Drive uploads are unchanged. Selected-checkout pinned launch/source-aware runtime lock integration is implemented and host-tested; finish its actual no-GUI launcher check and reload smoke, then publish final source/doc checkpoint and prove A/B/origin/command/runtime equality.

@@ -7639,3 +7639,8 @@ The authorized corrected run passed legacy pre-bind validation and migrated bran
 ### 8 October — share the restore barrier with registry callbacks
 
 The approved5064165 run established that queued readiness syncs migrate the registry before hydration captures its original form. Mirror widget restore depth into logic and preserve legacy semantics at the shared sync entrypoint until strict hydration authorizes exactly its migration call; close permission in finally. This protects every callback caller without per-control patches. Behavioral focus55PASS and matrix794PASS/two baseline failures; case runtime/save-reopen still pending. Repeated failures and individually consumed approvals remain recorded, not reset.
+
+
+### 8 October — representative restore/save-reopen accepted at software runtime level
+
+The specifically approved63551f8 B run passes six known-transform stages including real save/reopen, selected-branch persistence and strict identity/geometry audits, with Slicer0/launcher0 and complete owned cleanup. The original immutable case is unchanged; the new saved bundle was checksum-transferred to A. This bounded offline result does not accept MoveIt/full-case/physical/operator gates. New pinned launch mode reuses the verified installed packages and refuses existing owners; robot/MoveIt source hashes prevent hidden stale installs. Exclude native scripted-test autoload artifacts using retained backups, consistent with the existing production build policy; no shared image/native library change.

@@ -209,3 +209,24 @@ class RuntimeSyncTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SourceParityTests(unittest.TestCase):
+    setUp = RuntimeSyncTests.setUp
+    mocked_run = RuntimeSyncTests.mocked_run
+
+    def test_changed_robot_source_is_rejected_even_when_installed_files_match(self):
+        f = self.fixture
+        source = f['repo'] / 'dentobot_description' / 'robot.urdf'
+        source.parent.mkdir()
+        source.write_bytes(b'locked robot source')
+        f['lock']['ros_source_files'] = [{'path': 'dentobot_description/robot.urdf',
+                                         'sha256': sha(source.read_bytes())}]
+        f['lock_path'].write_text(json.dumps(f['lock']))
+        with mock.patch.object(runtime_sync.subprocess, 'run', side_effect=self.mocked_run):
+            self.assertTrue(runtime_sync.parity(f['repo'])['passed'])
+            source.write_bytes(b'changed robot source')
+            result = runtime_sync.parity(f['repo'])
+        self.assertFalse(result['passed'])
+        self.assertFalse(result['checks']['ros_source_files']['passed'])
+        self.assertTrue(result['checks']['ros_files']['passed'])

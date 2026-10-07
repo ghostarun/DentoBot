@@ -7,6 +7,7 @@ dentobot status
 dentobot parity
 dentobot check
 dentobot open
+dentobot launch
 ```
 
 `parity` checks the shared image ID, native source and installed libraries, installed robot/MoveIt resources, all pinned model weights and the approved immutable test bundle. `check` includes that gate and the existing source/backend/desktop preflight. Host CUDA versus CPU, username/display paths and cache telemetry remain host-specific. No container starts during these checks.
@@ -55,4 +56,6 @@ ssh dentobot-a 'PATH="$HOME/.local/bin:$PATH" ~/.local/bin/dentobot check --disp
 
 Authentication paths may change after logging out. A's GPU override points to the selected checkout's versioned `Workspace/compose.cuda.yaml`; other local overrides are refused by preflight. Both data locks now include EndoPlanner source/resources.
 
-The lock describes installed runtime bytes. The ordinary Slicer launcher currently rebuilds native/robot packages; after an intentional rebuild, inspect and refresh the shared runtime snapshot before handing off. A passing Git handoff does not automatically distribute new native binaries or accept case save/reopen.
+`dentobot launch` uses the selected clean checkpoint and verifies the lock before opening Slicer. It passes `--use-installed-runtime` to the existing launcher: no build, no stale-build deletion and no scripted-test removal. It refuses existing Slicer/MoveIt/recorder owners. Run it from a desktop terminal with the session display/authentication available. `dentobot launch --check-only` checks the launcher without opening Slicer, but may start/reconfigure the dedicated container; `dentobot check` remains read-only.
+
+The lock also pins robot/MoveIt source files, so edited ROS resources cannot silently use old installed files. For an intentional native/ROS build, use the existing launcher/build procedure without `--use-installed-runtime`, then explicitly distribute and repin the common installed runtime on both hosts before handoff. Python-only workflow development uses the installed runtime. Native scripted test autoload modules are retained in dated backups and excluded from the common production install, matching its `SLICER_ROS2_INSTALL_SCRIPTED_TESTS=OFF` policy.

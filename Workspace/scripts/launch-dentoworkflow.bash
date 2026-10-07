@@ -30,6 +30,7 @@ slicer_module_paths="${module_path}"
 backend_dependency_probe=""
 backend_dependency_label=""
 check_only=false
+use_installed_runtime=false
 print_backend_python=false
 diagnostic_no_spindle_collision=false
 render_probe_case=""
@@ -47,6 +48,8 @@ usage() {
     "Template: ${repository_root}/Workspace/.dentobot.env.example" \
     "Graphics: DENTOBOT_GRAPHICS_MODE=auto|mesa|wslg|nvidia" \
     "" \
+    "--use-installed-runtime" \
+    "              Verify the runtime lock and reuse installed packages without rebuilding." \
     "--check-only  Verify Compose, the backend, and module files without" \
     "              opening a GUI." \
     "--print-backend-python" \
@@ -73,6 +76,9 @@ done
 
 while (( $# > 0 )); do
   case "$1" in
+    --use-installed-runtime)
+      use_installed_runtime=true
+      ;;
     --check-only)
       check_only=true
       ;;
@@ -100,6 +106,21 @@ while (( $# > 0 )); do
   esac
   shift
 done
+
+if [[ ${use_installed_runtime} == true ]]; then
+  python3 "${repository_root}/Workspace/scripts/workstation/runtime_sync.py" \
+    --repo "${repository_root}"
+  PYTHONPATH="${repository_root}/Workspace/scripts/workstation${PYTHONPATH:+:${PYTHONPATH}}" \
+    python3 - <<'PY_RUNTIME_OWNERS'
+import subprocess
+import smoke_runtime
+smoke_runtime.assert_no_owners(container=False)
+state = subprocess.check_output(
+    ["docker", "inspect", "--format", "{{.State.Running}}", "dentobot-slicerros2"], text=True).strip()
+if state == "true":
+    smoke_runtime.assert_no_owners(container=True)
+PY_RUNTIME_OWNERS
+fi
 
 # --- checkout selection and shared build hygiene ---
 # All checkouts share ros2_ws/build and ros2_ws/install. A package build
@@ -253,7 +274,9 @@ if [[ ${choose_checkout} == true ]]; then
   if [[ ${selected_checkout} != "${repository_root}" || ${main_chosen} == true ]]; then
     printf 'Launching checkout %s\n' "${selected_checkout}"
     # Older checkouts' launchers lack the stale-build check; do it for them.
-    clear_stale_package_builds "${selected_checkout}"
+    if [[ ${use_installed_runtime} == false ]]; then
+      clear_stale_package_builds "${selected_checkout}"
+    fi
     exec bash "${selected_checkout}/Workspace/scripts/launch-dentoworkflow.bash" "${forward_args[@]}"
   fi
   printf 'Launching the current checkout %s\n' "${repository_root}"
@@ -853,31 +876,36 @@ fi
 if [[ ${graphics_mode} == "mesa" ]]; then
   docker exec "${container_name}" test -c "${render_device}"
 fi
-clear_stale_package_builds "${repository_root}"
-docker exec \
-  -e "DENTOBOT_CONTAINER_REPOSITORY_ROOT=${container_repository_root}" \
-  "${container_name}" bash -lc '
-  # A failed build must stop the launch, not run Slicer on stale packages.
-  set -euo pipefail
-  set +u
-  source /opt/ros/jazzy/setup.bash
-  set -u
-  python3 -c "import moveit_configs_utils"
-  command -v xacro >/dev/null
-  cd /workspace/ros2_ws
-  colcon build --symlink-install \
-    --base-paths \
-      "${DENTOBOT_CONTAINER_REPOSITORY_ROOT}/dentobot_description" \
-      "${DENTOBOT_CONTAINER_REPOSITORY_ROOT}/dentobot_moveit_config" \
-      /workspace/ros2_ws/src/slicer_ros2_module \
-    --packages-select dentobot_description dentobot_moveit_config slicer_ros2_module \
-    --cmake-args -DSLICER_ROS2_INSTALL_SCRIPTED_TESTS=OFF
-  test -d /workspace/ros2_ws/install/slicer_ros2_module
-  # Symlink installs do not remove modules omitted by a later configure.
-  rm -f \
-    /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.py \
-    /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.pyc
-'
+if [[ ${use_installed_runtime} == true ]]; then
+  printf 'Using checksum-verified installed ROS/native packages; no rebuild.\n'
+else
+  clear_stale_package_builds "${repository_root}"
+  docker exec \
+    -e "DENTOBOT_CONTAINER_REPOSITORY_ROOT=${container_repository_root}" \
+    "${container_name}" bash -lc '
+    # A failed build must stop the launch, not run Slicer on stale packages.
+    set -euo pipefail
+    set +u
+    source /opt/ros/jazzy/setup.bash
+    set -u
+    python3 -c "import moveit_configs_utils"
+    command -v xacro >/dev/null
+    cd /workspace/ros2_ws
+    colcon build --symlink-install \
+      --base-paths \
+        "${DENTOBOT_CONTAINER_REPOSITORY_ROOT}/dentobot_description" \
+        "${DENTOBOT_CONTAINER_REPOSITORY_ROOT}/dentobot_moveit_config" \
+        /workspace/ros2_ws/src/slicer_ros2_module \
+      --packages-select dentobot_description dentobot_moveit_config slicer_ros2_module \
+      --cmake-args -DSLICER_ROS2_INSTALL_SCRIPTED_TESTS=OFF
+    test -d /workspace/ros2_ws/install/slicer_ros2_module
+    # Symlink installs do not remove modules omitted by a later configure.
+    rm -f \
+      /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.py \
+      /workspace/ros2_ws/install/slicer_ros2_module/lib/Slicer-5.10/qt-scripted-modules/ROS2Tests.pyc
+  '
+fi
+
 container_slicer_priority="$(
   docker exec "${container_name}" printenv SLICER_BACKGROUND_THREAD_PRIORITY
 )"
