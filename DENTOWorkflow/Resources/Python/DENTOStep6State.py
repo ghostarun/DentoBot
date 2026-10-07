@@ -1614,6 +1614,41 @@ class CollisionSceneAudit:
         return result
 
 
+def redeliver_missing_collision_objects(
+    acknowledgement: Mapping[str, object],
+    published_ids,
+    republish,
+    acknowledge,
+    attempts: int = 2,
+) -> dict[str, object]:
+    """Re-send only published objects the guard's readback is missing or holds
+    stale (an ID named in a bounds/pose mismatch), then re-check.
+
+    /collision_object is reliable but keeps 10 samples, so a guard that falls
+    behind can lose some (2026-10-04: connect saw 32 of 34; each later re-sync
+    updated 33 of 34, leaving one tooth at its previous Base pose). Bounded; the
+    readback stays authoritative and a persistent mismatch is still returned.
+    """
+    result = dict(acknowledgement)
+    for _attempt in range(max(0, int(attempts))):
+        if result.get("status") == "Acknowledged":
+            break
+        observed = set(result.get("acknowledged_object_ids") or ())
+        mismatches = [str(item) for item in result.get("mismatches") or ()]
+        missing = sorted(
+            object_id for object_id in set(published_ids)
+            if object_id not in observed
+            or any(f" {object_id}:" in item or item.endswith(f" {object_id}") for item in mismatches)
+        )
+        if not missing:
+            break
+        for object_id in missing:
+            republish(object_id)
+        result = dict(acknowledge())
+        result["redelivered_object_ids"] = missing
+    return result
+
+
 def build_collision_scene_audit(
     *,
     status: str,

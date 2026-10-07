@@ -72,9 +72,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             candidate_valid = False
             matches = False
         allowed_review_statuses = (
-            {"review", "accepted", "configuration_saved"}
+            {"review", "accepted", "rejected", "configuration_saved"}
             if offline
-            else {"review", "accepted"}
+            else {"review", "accepted", "rejected"}
         )
         return {
             "group": bool(live_scene or offline or staged or setup_mode == "unknown"),
@@ -83,6 +83,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and success
                 and identity_current
                 and not staged
+                and not acceptance_uncertain
                 and acceptance_status in allowed_review_statuses
             ),
             "cancel": staged and not acceptance_uncertain,
@@ -434,7 +435,8 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 review_text += " Preserved Base acceptance failure evidence: " + str(failure)
             panel = getattr(self, "_robotSimulationPanel", None)
             if panel and hasattr(panel, "manualBaseReviewStatusLabel"):
-                panel.manualBaseReviewStatusLabel.text = review_text
+                note = getattr(self, "_basePlacementSearchNoteText", lambda: "")()
+                panel.manualBaseReviewStatusLabel.text = (note + " " if note else "") + review_text
                 panel.cancelManualBaseReviewButton.enabled = (
                     staged and not acceptance_unknown
                 )
@@ -771,7 +773,7 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and bool(getattr(task_home_review_result, "success", False))
                 and str(task_home_details.get("identityStatus") or "") == "current"
                 and str(task_home_details.get("acceptanceStatus") or "")
-                in {"review", "accepted", "configuration_saved"}
+                in {"review", "accepted", "rejected", "configuration_saved"}
                 and not task_home_details.get("acceptanceUncertainty")
                 and not getattr(self, "_workflowActionBusy", False)
             )
@@ -893,9 +895,6 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             )
             panel.showPlannerComparisonButton.enabled = bool(
                 str(self._parameterNode.step6PlannerComparisonJson or "").strip()
-            )
-            panel.applyTaskHomeButton.enabled = bool(
-                scene_prepared and ros2_active and home_ready
             )
             if panel._taskHomeSetupMode == "offline":
                 if panel._taskHomeConfigurationReady:
@@ -1041,6 +1040,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                     and offline_edit_ready
                     and not self._workflowActionBusy
                 )
+            self._updateTaskHomeDraftApplyUi(
+                task_home_live_scene, planning_anatomy_ready,
+                task_home_controls, facade_capabilities, task_home_review_result,
+            )
             phase_planning_ready = bool(
                 planning_anatomy_ready
                 and task_ready

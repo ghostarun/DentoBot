@@ -1,4 +1,33 @@
 # DENTOBOT Tasks
+
+## 4 October — S6-LIVE-01 cancelled collision-rejection recovery
+
+**Bounded contract:** Repair the reported inability to re-review Task Home
+after collision rejection in the saved Oct4 case, hot-reload Python and test in
+the same open headed Slicer. Latest operator authorization supersedes the
+older read-only/no-runtime boundary only for this defect. Preserve native/ROS
+ownership, exact five-joint/current-identity gates, geometry, strict collision
+policy, saved case and original draft. No plan/apply, robot motion or preview.
+
+**Implemented:** `widget_robot.py` now allows a new review after cancellation
+of a definitive rejection in connected/offline modes and keeps offline draft
+editing available. Staged rejected candidates still cannot be accepted;
+uncertain acceptance still blocks review/cancel and requires reconciliation.
+Failure evidence remains until explicit fresh staging. Regression added to
+`Testing/test_robot_manual_jog_ui.py`.
+
+**Unit Verified:** new regression fails on the original source; focused Home29
+PASS; both affected UI/facade suites242 PASS. **Runtime/Integration Verified:**
+real buttons in Slicer PID2071 exercise original-draft review/cancel, zero-pose
+strict collision rejection, Cancel → fresh Review, then restore the original
+draft. Loaded source hash matches host. ROS, accepted/monitored/displayed joints,
+Home JSON and case SHA are unchanged; no Home is saved. Same Slicer left open
+at6.2 with Review enabled. Evidence/commands: [logbook](logbook/2026-10-04.md).
+
+**Acceptance boundary:** recovery defect demonstrated; Tarun's verdict is not
+inferred. The actual mouth-barrier/spindle collision and broader valid-Home,
+continuity/full-cycle gates remain open under the existing backlog row.
+
 **30 September operator refresh gate:** Tarun directs that no further Step 6 implementation changes enter integration until they are fully implemented, tested and verified. Hold the existing incorporated `e7cd29f` checkpoint; do not merge later unfinished renovation checkpoints. This supersedes the earlier periodic unfinished-checkpoint refresh strategy for future transfers only. Resume source refresh from an identified completed/verified renovation commit with recorded evidence; then run delta-affected combined checks. Current integration-only capture evidence remains distinct; the inherited maintainability gate was subsequently closed on1October.
 
 
@@ -2146,6 +2175,28 @@ acceptance still requires a complete zero-exit whole-run recording. See the
 
 ### `PLAT-U-07` — Multi-workstation Git and saved-case exchange
 
+- **2026-10-03 destination launcher result:** Operator requested testing.
+  50 focused launcher/profile tests, syntax/self-check and real check-only
+  preflight PASS; all3packages built from the updated sources. Normal startup
+  passed simulation readiness and loaded DENTOWorkflow in a visible Slicer5.10
+  window with current native libraries. Left open for operator. Nonblocking
+  extensions-directory warning retained. Shutdown, cases/FPS/operator verdict
+  and full migration/cutover remain open; see today's logbook.
+
+- **2026-10-03 local source handoff:** Operator explicitly requested latest
+  progress as-is. Destination DentoBot `main` fast-forwarded
+  `0cc70f2` → `3997458` (94 commits); native source advanced
+  `17f9993` → release-pinned `ece3c42` on its published tracking branch.
+  The seven local September-30 controlled files were preserved in an
+  allowlisted Git stash and checksum-backed overlay backup before pulling.
+  New root launcher link installed by the non-overwriting bootstrap.
+  Source identity/parity inspection passed. At that source-only checkpoint,
+  compiled runtime was unverified; the subsequent launcher result above
+  verifies the three package builds and startup only. Cases, image parity,
+  source-station dirty work, operator verdict and primary-writer cutover remain
+  unverified. Migration and the distinct case-exchange obligation remain open;
+  evidence and preservation paths are in the 2026-10-03 logbook.
+
 - **Priority:** Unprioritized.
 - **Operator request:** Keep script development in the repository while
   exchanging the saved Slicer case work needed by multiple workstations.
@@ -2575,3 +2626,42 @@ Both T3 backends restarted; proxy environment verified on ThinkStation PID
 inherit the proxy, and actual response completions appear in Switcher logs.
 Personal-tools-check from Legion exits 0. Representative quota fallback
 remains unaccepted under the same backlog ID.
+
+
+## 2026-10-03 — S6-P2-03 NVIDIA acceptance on destination workstation
+
+Operator requests noting pending NVIDIA GPU tests that can run here, launching
+Slicer and providing an approval/verification checklist. This destination's
+RTX4060 Laptop GPU (8188MiB, driver580.178.04), NVIDIA Docker runtime and X11
+desktop are verified. The earlier GPU-less source-station deferral remains
+historical; it does not describe this destination. Existing S6-P2-03 Priority1
+owns the test, overlapping PLAT-U-07 local acceptance.
+
+[NVIDIA acceptance checklist](diagnostics/NVIDIA_WORKSTATION_ACCEPTANCE_2026-10-03.md)
+uses existing matrix `runtime.ubuntu_nvidia_render_acceptance` and recorded
+50 host checks. Current Mesa Slicer is already open and preserved. Safe restart
+requires save/close confirmation; representative render probe requires a named
+approved case. NVIDIA OpenGL/FPS and operator Step6 verdict are NOT RUN. No
+claim of improvement, full migration, hardware or clinical acceptance.
+
+
+## 4 October extension — Plan + Apply new Home (`S6-LIVE-01`)
+
+Operator: “cannot plan and apply new home”. The earlier recovery gate fix is
+retained. The local Saved-Home-only callback left a new connected draft without
+an application route, while saving required matching accepted robot state.
+Plan + Apply Home Draft now uses the shared MoveIt joint-goal planner from the
+monitored start and the existing strict per-waypoint guard. A reviewed candidate
+may apply only when its exact draft/setup/identity/status match. Finite complete
+states/waypoints, exact endpoint, identity stability and authoritative final
+accepted/monitored/displayed evidence are required. Partial/unknown submission
+latches the existing read-only native reconciliation route with Home-setup
+identity. Application never saves or validates Home; explicit acceptance owns
+that step. Saved applyTaskHome API remains unchanged.
+
+Actual button routing verified in PID2071: one request reached MoveIt and its
+existing3 internal stable-scene attempts all failed CheckStartStateCollision at
+dentobot_mouth_barrier_lip_slab / pneumatic_spindle-Copy. No waypoint applied;
+original draft, Home, case and accepted state unchanged. Source/host/button
+routing are verified; positive route/application and operator verdict remain
+OPEN under the existing backlog row. Evidence: logbook/2026-10-04.md.

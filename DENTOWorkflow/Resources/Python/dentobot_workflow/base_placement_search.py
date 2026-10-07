@@ -370,6 +370,35 @@ def evaluate_base(chain: Chain, base_world: np.ndarray, task: PlacementTask,
             "stations": stations}
 
 
+def reference_pre_entry_seed(chain: Chain, base_world: np.ndarray, task: PlacementTask,
+                             revolute_values=(0.0, 1.5, 3.0, 4.5)) -> list[float] | None:
+    """PreEntry solution at one Base from a fixed seed grid, or None.
+
+    Without a saved Task Home the all-zero default seed can stall far from the
+    flipped-elbow solution (Oct4 FDI 14: 83 deg axis error, yet reachable at
+    J3 ~3.08 rad). The result seeds every candidate instead; deterministic.
+    """
+    inverse = np.linalg.inv(np.asarray(base_world, float))
+    point = (inverse @ np.append(np.asarray(task.pre_entry_mm, float), 1.0))[:3] / 1000.0
+    axis = inverse[:3, :3] @ task.axis()
+    lower, upper = chain.bounds()
+    middle = [0.5 * (lo + hi) if math.isfinite(lo) and math.isfinite(hi) else 0.0
+              for lo, hi in zip(lower, upper)]
+    seeds = [list(task.home_q)]
+    for first in revolute_values:
+        for third in revolute_values:
+            seed = list(middle)
+            revolute = [i for i, joint in enumerate(chain.active) if joint.kind == "revolute"]
+            for index, value in zip(revolute, (first, third)):
+                seed[index] = value
+            seeds.append(seed)
+    for seed in seeds:
+        result = solve(chain, seed, point, axis)
+        if result["termination"] == "converged":
+            return result["q"]
+    return None
+
+
 def search_forehead_base_placement(chain: Chain, forehead_world: np.ndarray,
                                    reference_base_world: np.ndarray, task: PlacementTask,
                                    config: ForeheadPlacementSearchConfig | None = None,
@@ -496,3 +525,100 @@ def select_path_clear_candidate(report: dict, check, limit: int = 12) -> dict:
     report["path_preflight"] = {"selected": "kinematic_best_path_blocked" if tried else "not_run",
                                 "tried": tried}
     return report
+
+
+# --------------------------------------------------------------------------
+# Search around the current Base with depth/yaw and a clearance callback
+# (operator 2026-10-04: implement the iterative placement that passed by hand)
+# --------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class AroundBaseSearchConfig:
+    in_plane_range_mm: float = 30.0
+    in_plane_step_mm: float = 10.0
+    depth_range_mm: tuple[float, float, float] = (-20.0, 20.0, 5.0)
+    yaw_range_deg: tuple[float, float, float] = (-40.0, 40.0, 10.0)
+    # Cost = mm moved / mm_per_cost + |yaw| / deg_per_cost; candidates run cheapest first.
+    mm_per_cost: float = 10.0
+    deg_per_cost: float = 10.0
+    stroke_station_step_mm: float = 2.0
+    minimum_slider_margin_mm: float = 1.0
+    minimum_revolute_margin_deg: float = 1.0
+    max_candidates: int = 2500
+
+
+def candidate_around_base(forehead_world: np.ndarray, reference_base_world: np.ndarray,
+                          u_mm: float, v_mm: float, n_mm: float, yaw_deg: float) -> np.ndarray:
+    """Reference Base shifted along the forehead axes and yawed about its own z."""
+    frame = np.asarray(forehead_world, dtype=float)
+    out = np.asarray(reference_base_world, dtype=float).copy()
+    if yaw_deg:
+        axis = out[:3, 2] / np.linalg.norm(out[:3, 2])
+        out[:3, :3] = axis_angle_matrix(axis, math.radians(yaw_deg)) @ out[:3, :3]
+    out[:3, 3] = out[:3, 3] + u_mm * frame[:3, 0] + v_mm * frame[:3, 1] + n_mm * frame[:3, 2]
+    return out
+
+
+def search_around_base(chain: Chain, forehead_world: np.ndarray, reference_base_world: np.ndarray,
+                       task: PlacementTask, clearance, config: AroundBaseSearchConfig | None = None,
+                       progress=None, exhaustive: bool = False) -> dict:
+    """Cheapest-first Base search: reach (native-replica IK) then ``clearance(record)``.
+
+    ``clearance`` returns at least ``{"clear": bool}`` and is only called for
+    kinematically feasible candidates. Level 2: finish the cost tier of the first
+    clear candidate, then stop. ``exhaustive`` (level 3, operator 2026-10-04):
+    evaluate the whole grid and rank every clear Base by least movement from the
+    reference. Ties: larger margins. Kinematic + caller-supplied mesh evidence only.
+    """
+    config = config or AroundBaseSearchConfig()
+    span = np.arange(-config.in_plane_range_mm, config.in_plane_range_mm + 1e-9, config.in_plane_step_mm)
+    grid = [(float(u), float(v), float(n), float(y)) for u in span for v in span
+            for n in _values(config.depth_range_mm) for y in _values(config.yaw_range_deg)]
+    cost = lambda c: round(math.sqrt(c[0] ** 2 + c[1] ** 2 + c[2] ** 2) / config.mm_per_cost
+                           + abs(c[3]) / config.deg_per_cost, 6)
+    grid = sorted(grid, key=lambda c: (cost(c), abs(c[3]), c))
+    grid = grid if exhaustive else grid[: config.max_candidates]
+    margins = ForeheadPlacementSearchConfig(
+        stroke_station_step_mm=config.stroke_station_step_mm,
+        minimum_slider_margin_mm=config.minimum_slider_margin_mm,
+        minimum_revolute_margin_deg=config.minimum_revolute_margin_deg)
+    evaluated, feasible, clear, stop_cost, centre = 0, 0, [], None, None
+    for index, (u, v, n, yaw) in enumerate(grid):
+        if not exhaustive and stop_cost is not None and cost((u, v, n, yaw)) > stop_cost:
+            break
+        matrix = candidate_around_base(forehead_world, reference_base_world, u, v, n, yaw)
+        record = evaluate_base(chain, matrix, task, margins)
+        record.update({"u_mm": u, "v_mm": v, "depth_mm": n, "yaw_deg": yaw,
+                       "rotation_deg": [0.0, 0.0, yaw], "cost": cost((u, v, n, yaw)),
+                       "displacement_mm": math.sqrt(u * u + v * v + n * n),
+                       "matrix_world_ras_mm": matrix.reshape(-1).tolist()})
+        evaluated += 1
+        if (u, v, n, yaw) == (0.0, 0.0, 0.0, 0.0):
+            centre = record
+        if record["feasible"]:
+            feasible += 1
+            record["clearance"] = dict(clearance(record))
+            if record["clearance"].get("clear"):
+                clear.append(record)
+                stop_cost = record["cost"] if stop_cost is None else stop_cost
+        if progress is not None:
+            progress(index + 1, len(grid))
+    clear.sort(key=lambda r: (r["cost"], -(r["minimum_slider_margin_mm"] or 0.0),
+                              -(r["minimum_revolute_margin_deg"] or 0.0)))
+    return {
+        "schema": "dentobot.base_placement_search/2-around-base",
+        "evidence_level": "kinematic_native_replica_plus_caller_mesh_clearance",
+        "config": asdict(config),
+        "evaluated": evaluated,
+        "candidate_budget": len(grid),
+        "feasible_count": feasible,
+        "clear_count": len(clear),
+        "centre": centre,
+        "best": clear[0] if clear else None,
+        "ranked": clear[:10],
+        "clear_all": [{k: r[k] for k in ("u_mm", "v_mm", "depth_mm", "yaw_deg", "cost",
+                                         "minimum_slider_margin_mm", "minimum_revolute_margin_deg",
+                                         "matrix_world_ras_mm")} for r in clear],
+        "exhaustive": bool(exhaustive),
+        "verdict": "clear_base_found" if clear else "no_clear_base_in_search_space",
+    }

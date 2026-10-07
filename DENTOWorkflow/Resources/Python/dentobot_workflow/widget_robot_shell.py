@@ -522,34 +522,28 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
         return result
 
     def _onStep6ApplyTaskHome(self) -> None:
-        if not self._robotWorkflowFacade or not self._robotSimulationPanel:
+        if (not self._robotWorkflowFacade or not self._robotSimulationPanel
+                or getattr(self, "_workflowActionBusy", False)):
             return
-        result = self._robotWorkflowFacade.applyTaskHome()
-        self._setStep6PanelResult(self._robotSimulationPanel.homeStatusLabel, result)
-        if result.success:
+        panel = self._robotSimulationPanel
+        self._workflowActionBusy = True
+        try:
+            result = self._robotWorkflowFacade.applyTaskHomeDraft(
+                panel.manualJogJointPositionsSi()
+            )
+        finally:
+            self._workflowActionBusy = False
+        if result.details.get("manualJogReconciliationRequired"):
+            panel.setManualJogStatus(
+                "unknown", "Use Reconcile State in 6.3 Manual before further Home actions. "
+                + result.message, result.details,
+            )
+        if result.success or result.details.get("appliedWaypointCount"):
             self._updateRobotPlacement()
-            self._updateStep6PlanningUi(result.message)
-            # Placement/UI refresh derives the generic Home state and can
-            # overwrite the action-specific outcome. Restore the full result
-            # so the operator can see whether MoveIt planned a transition or
-            # merely revalidated an already-matching monitored state.
-            self._setStep6PanelResult(
-                self._robotSimulationPanel.homeStatusLabel,
-                result,
-            )
-            main_window = slicer.util.mainWindow()
-            if main_window is not None:
-                main_window.statusBar().showMessage(result.message, 8000)
-            slicer.util.infoDisplay(
-                _(
-                    "Task Home is now live-validated in the active ROS/MoveIt "
-                    "session.\n\n%1"
-                ).replace("%1", result.message),
-                windowTitle=_("Task Home applied"),
-            )
-        else:
+        self._updateStep6PlanningUi(result.message, error=not result.success)
+        self._setStep6PanelResult(panel.homeStatusLabel, result)
+        if not result.success:
             slicer.util.errorDisplay(result.message)
-            self._updateStep6PlanningUi(result.message, error=True)
 
     def _onStep6ReviewAssistedLimits(self) -> None:
         if not self._robotWorkflowFacade or not self._robotSimulationPanel:

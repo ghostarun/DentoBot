@@ -1,5 +1,31 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
+## Destination source update — 3 October 2026
+
+**Subsequent launcher verification:** `./launch-dentobot --check-only` passed
+on this destination and rebuilt all three packages (description, MoveIt and
+native SlicerROS2) in3min16s. Backend CUDA health passed on the RTX4060;
+graphics selection is Mesa. A normal launch opened Slicer5.10/DENTOWorkflow
+and accepted simulation readiness on attempt1; loaded native libraries come
+from the current shared install. Slicer remains open. Its extensions-directory
+creation warning is nonblocking; shutdown/case/FPS acceptance was not tested.
+See the [3 October logbook](logbook/2026-10-03.md) for source/cache/library
+identities and evidence. NVIDIA renderer/FPS acceptance remains pending;
+CUDA inference health and Mesa startup do not establish NVIDIA rendering.
+
+On `/home/tarun/dentobot`, the development checkout
+`ros2_ws/src/DentoBot` was fast-forwarded on `main` from `0cc70f2` to
+`3997458`. Independent native source `ros2_ws/src/slicer_ros2_module` now
+tracks `dentobot/step6-5.10-native-20261003` at `ece3c42`, the release pin.
+`Workspace/bootstrap-workspace.bash` completed and created the missing root
+`launch-dentobot` link to `scripts/launch-dentoworkflow.bash`; existing links
+and `.dentobot.env` were retained. Source paths here differ from the dated
+`/home/light-tarun` evidence below. The subsequent launcher test rebuilt the
+three compiled packages and opened Slicer with its simulation stack; no image
+or dependency installation was performed. These bounded checks do not complete
+workstation migration acceptance.
+
+
 ## Temporary native-debugger tools — 30 September 2026
 
 The recorded r19 confirmation also installed ephemeral `x11-utils` and `libxxf86dga1` for the indexed recorder's `xdpyinfo` display-size check: apt exited 0, two new packages and zero upgrades.

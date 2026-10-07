@@ -1,5 +1,40 @@
 # Dentobot Technical Decisions
 
+## 2026-10-04 — Recover Task Home review after definitive rejection
+
+**Operator statement:** “saved a new dentocase in oct4 folder. Problem seems
+to be revalidating task home after a collision task home configuration failed.
+Test this out in currently open headed runtime, diagnose and fix , reload
+module and test out in same open slicer runtime.” No operator cause or geometry
+decision beyond that hypothesis is inferred.
+
+**Evidence/decision (`S6-LIVE-01`, Priority0):** The live review is not staged,
+identity is current and acceptance is certain, but retained `rejected` status
+disables Review. Cancellation intentionally retains rejection evidence; keep
+that owner behavior and permit fresh review for this definitive state. Preserve
+the stricter staged-candidate acceptance, accepted-pose matching, stale/unknown
+identity and uncertainty gates. Apply the same recovery to offline draft
+readiness. No collision tolerance, Base, pose, native bridge or saved case change.
+
+**Result:** host242 PASS; same-PID2071 actual button recovery PASS after Python
+hot reload. Strict guard still rejects zero joints at sample1/1 for
+`dentobot_mouth_barrier_lip_slab ↔ pneumatic_spindle-Copy`. Robot/Home/case state
+is unchanged. This closes the bounded recovery correction, not valid-Home or
+operator/full-cycle acceptance. See [logbook](logbook/2026-10-04.md).
+
+## 2026-10-03 — Destination published-source handoff under PLAT-U-07
+
+**Operator direction:** “update local dentobot to latest progress, pull and
+ensure latest updates as is from other machine”. This authorizes the local
+source update previously excluded by the September-30 planning-only scope.
+Use current published `main` (`3997458`) and its native release pin
+(`ece3c42`), superseding the older renovation-tip recommendation for this
+bounded source handoff. Preserve local migration notes separately rather than
+merging stale controlled records over the incoming progress. No primary-writer
+cutover, runtime acceptance, data transfer or external publication is inferred.
+Today's logbook records identity inspection and preservation evidence.
+
+
 ## 2026-09-30 — Commit source checkpoints and integrate only accepted 5.10 changes
 
 Tarun explicitly approved implementing the integration plan: capture stable unfinished renovation source as regular commits, preserve dirty integration first, merge identified renovation commits, then port only accepted 5.10 source/test changes. Renovation supplies current five-DOF/guard/recording behavior; older equivalent repairs cannot replace it. Four GPT-6 Luna Max workers use disjoint scopes, with at most three concurrent beside the coordinator. Coordinator owns technical decisions, controlled records, Git, runtime and acceptance. Preserve 5.12 deferral and release gates; checkpoint/host verification is not full-cycle or operator acceptance.
@@ -7172,3 +7207,52 @@ provider/home/environment overrides as unverified. Preserve explicit overrides
 and managed T3 credentials. Personal launcher defaults apply only to the exact
 two approved Tailscale addresses with pairing enabled. No proxy process restart
 is required for this repair.
+
+
+## 2026-10-03 — S6-P2-03 NVIDIA acceptance on destination workstation
+
+Operator requests noting pending NVIDIA GPU tests that can run here, launching
+Slicer and providing an approval/verification checklist. This destination's
+RTX4060 Laptop GPU (8188MiB, driver580.178.04), NVIDIA Docker runtime and X11
+desktop are verified. The earlier GPU-less source-station deferral remains
+historical; it does not describe this destination. Existing S6-P2-03 Priority1
+owns the test, overlapping PLAT-U-07 local acceptance.
+
+[NVIDIA acceptance checklist](diagnostics/NVIDIA_WORKSTATION_ACCEPTANCE_2026-10-03.md)
+uses existing matrix `runtime.ubuntu_nvidia_render_acceptance` and recorded
+50 host checks. Current Mesa Slicer is already open and preserved. Safe restart
+requires save/close confirmation; representative render probe requires a named
+approved case. NVIDIA OpenGL/FPS and operator Step6 verdict are NOT RUN. No
+claim of improvement, full migration, hardware or clinical acceptance.
+
+
+## 2026-10-04 — Publish destination documentation to main and integration
+
+Operator explicitly requests “update docs and commit and push to main and
+integration”. Publish only the development-controlled destination handoff,
+launcher evidence and pending NVIDIA checklist. Target `main` and the existing
+`integration/step6-5.10-reviewed-20260927` branch; both fetched refs share
+`3997458` before publication. Non-force publication of the same documentation
+commit does not merge unrelated source, promote a lab tag, or accept pending
+NVIDIA/representative/operator gates. Engineer-owned records, local backup
+payloads, credentials and runtime artifacts are excluded.
+
+
+## Later 2026-10-04 — new Home draft action under the same owner
+
+Operator reports “cannot plan and apply new home”. Extend S6-LIVE-01 to the
+missing 6.2 application action. Use explicit Plan + Apply Home Draft for the
+current or exactly matching reviewed candidate, preserving the saved-Home
+service API and separate save/validation owner. Preserve monitored start,
+current case identity, strict guard for every waypoint and unknown-state native
+reconciliation. This supersedes the earlier agent-selected no-plan/apply
+boundary only for this simulated Home action. No geometry, Base, native code,
+collision tolerance or planner policy change follows. The real request stopped
+at MoveIt's start-collision adapter; retain that first cause and stop route
+retries. The standing request to update docs and publish main/integration is
+applied to this verified source correction, with positive-route/operator gates
+remaining open. See the 4October logbook.
+
+**4 October 2026 — Find Reachable Base becomes two-level (`S6-LIVE-01` P3; operator supersession):** Tarun asked to implement, inside Find Reachable Base, the iterative Base placement that passed the offline check, then directed: keep it two-level. Level 1 stays the existing forehead-plane IK preflight (±30 mm in-plane, ±10 mm depth fallback, orientation locked). It now seeds from one reference PreEntry solution when no Task Home is saved, and it is mouth-barrier checked: the start pose (monitored, else zero), the saved Home if any, PreEntry, and their straight joint paths, all robot links against the barrier mesh. Level 1 failure means no reachable Base, or none of its ranked Bases clears the barrier. On failure the operator is asked (Yes/No) whether to run level 2. Level 2 is a cheapest-first search moving the current Base: ±30 mm in-plane at 10 mm, ±20 mm depth along the forehead normal at 5 mm, ±40° yaw about the Base z at 10°. It requires reach plus the same barrier clearance and stops after the first clear cost tier. It supersedes the 2 October "orientation locked" rule for level 2 only. Both levels are kinematic plus barrier-mesh evidence, staged for explicit Review/Accept only; MoveIt anatomy/template collision, Home validation and planning remain authoritative. No automatic acceptance.
+
+**4 October 2026 (later) — Find Reachable Base levels 3–4 and one-click Propose (`S6-LIVE-01` P3; operator direction):** Level 3 extends level 2: an exhaustive search over the same grid, centred on the virtual-forehead auto placement (TCP slide is off by default, so this equals the forehead seat). It keeps every Base that reaches the stroke and clears the barrier, ranks them by least movement (mm/10 + yaw deg/10, ties by larger margins) and auto-stages rank 1. Level 4 is a modeless ranking board of every level 3 Base: selecting a row stages it as the cyan ghost for 3D inspection; Use keeps it staged; Cancel restores the prior candidate. After level 1 fails, the operator chooses level 2, 3 or 4; an empty level 2 offers level 3; level 3 offers the board when more than one Base is valid. Propose Virtual Forehead + Auto Base now runs level 1 with the barrier check and, if no barrier-clear Base exists, level 2 around the seat automatically ("one click"); level 1's kinematic Base stays the flagged fallback. Levels 3–4 stay manual because of their cost. Staging only, never acceptance; MoveIt remains authoritative.

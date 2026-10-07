@@ -2694,7 +2694,7 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
     assert "J1 5.73 deg" in panel.taskHomeCurrentStateLabel.text
     assert "J1 11.46 deg" in panel.taskHomeCandidateLabel.text
     assert "Home review: review; identity: current" in panel.taskHomeReviewStatusLabel.text
-    assert "use Guarded Manual Jog separately" in panel.taskHomeReviewStatusLabel.text
+    assert "use Plan + Apply Home Draft" in panel.taskHomeReviewStatusLabel.text
     assert "Home review sends no motion" in panel.taskHomeReviewStatusLabel.text
     assert "pneumatic_spindle" not in panel.taskHomeCandidateLabel.text
 
@@ -2714,7 +2714,7 @@ def test_task_home_review_displays_separate_j1_j5_states_and_failure_status():
             },
         )
     )
-    assert "use Guarded Manual Jog separately" not in panel.taskHomeReviewStatusLabel.text
+    assert "use Plan + Apply Home Draft" not in panel.taskHomeReviewStatusLabel.text
 
     panel.setManualTaskHomeReviewResult(
         SimpleNamespace(
@@ -2791,7 +2791,7 @@ def test_task_home_mode_labels_and_offline_configuration_never_claim_live_accept
     assert panel._manualJogAcceptedJointPositionsSi is None
     assert "unavailable while offline" in panel.taskHomeCurrentStateLabel.text
     assert "configuration only; not live-validated" in panel.taskHomeConfiguredStateLabel.text
-    assert "use Guarded Manual Jog separately" not in panel.taskHomeReviewStatusLabel.text
+    assert "use Plan + Apply Home Draft" not in panel.taskHomeReviewStatusLabel.text
 
     panel._manualJogAcceptedJointPositionsSi = dict(configured)
     panel.setManualTaskHomeReviewResult(
@@ -3060,6 +3060,98 @@ def test_manual_draft_refresh_uses_live_ghost_only_when_connected():
     method(SimpleNamespace(_robotSimulationPanel=connected_panel), positions)
     assert "display-only candidate shown" in connected_panel.manualJogDraftStateLabel.text
     assert bridge_calls == [positions]
+
+
+def test_home_apply_handler_plans_current_draft_and_does_not_claim_home_validation():
+    calls = []
+    draft = {name: float(index) for index, name in enumerate(JOINT_NAMES)}
+    outcome = SimpleNamespace(success=True, message="Draft applied; review to save Home.",
+                              details={"homeSaved": False, "runtimeValidated": False})
+    method = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_shell.py", "RobotShellWidgetMixin",
+        {"_onStep6ApplyTaskHome"},
+        {"slicer": SimpleNamespace(util=SimpleNamespace(errorDisplay=lambda message: calls.append(message)))},
+    )["_onStep6ApplyTaskHome"]
+    panel = SimpleNamespace(manualJogJointPositionsSi=lambda: dict(draft), homeStatusLabel=object())
+    facade = SimpleNamespace(
+        applyTaskHomeDraft=lambda positions: calls.append(("draft", positions)) or outcome,
+        applyTaskHome=lambda: (_ for _ in ()).throw(AssertionError("saved Home must not be used")),
+    )
+    host = SimpleNamespace(
+        _robotWorkflowFacade=facade, _robotSimulationPanel=panel, _workflowActionBusy=False,
+        _updateRobotPlacement=lambda: calls.append("placement"),
+        _updateStep6PlanningUi=lambda *args, **kwargs: calls.append(("ui", args, kwargs)),
+        _setStep6PanelResult=lambda label, result: calls.append(("result", label, result)),
+    )
+    method(host)
+    assert calls[0] == ("draft", draft)
+    assert calls[-1] == ("result", panel.homeStatusLabel, outcome)
+    assert host._workflowActionBusy is False
+    host._workflowActionBusy = True
+    before = list(calls)
+    method(host)
+    assert calls == before
+
+
+def test_cancelled_rejected_task_home_can_start_a_fresh_review_without_bypassing_gates():
+    method = _methods(
+        PYTHON / "dentobot_workflow/widget_robot.py",
+        "RobotWidgetMixin",
+        {"_manualTaskHomeReviewControlState"},
+        {"JOINT_NAMES": JOINT_NAMES, "Mapping": Mapping, "isfinite": isfinite},
+    )["_manualTaskHomeReviewControlState"]
+    accepted = {name: 0.0 for name in JOINT_NAMES}
+    for setup_mode, live_scene in (("connected", True), ("offline", False)):
+        details = {
+            "setupMode": setup_mode,
+            "staged": False,
+            "identityStatus": "current",
+            "acceptanceStatus": "rejected",
+            "acceptanceFailure": {"code": "task_home_collision_rejected"},
+            "acceptanceUncertainty": "",
+            "candidateJointPositionsSi": None,
+            "acceptedJointPositionsSi": dict(accepted),
+        }
+
+        def controls(**changes):
+            return method(
+                None, live_scene,
+                SimpleNamespace(success=True, details={**details, **changes}),
+            )
+
+        assert controls() == {
+            "group": True, "review": True, "cancel": False,
+            "accept": False, "reconcile": False,
+        }, setup_mode
+        for invalid in (
+            {"identityStatus": "stale"},
+            {"identityStatus": "unknown"},
+            {"setupMode": "unknown"},
+            {"acceptanceStatus": "unknown"},
+            {"acceptanceUncertainty": "save outcome may have committed"},
+        ):
+            assert controls(**invalid)["review"] is False, (setup_mode, invalid)
+        assert method(
+            None, live_scene, SimpleNamespace(success=False, details=details)
+        )["review"] is False
+        if setup_mode == "connected":
+            assert method(
+                None, False, SimpleNamespace(success=True, details=details)
+            )["review"] is False
+
+        # A rejected staged candidate still needs cancellation/restaging.
+        # It cannot be accepted even if it matches the current robot joints.
+        staged = controls(staged=True, candidateJointPositionsSi=dict(accepted))
+        assert staged["review"] is False
+        assert staged["accept"] is False
+        assert staged["cancel"] is True
+        uncertain = controls(
+            staged=True, acceptanceUncertainty="save outcome may have committed"
+        )
+        assert uncertain["review"] is False
+        assert uncertain["accept"] is False
+        assert uncertain["cancel"] is False
+        assert uncertain["reconcile"] is (setup_mode == "connected")
 
 
 def test_task_home_review_buttons_require_current_identity_and_matching_candidate():
@@ -6108,3 +6200,198 @@ def test_robot_mesh_load_hides_only_the_expected_stl_coordinate_warning():
     except RuntimeError:
         pass
     assert state["display"] is True
+
+
+def test_ghost_drag_observes_transform_modified_so_accept_uses_dragged_pose():
+    """Operator 2026-10-04: dragging the Base ghost then Accept snapped back. Matrix
+    edits fire TransformModifiedEvent only, so the candidate was never restaged."""
+    events = []
+    methods = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_placement.py",
+        "RobotPlacementWidgetMixin",
+        {"_bindManualBaseCandidateInteractionNode"},
+        {"slicer": SimpleNamespace(vtkMRMLTransformNode=SimpleNamespace(
+            TransformModifiedEvent="TransformModified")),
+         "vtk": SimpleNamespace(vtkCommand=SimpleNamespace(ModifiedEvent="Modified"))},
+    )
+    host = SimpleNamespace(
+        _onManualBaseCandidateInteractionModified=object(),
+        addObserver=lambda node, event, callback: events.append(("add", event)),
+        removeObserver=lambda node, event, callback: events.append(("remove", event)),
+    )
+    first, second = object(), object()
+    methods["_bindManualBaseCandidateInteractionNode"](host, first)
+    methods["_bindManualBaseCandidateInteractionNode"](host, second)
+    assert events == [("add", "TransformModified"), ("remove", "TransformModified"),
+                      ("add", "TransformModified")]
+
+
+def test_find_reachable_base_result_survives_the_base_review_refresh():
+    """Operator 2026-10-04: Find Reachable Base gave no feedback; its message was
+    overwritten by the Base-review label refresh."""
+    methods = _methods(
+        PYTHON / "dentobot_workflow/widget_robot_placement.py",
+        "RobotPlacementWidgetMixin",
+        {"_onStep6SearchBasePlacement", "_showBasePlacementSearchNote",
+         "_basePlacementSearchNoteText", "_stageAroundBaseResult"},
+        {"_": lambda text: text},
+    )
+    label = SimpleNamespace(text="")
+    refreshes = []
+    node = SimpleNamespace(robotBaseMountLocked=True, robotBaseTransform="base")
+    fingerprint = {"value": "f1"}
+    host = SimpleNamespace(
+        _parameterNode=node,
+        _robotSimulationPanel=SimpleNamespace(manualBaseReviewStatusLabel=label),
+        _robotWorkflowFacade=SimpleNamespace(),
+        logic=SimpleNamespace(robotBasePoseFingerprint=lambda base: fingerprint["value"]),
+    )
+    host._updateStep6PlanningUi = lambda message="", error=False: refreshes.append((message, error))
+    host._showBasePlacementSearchNote = lambda m, error: methods["_showBasePlacementSearchNote"](host, m, error)
+    note = lambda: methods["_basePlacementSearchNoteText"](host)
+    methods["_onStep6SearchBasePlacement"].__globals__.update(
+        slicer=SimpleNamespace(app=SimpleNamespace(processEvents=lambda: None),
+                               util=SimpleNamespace(confirmYesNoDisplay=lambda text: False)))
+    methods["_onStep6SearchBasePlacement"](host)  # locked; operator declines the board
+    assert "the Base is locked" in note() and refreshes[-1][1] is True
+    node.robotBaseMountLocked = False
+    assert note() == ""  # stale once the lock state changes
+
+    calls, choice, confirm, staged = [], [None], [False], []
+    level1_best = {"matrix_world_ras_mm": [2.0] * 16, "u_mm": 0.0, "v_mm": 0.0,
+                   "minimum_slider_margin_mm": 16.3,
+                   "clearance": {"clear": False, "failed": "start",
+                                 "contacts": ["pneumatic_spindle-Copy<->BARRIER:lip_slab"]}}
+    around = {"matrix_world_ras_mm": [1.0] * 16, "depth_mm": 15.0, "u_mm": 0.0, "v_mm": 10.0,
+              "yaw_deg": 0.0, "minimum_slider_margin_mm": 7.4, "minimum_revolute_margin_deg": 11.2}
+    level2 = [around]
+
+    def search(_node, progress=None, **options):
+        calls.append(options)
+        if options.get("exhaustive"):
+            return {"best": around, "ranked": [around, dict(around, yaw_deg=-10.0)],
+                    "evaluated": 3969, "feasible_count": 2000, "clear_count": 600}
+        if options.get("deep"):
+            return {"best": level2[0], "evaluated": 61, "feasible_count": 52, "clear_count": 1}
+        return {"best": level1_best, "evaluated": 249, "feasible_count": 182, "barrier_clear": False}
+
+    host.logic.searchForeheadBasePlacement = search
+    host._robotWorkflowFacade.stageManualBaseReview = lambda m: staged.append(m) or SimpleNamespace(success=True)
+    host._askBaseSearchLevel = lambda reason: choice[0]
+    boards = []
+    host._openBaseCandidateBoard = boards.append
+    host._stageAroundBaseResult = lambda r, level: methods["_stageAroundBaseResult"](host, r, level)
+    methods["_onStep6SearchBasePlacement"].__globals__.update(
+        qt=SimpleNamespace(QApplication=SimpleNamespace(
+            setOverrideCursor=lambda cursor: None, restoreOverrideCursor=lambda: None),
+            Qt=SimpleNamespace(WaitCursor=0)),
+        slicer=SimpleNamespace(app=SimpleNamespace(processEvents=lambda: None),
+                               util=SimpleNamespace(confirmYesNoDisplay=lambda text: confirm[0])))
+    methods["_onStep6SearchBasePlacement"](host)  # level 1 fails, operator cancels
+    assert calls == [{}] and staged == []
+    assert "Level 1 failed" in note() and "182 forehead-plane Bases" in note() and "lip_slab" in note()
+    choice[0] = 2
+    methods["_onStep6SearchBasePlacement"](host)  # operator picks level 2
+    assert calls[-1] == {"reference": "current", "deep": True} and staged == [tuple([1.0] * 16)]
+    assert "Level 2 staged: depth +15 mm, u +0 / v +10 mm, yaw +0 deg" in note()
+    choice[0], level2[0], confirm[0] = 2, None, True
+    calls.clear(); staged.clear()
+    methods["_onStep6SearchBasePlacement"](host)  # level 2 empty -> confirmed level 3
+    assert calls[1:] == [{"reference": "current", "deep": True},
+                         {"reference": "forehead_seat", "deep": True, "exhaustive": True}]
+    assert staged == [tuple([1.0] * 16)] and "Level 3 staged" in note()
+    assert "1) depth +15 mm" in note() and "2) depth +15 mm, u +0 / v +10 mm, yaw -10 deg" in note()
+    assert len(boards) == 1 and boards[0]["clear_count"] == 600  # level 3 offered the board
+    choice[0], confirm[0] = 3, False
+    calls.clear()
+    methods["_onStep6SearchBasePlacement"](host)  # operator picks level 3 directly, no board
+    assert calls[-1] == {"reference": "forehead_seat", "deep": True, "exhaustive": True}
+    assert len(boards) == 1
+    choice[0] = 4
+    calls.clear(); staged.clear()
+    methods["_onStep6SearchBasePlacement"](host)  # level 4: board without auto staging
+    assert calls[-1] == {"reference": "forehead_seat", "deep": True, "exhaustive": True}
+    assert len(boards) == 2 and staged == []
+    node.robotBaseMountLocked = True
+    confirm[0] = True
+    calls.clear(); staged.clear()
+    methods["_onStep6SearchBasePlacement"](host)  # locked Base: preview-only board, no staging
+    assert calls == [{"reference": "forehead_seat", "deep": True, "exhaustive": True}]
+    assert len(boards) == 3 and staged == []
+    node.robotBaseMountLocked = False
+    widget_source = (PYTHON / "dentobot_workflow/widget_robot_placement.py").read_text()
+    board = widget_source[widget_source.index("    def _openBaseCandidateBoard("):]
+    assert "self.logic.showManualBaseCandidateGhost(matrix)" in board  # locked: display-only
+    assert "dialog.finished.connect(lambda _result=0: clear_preview())" in board
+    assert "dialog.setModal(False)" in board and "table.itemSelectionChanged.connect(preview)" in board
+    assert "facade.stageManualBaseReview(tuple(previous))" in board  # cancel restores
+    level1_best["clearance"] = {"clear": True}
+    calls.clear(); staged.clear()
+    search_result = search
+    host.logic.searchForeheadBasePlacement = lambda n, progress=None, **o: dict(
+        search_result(n, progress, **o), barrier_clear=True)
+    methods["_onStep6SearchBasePlacement"](host)  # level 1 succeeds: no prompt
+    assert calls == [{}] and staged == [tuple([2.0] * 16)] and "Level 1: 182 of 249" in note()
+    logic = (PYTHON / "dentobot_workflow/logic_robot_placement.py").read_text()
+    propose = logic[logic.index("    def proposeVirtualForeheadAndBase("):]
+    assert "deep = search(deep=True)" in propose and '"barrierClear"' in propose  # one-click fallback
+    fingerprint["value"] = "f2"
+    assert note() == ""  # stale once the Base pose changes
+    robot = (PYTHON / "dentobot_workflow/widget_robot.py").read_text()
+    assert '"_basePlacementSearchNoteText", lambda: "")()' in robot
+
+
+def test_planning_aid_toggles_win_over_every_view_preset_and_keep_low_opacity():
+    """Operator 2026-10-04: barrier and task-space box reappeared (box at full
+    opacity) after Base acceptance and other 6.1/6.2 refreshes."""
+    methods = _methods(
+        PYTHON / "dentobot_workflow/widget_view_composition.py",
+        "ViewCompositionWidgetMixin",
+        {"_discardHiddenStep6PlanningAids"},
+        {},
+    )
+    keys = {"nodes:step6MouthBarrier", "nodes:step6ReachEnvelope",
+            "nodes:step6TaskSpaceBox", "nodes:step6MrmlRobot"}
+    host = SimpleNamespace(_parameterNode=SimpleNamespace(
+        step6ShowMouthBarrier=False, step6ShowReachEnvelope=True, step6ShowTaskSpaceBox=False))
+    methods["_discardHiddenStep6PlanningAids"](host, keys)
+    assert keys == {"nodes:step6ReachEnvelope", "nodes:step6MrmlRobot"}
+    controls = (PYTHON / "dentobot_workflow/widget_view_controls.py").read_text()
+    sink = controls[controls.index("    def _applyWorkflowViewKeys("):]
+    assert "self._discardHiddenStep6PlanningAids(visibleKeys)" in sink[:sink.index("managedNodes")]
+    logic = (PYTHON / "dentobot_workflow/logic_robot_scene_sync.py").read_text()
+    box = logic[logic.index("    def updateStep6TaskSpaceBox("):logic.index("    def step6TaskSpaceBoxShown(")]
+    assert 'node.SetAttribute("DENTOBOT.DisplayOpacity", f"{opacity:.2f}")' in box
+    panel = (PYTHON / "DENTORobotSimulationPanel.py").read_text()
+    assert "self.displayShowMouthBarrierCheckBox = qt.QCheckBox(" in panel
+    assert "self.displayShowTaskSpaceBoxCheckBox = qt.QCheckBox(" in panel
+
+
+def test_collision_readback_redelivers_only_missing_objects_then_rechecks():
+    """Connect 2026-10-04: the guard received 32 of 34 collision objects (reliable,
+    depth-10 /collision_object) and Connect failed. Re-send only the missing ones."""
+    from DENTOStep6State import redeliver_missing_collision_objects
+
+    sent, checks = [], []
+    def acknowledge():
+        checks.append(1)
+        return {"status": "Acknowledged", "acknowledged_object_ids": ["a", "b", "c"]}
+    first = {"status": "Mismatch", "acknowledged_object_ids": ["a"]}
+    result = redeliver_missing_collision_objects(first, {"a": 0, "b": 0, "c": 0}, sent.append, acknowledge)
+    assert sent == ["b", "c"] and len(checks) == 1
+    assert result["status"] == "Acknowledged" and result["redelivered_object_ids"] == ["b", "c"]
+    stuck = lambda: {"status": "Mismatch", "acknowledged_object_ids": ["a"]}
+    sent.clear()
+    result = redeliver_missing_collision_objects(first, ["a", "b"], sent.append, stuck, attempts=2)
+    assert sent == ["b", "b"] and result["status"] == "Mismatch"  # bounded, still fails closed
+    sent.clear()
+    bounds_only = {"status": "Mismatch", "acknowledged_object_ids": ["a", "b"]}
+    assert redeliver_missing_collision_objects(bounds_only, ["a", "b"], sent.append, stuck) == bounds_only
+    assert sent == []  # nothing missing: no redelivery masks a bounds mismatch
+    stale = {"status": "Mismatch", "acknowledged_object_ids": ["a", "b"],
+             "mismatches": ["runtime bounds differ for b: expected base_link bounds=(1,) mm"]}
+    sent.clear()
+    result = redeliver_missing_collision_objects(stale, ["a", "b"], sent.append, acknowledge)
+    assert sent == ["b"] and result["status"] == "Acknowledged"  # stale pose re-sent
+    sync = (PYTHON / "dentobot_workflow/logic_robot_scene_sync.py").read_text()
+    assert "acknowledgement = redeliver_missing_collision_objects(" in sync

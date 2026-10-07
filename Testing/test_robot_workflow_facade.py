@@ -4687,6 +4687,141 @@ def _manual_task_home_candidate(values=(0.01, 0.001, 0.02, 0.002, 0.03)):
     return dict(zip(ROS2_JOINT_SI_ORDER, values))
 
 
+def _home_draft_apply_probe(monkeypatch):
+    facade, parameter_node, logic, bridge = _unreviewed_taskless_home_review_probe(monkeypatch)
+    _set_manual_test_home(parameter_node, logic, None)
+    goal = _manual_task_home_candidate()
+    start = dict(bridge.accepted)
+    bridge.home_plans = []
+
+    def plan(**request):
+        bridge.home_plans.append(request)
+        return SimpleNamespace(success=True, message="planned", waypoint_joint_vectors_si=(start, goal))
+
+    def apply(positions):
+        bridge.applied.append(dict(positions))
+        if bridge.reject:
+            return False, "collision"
+        bridge.accepted = dict(positions)
+        return True, "accepted"
+
+    bridge.plan_moveit_joint_goal = plan
+    bridge.apply_joint_positions_si_to_motion_control = apply
+    facade._checkStateValidity = lambda: RobotActionResult(
+        True, "state_valid", "authoritative", details={"authoritative": True}
+    )
+    return facade, parameter_node, logic, bridge, start, goal
+
+
+def test_home_draft_plan_apply_without_saved_home_preserves_separate_acceptance(monkeypatch):
+    facade, node, logic, bridge, start, goal = _home_draft_apply_probe(monkeypatch)
+    result = facade.applyTaskHomeDraft(goal)
+    assert result.success and result.code == "task_home_draft_applied"
+    assert bridge.home_plans[0]["start_joint_positions_si"] == start
+    assert bridge.home_plans[0]["goal_joint_positions_si"] == goal
+    assert bridge.applied == [start, goal]
+    assert bridge.accepted == goal
+    assert node.step6TaskHomeJson == "" and logic.taskHomeRecord(node) is None
+    assert result.details["homeSaved"] is False
+    assert result.details["runtimeValidated"] is False
+    assert not facade._manual_jog_reconciliation_required
+    assert not facade._manual_jog_in_progress
+    assert facade.stageManualTaskHomeReview(goal).success
+
+
+def test_home_draft_plan_failure_or_wrong_endpoint_applies_nothing(monkeypatch):
+    for success, endpoint in ((False, None), (True, "wrong"), (True, "nan")):
+        facade, node, logic, bridge, start, goal = _home_draft_apply_probe(monkeypatch)
+        wrong = dict(goal)
+        wrong[ROS2_JOINT_SI_ORDER[0]] = float("nan") if endpoint == "nan" else 1.0
+        bridge.plan_moveit_joint_goal = lambda **_kwargs: SimpleNamespace(
+            success=success, message="no solution", waypoint_joint_vectors_si=(start, wrong)
+        )
+        result = facade.applyTaskHomeDraft(goal)
+        assert not result.success
+        assert bridge.applied == [] and bridge.accepted == start
+        assert node.step6TaskHomeJson == "" and logic.taskHomeRecord(node) is None
+        assert not facade._manual_jog_reconciliation_required
+        assert not facade._manual_jog_in_progress
+
+
+def test_home_draft_can_apply_exact_reviewed_candidate_but_not_an_edited_or_rejected_one(monkeypatch):
+    for state in ("current", "edited", "rejected"):
+        facade, _node, _logic, bridge, _start, goal = _home_draft_apply_probe(monkeypatch)
+        assert facade.stageManualTaskHomeReview(goal).success
+        if state == "edited":
+            goal = {**goal, ROS2_JOINT_SI_ORDER[0]: 0.03}
+        elif state == "rejected":
+            facade._manual_task_home_review_status = "rejected"
+        result = facade.applyTaskHomeDraft(goal)
+        assert result.success is (state == "current")
+        assert bool(bridge.home_plans) is (state == "current")
+        assert facade._manual_task_home_review is not None
+
+
+def test_home_draft_requires_current_scene_finite_state_and_no_outstanding_review(monkeypatch):
+    for blocker in ("review", "uncertain", "reconcile", "scene", "start_nan", "bad_goal", "stale"):
+        facade, _node, _logic, bridge, _start, goal = _home_draft_apply_probe(monkeypatch)
+        if blocker == "review":
+            facade._manual_task_home_review = {"candidate": goal}
+        elif blocker == "uncertain":
+            facade._manual_task_home_acceptance_uncertain = "may have committed"
+        elif blocker == "reconcile":
+            facade._manual_jog_reconciliation_required = True
+        elif blocker == "scene":
+            facade._planning_scene_synchronized = False
+        elif blocker == "start_nan":
+            bridge.monitored_joint_positions_si = lambda: {**bridge.accepted, ROS2_JOINT_SI_ORDER[0]: float("nan")}
+        elif blocker == "bad_goal":
+            goal = {**goal, "extra": 0.0}
+        else:
+            facade._step6_read_only_freshness_issues = lambda *_args, **_kwargs: ("stale Base",)
+        result = facade.applyTaskHomeDraft(goal)
+        assert not result.success, blocker
+        assert bridge.home_plans == [] and bridge.applied == [], blocker
+
+
+def test_home_draft_partial_or_unknown_application_latches_native_reconciliation(monkeypatch):
+    for failure in ("guard", "monitor", "identity"):
+        facade, _node, _logic, bridge, _start, goal = _home_draft_apply_probe(monkeypatch)
+        if failure == "guard":
+            apply = bridge.apply_joint_positions_si_to_motion_control
+            def reject_goal(positions):
+                if positions == goal:
+                    return False, "collision"
+                return apply(positions)
+            bridge.apply_joint_positions_si_to_motion_control = reject_goal
+        elif failure == "monitor":
+            bridge.wait_for_monitored_joint_positions_si = lambda _goal: (False, "timeout", {}, float("inf"))
+        else:
+            identity = facade._manual_jog_current_identity
+            reads = []
+            def change_identity(*args, **kwargs):
+                reads.append(True)
+                current = identity(*args, **kwargs)
+                return {**current, "base": "changed"} if len(reads) > 2 else current
+            facade._manual_jog_current_identity = change_identity
+        result = facade.applyTaskHomeDraft(goal)
+        assert not result.success
+        assert facade._manual_jog_reconciliation_required
+        assert facade._manual_jog_uncertainty["forTaskHomeReview"] is True
+        assert not facade._manual_jog_in_progress
+        assert not facade.applyTaskHomeDraft(goal).success
+        assert "Reconcile State" in result.message
+
+
+def test_home_draft_reconciliation_keeps_home_setup_context_without_assisted_review(monkeypatch):
+    facade, _node, _logic, bridge, _start, goal = _home_draft_apply_probe(monkeypatch)
+    bridge.reject = True
+    result = facade.applyTaskHomeDraft(goal)
+    assert not result.success and facade._manual_jog_reconciliation_required
+    reconciled = facade.reconcileManualRobotJog()
+    assert reconciled.success, reconciled.message
+    assert not facade._manual_jog_reconciliation_required
+    assert bridge.query_requests
+    assert facade._manual_task_home_review is None
+
+
 def _offline_task_home_review_probe(monkeypatch):
     facade, parameter_node, logic, bridge = _manual_task_home_review_probe(monkeypatch)
     parameter_node.robotBaseTransform.active = False
