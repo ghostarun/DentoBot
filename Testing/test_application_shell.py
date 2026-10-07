@@ -331,7 +331,8 @@ def test_motion_diagnostics_show_the_retained_task_trajectory_and_base_identity(
     assert "This is endpoint reachability" in panel
     assert '"failure_classification": "preentry_ik_unreachable"' in facade
     assert 'STEP6_JOINT_PLANNER_ID = "RRTConnectkConfigDefault"' in facade
-    assert facade.count("planner_id=STEP6_JOINT_PLANNER_ID") == 3
+    # Includes the Task Home workspace-sample connectivity call (fc39032).
+    assert facade.count("planner_id=STEP6_JOINT_PLANNER_ID") == 4
     # Includes the clearance detour second-leg MoveIt call.
     assert facade.count("planner_id=self._joint_planner_id") == 4
     assert 'STEP6_JOINT_PLANNER_ALGORITHM = "geometric::RRTConnect"' in facade
@@ -380,9 +381,14 @@ def test_step6_planner_choices_match_moveit_and_reject_unknown_ids():
         "RRTkConfigDefault",
         "RRTstarkConfigDefault",
     }
-    rejected = DENTORobotWorkflowFacade(None, lambda: None).planApproachPhase(
-        planner_id="not-configured"
-    )
+    facade = DENTORobotWorkflowFacade(None, lambda: None)
+    # Without a synchronized scene the MoveIt scene gate refuses first (aa2f86d).
+    gated = facade.planApproachPhase(planner_id="not-configured")
+    assert not gated.success
+    assert gated.code == "moveit_scene_mismatch"
+    # With the scene gate passed, an unknown planner ID is still rejected.
+    facade.ensureMoveItSceneMatches = lambda: {"refuse": False, "state": "match"}
+    rejected = facade.planApproachPhase(planner_id="not-configured")
     assert not rejected.success
     assert "not configured" in rejected.message
 

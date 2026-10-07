@@ -1194,6 +1194,10 @@ pipx install graphifyy          # PyPI name is graphifyy (two y's)
 # ensure ~/.local/bin is on PATH
 ```
 
+If pipx cannot create a venv (no `python3-venv`, no sudo), use an isolated
+user venv from another Python (A and B, 8 Oct 2026):
+`~/miniconda3/bin/python -m venv ~/.local/share/graphify-venv && ~/.local/share/graphify-venv/bin/pip install graphifyy && ln -sf ~/.local/share/graphify-venv/bin/graphify ~/.local/bin/graphify`.
+
 **Project wiring (from repository root):**
 
 ```bash
