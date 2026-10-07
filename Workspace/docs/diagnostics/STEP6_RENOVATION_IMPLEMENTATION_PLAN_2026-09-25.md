@@ -1,5 +1,69 @@
 # Step 6 renovation — working implementation plan
 
+## 1 October 2026 — operator workflow recovery contract (latest supersession)
+
+The operator reports that manual testing remains confusing/blocked despite extensive testing, specifically Base reconciliation, Task Home setup and the requested 6.1/6.2 GUI reconfiguration. He asks for a locally recorded plan and execution guardrails. **S6-LIVE-01 remains P0; usable setup-to-workbench completion is OPEN.** The earlier 469-check source/host pass is valid historical evidence, not acceptance of the requested GUI workflow. Later 339 affected host checks and the bounds-cache Release build are also scoped evidence, not demonstrated recovery. Preserve every original verdict and dirty edit.
+
+### Outcome and ownership
+
+Deliver a comprehensible engineer workflow: restore → shared Base adjustment/review/acceptance → Home configuration/validation → usable joint/TCP and failure inspection in6.3. An engineer must be able to inspect a requested TCP and candidate pose, understand available failures, adjust deliberately and retain evidence. Planner solution, positive preview and physical feasibility are not completion conditions for this recovery. Reuse S6-LIVE-01, S6-REUSABLE-CASE-SETUP, S6-WORKSPACE-PURPOSE and S6-LIVE-03/04; do not create a new task/queue/framework. Existing canonical safety and parent ownership stay controlling.
+
+### First deliverable — inspect only, then stop
+
+Produce one compact actual-versus-required table for the following operator actions. Inspect current production owners/callers, existing screenshots and latest failure evidence. Each row names control placement, prerequisite, disabled reason, recovery action, authority transition, actual implementation and evidence gap. Separate confirmed defect from hypothesis and unobserved behavior. Identify **one first causal blocker**, or explicitly report insufficient evidence. Do not implement or start runtime during this diagnostic deliverable. End the turn with the table, smallest correction proposal and exact proposed verification sequence; this is a scope checkpoint, not routine per-command approval. No request for Tarun to repeat settled requirements or run the entire checklist.
+
+### Required GUI workflow and acceptance sequence
+
+| Stage | Operator action and required UI | Required observable result |
+|---|---|---|
+| Restore | Open the existing reviewed five-DOF fixture; local robot load | Correct opened anatomy/one robot; saved configuration versus disconnected/unvalidated live state explicit. Restore problems remain prerequisites under the existing owner. |
+| 6.1 offline Base | Adjust translation/rotation; review, cancel, accept; switch3B↔6.1 | One shared placement owner; no reset/duplicate acceptance. Candidate and configured/acceptedBase visible. Same exact input preserves evidence; a real parent edit invalidates only its descendants. |
+| 6.1 connected Base | ExplicitConnect/scene sync; adjust/review/accept | Exact current scene acknowledgement before connected acceptance. Pending/rejected/unknown state and recovery visible. No false acceptance or silent retry. |
+| 6.2 offline Home | Author J1–J5 here; reset/review/cancel/save configuration | No mandatory trip to6.3. ConfiguredHome bound toBase/profile and labelled not live-validated. Draft and accepted robot remain distinct. |
+| 6.2 connected Home | Connect; inspect configuredHome versus current robot; validate same pose or explicitly guarded movement for different pose | No teleport/automatic move. UI shows a specific next action for a mismatch. Acceptance remains exact/guarded; unknown commits reconcile before retry. |
+| Enter6.3 | Inspect prerequisite summary and use joint/TCP workbench | Native action availability accurately reflects connection/current context. No unexplained legacy workspace-stale loop. Workspace/planner prerequisites must not become an accidental circular gate on setup or independently authorized manual review. Preserve legitimate collision/identity guards. |
+| 6.3 joint/TCP review | Slider/numeric/key draft; explicitTCPbutton; position/axis interaction; deliberate failed-pose inspection | One draft, editor-focus suppression, requestedgoal/candidate/accepted distinctions. Finite invalid or failed candidates inspectable without motion authority; exact targets/native termination/FK/static results separate. |
+| Recovery/cleanup | Cancel/reopen; backtrack; changeBase; reconnect | Clear dependency-specific recovery, owned display cleanup, active probe preserved where appropriate; no reset/teleport/stale acceptance. |
+
+For every blocked action, the primary UI must show **what is blocked, which dependency changed or is missing, and the actionable recovery**. Tooltips and internal logs alone do not satisfy this requirement. Present offline/connected mode and a compact state summary at the relevant owner; keep detailed diagnostics available without using them as the main navigation. Reuse existing layouts/callbacks; no general UI redesign.
+
+### Bounded execution after the diagnostic checkpoint
+
+1. Correct one evidenced transition at a time. Before dispatch record exact files/interfaces, why the change repairs this operator action, invariants and smallest check. Exactly two GPT-6 Luna Max workers for qualifying independent implementation, disjoint owners, no recursive delegation/runtime/docs; Sol owns diagnosis/review/acceptance. Do not force a split for an inseparable tiny fix or silently substitute a model.
+2. Host checks reproduce the specific failed behavior using production owners where possible; test recovery as well as refusal. Reuse matching unchanged checks. One final affected regression selection after edits freeze; a test count is never workflow acceptance.
+3. After source correction, give a concrete headed sequence and required screenshots. **No new runtime is authorized by this planning amendment.** The current no-autonomous-runtime boundary remains until Tarun authorizes that bounded sequence. Reuse prior approval only if it clearly applies despite that later boundary; do not resurrect the old broad goal.
+4. An authorized run uses one serialized instance and exact checkout/case/build provenance. Capture before/after and blocked/recovered states; normal button clicks/manual edit transitions, not private API mutation that bypasses UI. No planner/preview campaign is part of setup verification. A later single failing-IK inspection may be included only in its approved sequence; no search for a successful plan.
+5. Stop that dependent sequence at the first causal failure. Preserve evidence and give one hypothesis/smallest correction; do not start another runtime automatically. Existing three-failure ceiling remains; new names/sessions do not reset counters. Fatal native failures are blockers, not invitations to performance integration.
+
+### Anti-drift guardrails — required every implementation turn
+
+- Start with `Stage / exact operator action / expected observable result / smallest check / stopping condition`. Progress messages name that same feature and result; no generic "verification progressing".
+- One active blocker and one correction hypothesis. No automatic chain from failure→newfeature→newcampaign. Any scope expansion must be justified in the checkpoint before work expands.
+- End each turn with **demonstrated working / demonstrated blocked / unverified**, evidence and next bounded action. Report elapsed effort and checks/runs performed; do not promise a wall-clock/token guarantee without an explicit enforceable budget.
+- Keep product outcome separate from evidence maturity. Unit/build/synthetic/source success cannot substitute for normal-window workflow or Tarun's verdict. "Implementation complete" must state its exact scope and outstanding GUI requirements immediately.
+- No planner tuning, ±20mm sweeps, tolerance/limit/anatomy/policy changes, hardware/drill, performance/5.12 integration, DentoCase wiring, full-stack tests, extra case creation, commit/push or broad documentation rewrite under this recovery scope.
+- If implementation interfaces need new design, stop worker execution and return the choice toSol. If physics/safety meaning or runtime authorization is unresolved, stop that path; do not relax a guard for convenience.
+
+### Completion and handoff
+
+**Setup recovery acceptance:** evidence for both offline and connected operator paths with an actual changedBase, cancellation/review, Home definition, connection/mismatch handling and entry into6.3. Zero-displacement acceptance alone does not prove changedBase recovery. All blocked actions have visible specific reasons/recovery. UI placement/hierarchy must be inspected in screenshots, not inferred from source assertions.
+
+**6.3 workbench acceptance:** joint/TCP draft controls and selected failed-pose inspection demonstrably useful; valid/rejected/stale/unknown boundaries retained. Planner no-solution with sufficient evidence is an acceptable diagnostic outcome. Tarun evaluates robotics clarity and usability; he is not assigned responsibility for finding basic software failures.
+
+Until these observations exist, label the recovery **OPEN / GUI-unverified**, retain it inbacklog and assign no completed UX verdict. Complete planning/preview/return/repeat and representative final case remain separately conditional under existing contracts. The immediate executable next action is only the read-only diagnostic checkpoint above.
+
+
+## 1 October 2026 — implementation closure and engineer handoff (operator-approved supersession)
+
+The operator stopped the autonomous successful-planner/whole-run goal and approved **source/host checks followed by Tarun's engineering trials**. This supersedes earlier automatic campaign sequencing, not the guard policy or outstanding runtime acceptance. Do not launch a new Slicer/ROS/MoveIt/planner/preview trial for this pass. A no-solution planner result is a valid diagnostic outcome only when sufficient exact evidence is retained and state remains safe; it is not proof of infeasibility.
+
+Existing owners remain S6-LIVE-01, S6-WORKSPACE-PURPOSE, S6-LIVE-03/04, S6-REUSABLE-CASE-SETUP and S6-P2-03. Close concrete source gaps: non-finite diagnostic metrics, explicit failed-pose read-only FK/static inspection, diagnostic display cleanup, existing-layout clipping and actionable disabled-state explanations. Reuse five-joint state/guard, Base/Home, historical recording/persistence and preview owners; no new robotics framework or parameter tuning. Implementation closure is source/host verified: 469 combined checks passed on 1 October; Python compilation and git diff --check passed. Failed-pose inspection, finite metrics, diagnostic ownership/cleanup, layout wrapping and blocked-action guidance are corrected at this boundary. Rendered GUI and native robotics acceptance remain pending; exact commands and evidence are in the handoff index and dated logbook.
+
+Reuse bounded r22 TCP, r26 uncertainty/reconciliation, r29 offline-to-connected setup and r30 fresh-reopen evidence at their actual scopes. R31 ended 16 PASS / 1 FAIL / 12 NOT_RUN: all14 PreEntry searches reached iteration_limit, exact target/failed-pose evidence retained; P1/complete-plan/preview NotRun, inferior exit1 with signal null, partial video preserved. Earlier campaign verdicts are unchanged. Native positive full-chain/preview/interruption/Return Home/repeat, final post-campaign save/reopen, normal-window responsiveness and Tarun's robotics/usability verdict remain **PENDING**. The conditional ±20mm in-plane Base note awaits reviewed plane basis and budget; performance integration remains deferred.
+
+Feature/evidence handoff: [STEP6_IMPLEMENTATION_HANDOFF_2026-10-01.md](STEP6_IMPLEMENTATION_HANDOFF_2026-10-01.md). Backlog remains the sole pending queue; this amendment creates no task IDs or parallel implementation plan.
+
+
 **Date:** 2026-09-25. **Priority:** renovate Step 6 before case-specific planner solving. Owners are S6-WORKSPACE-PURPOSE, S6-LIVE-01, S6-LIVE-03/04 and S6-P2-03. [Backlog](../backlog.md) is the sole pending queue; [TASKS](../TASKS.md) holds task contracts; the [FDI31 P0 contract](FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md) retains its milestone and safety gates. The [base-pose feasibility plan](DENTOBOT_Base_Pose_Feasibility_Explorer_Diagnostic_Plan_2026-09-25.md) is an **active technical reference for shared diagnostic metrics**. The 30 September DENTO-NOTE below adds a conditional ±20 mm translation diagnostic after IK failure; broader automated sweeps and robot-design comparisons remain later work in the [reference index](STEP6_LATER_WORK_AND_ADJACENT_IDEAS_2026-09-25.md).
 
 **29 September execution checkpoint:** Tarun explicitly resumed bounded
@@ -840,3 +904,41 @@ UI, full-chain preview boundary, required measurements and operator verdict must
 also close. A passing test count alone never closes this plan. No additional
 planner algorithm, physics engine, Studio framework, legacy-case campaign or
 5.12 upgrade is required to deliver it.
+
+## 30 September operator amendment — connected and offline Base/Home setup
+
+Supersedes the live-only Home setup requirement, under existing S6-LIVE-01/S6-WORKSPACE-PURPOSE and S6-REUSABLE-CASE-SETUP. Operator asks two usable setup paths and GUI placement matching parent-child hierarchy. Interpret repeated6.2 as6.1Base and6.2Home. No hardware authorization or relaxation of live collision/guard authority follows.
+
+### One configuration, two entry paths
+
+1. **6.1 Base placement:** show local robot load, acceptedBase/detachedcandidate controls and currentmode/status first. Offline review/accept persists exactBase/profile identity using existing localplacement owner. Connected review/accept additionally requires fresh scene acknowledgement. Step3B and6.1 remain mirrors of one owner; transitions must not overwrite a reviewedBase or autoaccepta candidate.
+2. **6.2 Task Home setup:** place J1–J5 Home draft controls/reset/review/save in this step, rather than requiring navigation to6.3 to defineHome. Offline saving binds finite mechanical-limit-valid fivejoint vector to reviewedBase/profile as existing TaskHomeRecord Unreviewed, with no fabricated collision/native/monitored evidence. It saves configuration, never acceptedlive robotstate. Reuse existing schema and separate draft/configured/live labels. Connected Home acceptance retains exactaccepted/monitored/displayed-state, limits/static/scene/guard checks and uncertainty/reconciliation. Differentlivepose still requires a separatelyguardedjog. Both paths offer cancel and clear actionablefailuremessages.
+3. **Connection transition:** afteroffline Base/Home setup, explicitConnect importscurrentplanningcontext and acknowledgesexactscene. Show configuredHome versus accepted/monitoredpose; never teleport/automaticallyjog toofflineHome. ValidatecurrentposeHome ifexactlymatching, or use explicitlyguarded simulationPlan+Apply/currentjog path before Homevalidation when different. Retain offline configuration ifvalidationfails. ExistingUnreviewed status may be promoted only by proven native validation. Unknowncommits blockacceptance/reconciliation asbefore. Disconnect/reopen retainconfiguration but clearliveauthority.
+4. **6.3 Planning & Diagnostics:** offline permits localvisualreview, savedtargets/taskspace drafts and historicaldisplay; nativeIK/guard/workspaceconnectivity/planning requires connection/currentvalidation. Provide visible“Connect and validate setup” action and exactprerequisite explanation instead of unexplainedgreycontrols. Offline and connected paths converge on identicalBase→Home→workspace/limits→confirmedtask→fullchainguard→Preview boundaries. Do not claim offlineMoveIt/nativecollision or fulltrajectoryexecution withoutROS.
+
+### Hierarchy and GUI ownership
+
+Case → shared jaw/environment & reviewedBase → selectedtooth/PreparedBranch → HomeboundtoBase/profile → workspace/reviewedlimits → confirmedtask → guardedcompleteplan → Preview/Control. Preserve case→jaw→tooth→trajectory/branch persistence ownership; Base is sharedsetup and branch-specific tasks consumeit. Parentchange invalidates descendants only; branchselection mustnot silentlyrewrite sharedBase. Keep Step3B/6.1 sameplacementowner. Connection is a capability withinsetup, not a secondplacement hierarchy. Use existing groups/callbacks once; move/reparent controls rather than duplicatebuttons/writers.6.1 placement/runtime,6.2Homeauthoring/validation,6.3engineerexploration/planning; preview/return/reconciliation retain their authoritativeowners.
+
+### Bounded implementation and acceptance
+
+- Coordinator defines offlineHome identity/saving interface independentof livejogidentity, reusing TaskHomeRecord Unreviewed and exactBase/profile/freshcase dependencies. No new competingHome store orrecordschema. LocalFK/ghostreview cannot promoteacceptedlive state.
+- ExactlytwoLunaMaxworkers: facade/logic/source+focusedstate tests; disjointpanel/widget/UI+focusedcontroltests. No runtime/build/docs/recursivedelegation. Firstinspectactualdiffs; preserveallcurrentedits. Assignexactfilesafterdependencyreview.
+- Hostchecks: offlineBase/Home finite/limits/stale/reentrancy/save/reopen; disconnectednopublish/noauthority; connectexactmatchvalidation and differingHomeexplicitmotiongate; parentinvalidation; connectedaccepted/rejected/unknown behavior; UI singleownerplacement/clearblockedreason.
+- Serializedheadedcoverage: offlinefreshcase Base/Homesetup/save/reopen; reconnectcurrentidentityvalidateand proceed6.3; connectedsetupthroughsamecontrols; mismatch/rejection/unknown retained; noautomaticmotion. Reuse r26liveuncertainty evidence unlessownerschanged. Finalwhole6.3planner/preview/casecampaign remainsrequired; no paralleltestplan or fullsuccessinferred.
+
+### 30 September implementation interface refinement
+
+OfflineHome saving passes an explicit candidatejointvector to the existing Homewriter; defaultcurrentposecallers remaincompatible. It mustnot temporarilyedit robotJoint1–5 parameters toserializea draft. Mode-specificidentity includesconfigurationdependencies and freezesHomebaseline; switchingROSmodestalescandidate. UI reusesonlyexistingJ1–J5 draftcontrols/reset inonewrapperbetween6.2and6.3, leavingguard/reconcile/history/TCPactionsintheircurrentworkbenchowner. Hidelegacycurrentpose/tasklimitstablein6.2; Homeauthoringisdraftonly andworkspace/assistedlimitsfollowHomein6.3. This refinementcomesfromactualsource/screenshotownershipinspection andretainsconnectedstateauthority.
+
+
+### 1 October two-path UI and transaction refinement
+
+The offline Home save transaction stays busy through the writer, saved-record readback and descendant invalidation. A post-write exception remains UNKNOWN even when JSON readback matches; it cannot authorize a repeat save. Connecting after a configuration save exposes explicit review again without validating Home or moving the robot.
+
+In 6.2, the existing reset action may explicitly load the saved Home configuration into the draft, including after connection. In 6.3, connected reset retains its accepted-current-state meaning. A differing configured Home still requires a separate guarded jog before live acceptance. Offline Home authoring uses mechanical limits independently of stale assisted workspace limits. Offline draft edits do not invoke the ROS-only ghost renderer or claim a robot display update; live ghost, native validity/IK and guarded motion require connection. This closes setup authoring through the existing owners without adding another robot/configuration store. Headed two-path acceptance remains required.
+
+
+### 1 October recorded dual-path prerequisite checkpoint
+
+r29 passed12selectedchecks/0fail with complete425.833s recording and all process/video exits0. Offline unchanged Base acceptance, Unreviewed five-joint Home save and separate intermediate case persistence passed; explicit connected validation retained the exact vector and acknowledged31objects, followed by workspace/task readiness recovery. This clears the r28 false-UNKNOWN identity defect at bounded runtime scope. Fresh intermediate reopen and fullchain planner/preview/finalcase gates remain open in the existing backlog; no whole-feature completion or operator verdict inferred. Evidence: currentdatedlogbook and r29diagnostics. Optional scope remains frozen.

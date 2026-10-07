@@ -6,6 +6,17 @@ set(MODULE_PYTHON_SCRIPTS
   ${MODULE_NAME}.py
   Resources/Python/DENTOApplicationShell.py
   Resources/Python/DENTOCaseBundle.py
+  Resources/Python/dentobot_case/__init__.py
+  Resources/Python/dentobot_case/__main__.py
+  Resources/Python/dentobot_case/contracts.py
+  Resources/Python/dentobot_case/lineage.py
+  Resources/Python/dentobot_case/inspection.py
+  Resources/Python/dentobot_case/catalog.py
+  Resources/Python/dentobot_case/ownership.py
+  Resources/Python/dentobot_case/projection.py
+  Resources/Python/dentobot_workflow/case_library.py
+  Resources/Python/dentobot_workflow/case_inventory.py
+  Resources/Python/dentobot_workflow/case_projection.py
   Resources/Python/DENTOViewPresets.py
   Resources/Python/DENTOGuideGeometry.py
   Resources/Python/DENTOPlatform.py

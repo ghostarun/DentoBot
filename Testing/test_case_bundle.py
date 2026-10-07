@@ -404,7 +404,7 @@ def test_schema_one_remains_readable_and_migrates_only_on_later_save(tmp_path: P
         robot_profile=profile,
         created_at_utc="2026-09-09T00:00:00+00:00",
     )
-    assert migrated.manifest["schemaVersion"] == "2.0"
+    assert migrated.manifest["schemaVersion"] == "3.0"
     assert migrated.study_index["attemptCount"] == 0
 
 

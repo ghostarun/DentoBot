@@ -365,6 +365,7 @@ class DENTORobotWorkflowFacade:
         self._bridge = bridge or _default_bridge
         self._motion_plan = None
         self._preview_timer = None
+        self._diagnostic_preview_timer = None
         self._preview_index = 0
         self._preview_waypoint_in_flight = False
         self._guarded_preview_active = False
@@ -5416,6 +5417,323 @@ class DENTORobotWorkflowFacade:
             "revision": revision,
         }, record
 
+    def _manual_task_home_setup_mode(self, parameter_node) -> str:
+        checker = getattr(self._logic, "isRos2MotionControlActive", None)
+        if not callable(checker):
+            raise RuntimeError("The robot connection state is unavailable.")
+        return "connected" if checker(parameter_node.robotBaseTransform) else "offline"
+
+    def _manual_task_home_offline_identity(
+        self, parameter_node, *, allow_acceptance_in_progress: bool = False
+    ) -> dict[str, object]:
+        if self._scene_kind(parameter_node) != "case":
+            raise ValueError("Load the active case before configuring Task Home.")
+        if (
+            self.previewActive
+            or self._guarded_preview_active
+            or self._incomplete_preview_evidence is not None
+            or self._motion_plan is not None
+            or self._completed_phase
+            or self._phase_sequence
+            or self._phase_guard_session_id
+        ):
+            raise ValueError("Stop and resolve the active preview or phase before configuring Task Home.")
+        if (
+            self._manual_base_acceptance_uncertain
+            or self._manual_base_acceptance_in_progress
+            or self._manual_task_home_acceptance_uncertain
+            or (self._manual_task_home_acceptance_in_progress and not allow_acceptance_in_progress)
+            or self._manual_task_home_reconciliation_in_progress
+            or self._manual_jog_in_progress
+            or self._manual_jog_reconciliation_required
+            or self._manual_jog_uncertainty is not None
+        ):
+            raise ValueError("Resolve the outstanding Base, Home, or manual-jog uncertainty first.")
+        if self._manual_task_home_setup_mode(parameter_node) != "offline":
+            raise ValueError("The robot connection changed; review Task Home in the connected setup mode.")
+
+        base = parameter_node.robotBaseTransform
+        is_base = getattr(self._logic, "isRobotBaseTransformNode", None)
+        if not callable(is_base) or not is_base(base):
+            raise ValueError("Load the local Step 6 robot before configuring Task Home.")
+        models = getattr(self._logic, "robotModelNodes", None)
+        if not callable(models) or not models():
+            raise ValueError("The local Step 6 robot model is unavailable.")
+        base_issues = self._logic.step6BasePlacementFreshnessIssues(parameter_node)
+        if base_issues:
+            raise ValueError("The reviewed locked robot Base is not current: " + "; ".join(base_issues))
+
+        foundation = self._logic.evaluateCaseFoundationEligibility(parameter_node)
+        if not foundation.get("pose", {}).get("eligible"):
+            raise ValueError(str(foundation.get("pose", {}).get("message") or "The current Case Foundation is not eligible."))
+        if not foundation.get("base", {}).get("eligible"):
+            raise ValueError(str(foundation.get("base", {}).get("message") or "The reviewed robot Base is not eligible."))
+        snapshot = self._logic.buildCaseFoundationSnapshot(parameter_node)
+        snapshot_data = snapshot.to_dict()
+        snapshot_data.pop("task_home_configuration", None)
+        snapshot_data.pop("environment_fingerprint", None)
+        robot_profile = str(self._logic.robotProfileFingerprint() or "")
+        base_fingerprint = str(self._logic.robotBaseFingerprint(parameter_node) or "")
+        trajectory_revision = str(self._logic.step6TrajectoryRevision(parameter_node) or "")
+        if not robot_profile or not base_fingerprint or not trajectory_revision:
+            raise ValueError("The current robot profile, reviewed Base, or selected trajectory identity is incomplete.")
+
+        registry = json.loads(str(parameter_node.step6TrajectoryRegistryJson or "{}"))
+        branch_id = str(registry.get("selected_branch_id") or "")
+        branches = registry.get("prepared_branches")
+        if not branch_id or not isinstance(branches, Mapping) or branch_id not in branches:
+            raise ValueError("Select a current verified PreparedBranch before configuring Task Home.")
+        eligibility = self._logic.evaluatePreparedBranchEligibility(
+            parameter_node, branch_id, registry=registry
+        )
+        if not eligibility.get("eligible"):
+            raise ValueError(str(eligibility.get("message") or eligibility.get("reason") or "The selected PreparedBranch is stale."))
+        branch = eligibility.get("branch")
+        branch = branch if isinstance(branch, Mapping) else branches[branch_id]
+        trajectory = parameter_node.trajectoryLine
+        get_attribute = getattr(trajectory, "GetAttribute", None)
+        trajectory_id = str(
+            get_attribute(getattr(self._logic, "REGISTRY_TRAJECTORY_ID_ATTRIBUTE", "DENTOBOT.RegistryTrajectoryID"))
+            or ""
+        ) if callable(get_attribute) else ""
+        if (
+            not trajectory_id
+            or trajectory_id != str(branch.get("primary_trajectory_id") or "")
+            or trajectory_id not in tuple(str(value) for value in branch.get("trajectory_ids", ()))
+        ):
+            raise ValueError("The selected trajectory does not match the current PreparedBranch references.")
+
+        base_identity = self._manual_base_review_identity(parameter_node, base)
+        home_snapshot, _home_record = self._manual_task_home_record_snapshot(parameter_node)
+        return {
+            "setupMode": "offline",
+            "parameterIdentity": base_identity["parameterNode"],
+            "baseIdentity": base_identity,
+            "caseIdentity": str(getattr(snapshot, "case_identity", "") or ""),
+            "caseFoundationFingerprint": str(getattr(snapshot, "foundation_fingerprint", "") or ""),
+            "caseFoundationSnapshot": fingerprint(snapshot_data),
+            "branchId": branch_id,
+            "branchRevision": str(branch.get("revision") or ""),
+            "branchVerificationRevision": str(branch.get("verification_revision") or ""),
+            "trajectoryId": trajectory_id,
+            "trajectoryRevision": trajectory_revision,
+            "baseFingerprint": base_fingerprint,
+            "robotProfileFingerprint": robot_profile,
+            "homeSnapshot": home_snapshot,
+        }
+
+    def _manual_task_home_candidate_within_mechanical_limits(self, candidate) -> None:
+        paths = self._logic.robotDescriptionPaths()
+        if not paths or not paths[0]:
+            raise ValueError("The local robot URDF is unavailable for mechanical joint limits.")
+        limits = default_task_joint_limits_from_urdf(paths[0])
+        ranges = tuple(getattr(limits, name) for name in JOINT_LIMIT_FIELDS)
+        for index, name in enumerate(JOINT_NAMES):
+            display_value = (
+                degrees(candidate[name])
+                if JOINT_DISPLAY_UNITS[index] == "deg"
+                else candidate[name] * 1000.0
+            )
+            minimum = float(ranges[index].minimum)
+            maximum = float(ranges[index].maximum)
+            if (
+                not isfinite(display_value)
+                or not isfinite(minimum)
+                or not isfinite(maximum)
+                or display_value < minimum
+                or display_value > maximum
+            ):
+                raise ValueError(f"Task Home candidate {name} is outside the local robot's mechanical limits.")
+
+    def _manual_task_home_configuration_ready(self, parameter_node, identity) -> bool:
+        try:
+            record = self._logic.taskHomeRecord(parameter_node)
+            return bool(
+                record is not None
+                and record.base_fingerprint == identity.get("baseFingerprint")
+                and record.robot_profile_fingerprint == identity.get("robotProfileFingerprint")
+                and tuple(record.joint_names) == JOINT_NAMES
+                and not self._logic.taskHomeFreshnessIssues(parameter_node)
+            )
+        except Exception:
+            return False
+
+    @staticmethod
+    def _manual_task_home_offline_non_home_identity(identity):
+        return {
+            key: value
+            for key, value in dict(identity or {}).items()
+            if key != "homeSnapshot"
+        }
+
+    def _accept_manual_task_home_offline(self, parameter_node, review) -> RobotActionResult:
+        candidate = review["candidateJointPositionsSi"]
+        try:
+            self._manual_task_home_candidate_within_mechanical_limits(candidate)
+            identity_before = self._manual_task_home_offline_identity(parameter_node)
+        except Exception as exc:
+            message = _bounded_text(exc)
+            self._manual_task_home_review_status = "rejected"
+            self._manual_task_home_review_failure = {
+                "code": "manual_task_home_offline_identity_unavailable",
+                "message": message,
+            }
+            return RobotActionResult(
+                False,
+                "manual_task_home_review_rejected",
+                message,
+                details=self._manual_task_home_review_details(identity_status="unknown"),
+            )
+        if identity_before != review.get("identity"):
+            message = "The offline Task Home candidate is stale; cancel and review the current case and references again."
+            self._manual_task_home_review_status = "rejected"
+            self._manual_task_home_review_failure = {
+                "code": "manual_task_home_review_stale",
+                "message": message,
+                "identityBefore": deepcopy(review.get("identity")),
+                "identityCurrent": deepcopy(identity_before),
+            }
+            return RobotActionResult(
+                False,
+                "manual_task_home_review_stale",
+                message,
+                details=self._manual_task_home_review_details(identity_status="stale"),
+            )
+
+        before_home = deepcopy(identity_before["homeSnapshot"])
+        expected_revision = (before_home.get("revision") or 0) + 1
+        self._manual_task_home_acceptance_in_progress = True
+        try:
+            owner_error = ""
+            try:
+                self._logic.saveCurrentTaskHome(
+                    parameter_node,
+                    runtime_validation={"runtimeValidationStatus": "Unreviewed"},
+                    joint_positions_si=dict(candidate),
+                )
+            except Exception as exc:
+                owner_error = _bounded_text(exc)
+
+            try:
+                home_after, saved_home = self._manual_task_home_record_snapshot(parameter_node)
+                saved_positions = (
+                    dict(zip(saved_home.joint_names, saved_home.joint_positions_si))
+                    if saved_home is not None
+                    else None
+                )
+                exact_record = bool(
+                    saved_home is not None
+                    and saved_home.revision == expected_revision
+                    and tuple(saved_home.joint_names) == JOINT_NAMES
+                    and saved_positions == candidate
+                    and saved_home.base_fingerprint == identity_before["baseFingerprint"]
+                    and saved_home.robot_profile_fingerprint == identity_before["robotProfileFingerprint"]
+                    and saved_home.runtime_validation_status == "Unreviewed"
+                    and home_after["rawJsonFingerprint"] != before_home["rawJsonFingerprint"]
+                )
+                identity_after = self._manual_task_home_offline_identity(
+                    parameter_node, allow_acceptance_in_progress=True
+                )
+                identity_matches = (
+                    self._manual_task_home_offline_non_home_identity(identity_after)
+                    == self._manual_task_home_offline_non_home_identity(identity_before)
+                )
+            except Exception as exc:
+                home_after = {"rawJsonFingerprint": "", "recordFingerprint": "", "revision": None}
+                saved_positions = None
+                exact_record = False
+                identity_after = None
+                identity_matches = False
+                readback_error = _bounded_text(exc)
+            else:
+                readback_error = ""
+
+            write_may_have_occurred = bool(
+                home_after.get("rawJsonFingerprint")
+                != before_home.get("rawJsonFingerprint")
+            ) or identity_after is None
+            authority_invalidation_error = ""
+            if write_may_have_occurred:
+                self._runtime_validated_task_home_key = ""
+                self._runtime_task_home_evidence = {}
+                self._runtime_validated_workspace_key = ""
+                try:
+                    self.invalidateWorkspaceRuntimeValidation()
+                except Exception as exc:
+                    authority_invalidation_error = _bounded_text(exc)
+                    try:
+                        self.invalidateMotionPlan()
+                    except Exception as cleanup_exc:
+                        authority_invalidation_error += "; plan invalidation failed: " + _bounded_text(cleanup_exc)
+
+            if (
+                not exact_record
+                or not identity_matches
+                or bool(owner_error)
+                or bool(authority_invalidation_error)
+            ):
+                unknown = write_may_have_occurred or bool(authority_invalidation_error)
+                code = "manual_task_home_acceptance_unknown" if unknown else "manual_task_home_review_rejected"
+                message = (
+                    "Offline Task Home write outcome is uncertain; retain the candidate and resolve the saved record before retrying."
+                    if unknown
+                    else owner_error or "The saved Task Home record did not match the reviewed offline candidate."
+                )
+                self._manual_task_home_review_status = "unknown" if unknown else "rejected"
+                if unknown:
+                    self._manual_task_home_acceptance_uncertain = message
+                self._manual_task_home_review_failure = {
+                    "code": code,
+                    "message": message,
+                    "ownerError": owner_error,
+                    "readbackError": readback_error,
+                    "authorityInvalidationError": authority_invalidation_error,
+                    "identityBefore": deepcopy(identity_before),
+                    "identityAfter": deepcopy(identity_after),
+                    "homeBefore": before_home,
+                    "homeAfter": home_after,
+                    "candidateJointPositionsSi": dict(candidate),
+                    "savedJointPositionsSi": saved_positions,
+                    "exactSavedRecord": exact_record,
+                }
+                return RobotActionResult(
+                    False,
+                    code,
+                    message,
+                    details=self._manual_task_home_review_details(
+                        identity_status="unknown" if unknown else "current"
+                    ),
+                )
+
+            self._manual_task_home_review = None
+            self._manual_task_home_review_failure = None
+            self._manual_task_home_review_status = "configuration_saved"
+            self._manual_task_home_acceptance_uncertain = ""
+            result_details = self._manual_task_home_review_details(identity_status="current")
+            result_details.update(
+                {
+                    "setupMode": "offline",
+                    "configurationReady": True,
+                    "runtimeValidated": False,
+                    "acceptanceStatus": "configuration_saved",
+                    "homeConfigurationSaveResult": {
+                        "revision": expected_revision,
+                        "acknowledgementReceived": not bool(owner_error),
+                        "exactRecordReadback": True,
+                    },
+                }
+            )
+            return RobotActionResult(
+                True,
+                "manual_task_home_configuration_saved",
+                "Saved the reviewed Task Home configuration for the current offline Base; live runtime validation remains pending.",
+                details=result_details,
+                payload=saved_home,
+            )
+
+        finally:
+            self._manual_task_home_acceptance_in_progress = False
+
     @staticmethod
     def _manual_task_home_acknowledged_object_ids(audit, object_count):
         acknowledgement = getattr(audit, "runtime_acknowledgement", None)
@@ -5437,19 +5755,66 @@ class DENTORobotWorkflowFacade:
         return ids
 
     def _manual_task_home_review_details(self, *, identity_status="unknown"):
-        accepted = self._manual_task_home_accepted_positions()
+        review = self._manual_task_home_review or {}
+        try:
+            parameter_node = self._require_context()
+            setup_mode = self._manual_task_home_setup_mode(parameter_node)
+        except Exception:
+            parameter_node = None
+            setup_mode = "unknown"
+        accepted = (
+            self._manual_task_home_accepted_positions()
+            if setup_mode == "connected"
+            else None
+        )
+        configured = None
+        configuration_ready = False
+        try:
+            record = self._logic.taskHomeRecord(parameter_node) if parameter_node is not None else None
+            if record is not None:
+                configured = dict(zip(record.joint_names, record.joint_positions_si))
+            if setup_mode == "offline" and parameter_node is not None:
+                identity = self._manual_task_home_offline_identity(parameter_node)
+                configuration_ready = self._manual_task_home_configuration_ready(
+                    parameter_node, identity
+                )
+            elif setup_mode == "connected" and parameter_node is not None:
+                configuration_ready = bool(
+                    record is not None
+                    and not self._logic.taskHomeFreshnessIssues(parameter_node)
+                )
+        except Exception:
+            configuration_ready = False
+        try:
+            runtime_validated = bool(
+                self.taskHomeRuntimeValidated(parameter_node)
+            ) if setup_mode == "connected" and parameter_node is not None else False
+        except Exception:
+            runtime_validated = False
+        acceptance_status = (
+            "unknown"
+            if self._manual_task_home_acceptance_uncertain
+            else self._manual_task_home_review_status
+        )
+        if (
+            setup_mode == "connected"
+            and self._manual_task_home_review is None
+            and acceptance_status == "configuration_saved"
+        ):
+            acceptance_status = "review"
         details = {
             "staged": self._manual_task_home_review is not None,
+            "setupMode": setup_mode,
+            "candidateSetupMode": str(review.get("setupMode") or ""),
             "candidateJointPositionsSi": deepcopy(
                 (self._manual_task_home_review or {}).get("candidateJointPositionsSi")
             ),
             "acceptedJointPositionsSi": accepted,
+            "configuredJointPositionsSi": configured,
+            "configurationReady": bool(configuration_ready),
+            "runtimeValidated": runtime_validated,
             "identityStatus": str(identity_status),
-            "acceptanceStatus": (
-                "unknown"
-                if self._manual_task_home_acceptance_uncertain
-                else self._manual_task_home_review_status
-            ),
+            "acceptanceStatus": acceptance_status,
         }
         if self._manual_task_home_review_failure is not None:
             details["failureEvidence"] = deepcopy(self._manual_task_home_review_failure)
@@ -5458,12 +5823,25 @@ class DENTORobotWorkflowFacade:
         return details
 
     def manualTaskHomeReview(self) -> RobotActionResult:
-        """Read the detached J1–J5 candidate and current accepted simulation state."""
+        """Read the detached J1–J5 candidate and current Home setup state."""
 
         try:
             parameter_node = self._require_context()
-            identity = self._manual_jog_current_identity(
-                parameter_node, for_task_home_review=True
+            setup_mode = self._manual_task_home_setup_mode(parameter_node)
+            review = self._manual_task_home_review
+            if review is not None and review.get("setupMode") != setup_mode:
+                return RobotActionResult(
+                    False,
+                    "manual_task_home_review_stale",
+                    "The staged Task Home candidate belongs to another setup mode; cancel it before reviewing again.",
+                    details=self._manual_task_home_review_details(identity_status="stale"),
+                )
+            identity = (
+                self._manual_task_home_offline_identity(parameter_node)
+                if setup_mode == "offline"
+                else self._manual_jog_current_identity(
+                    parameter_node, for_task_home_review=True
+                )
             )
         except Exception as exc:
             return RobotActionResult(
@@ -5490,9 +5868,22 @@ class DENTORobotWorkflowFacade:
         try:
             candidate = self._manual_task_home_review_vector(joint_positions_si)
             parameter_node = self._require_context()
-            identity = self._manual_jog_current_identity(
-                parameter_node, for_task_home_review=True
-            )
+            setup_mode = self._manual_task_home_setup_mode(parameter_node)
+            existing_review = self._manual_task_home_review
+            if existing_review is not None and existing_review.get("setupMode") != setup_mode:
+                return RobotActionResult(
+                    False,
+                    "manual_task_home_review_stale",
+                    "The existing Task Home candidate belongs to another setup mode; cancel it before staging a new candidate.",
+                    details=self._manual_task_home_review_details(identity_status="stale"),
+                )
+            if setup_mode == "offline":
+                self._manual_task_home_candidate_within_mechanical_limits(candidate)
+                identity = self._manual_task_home_offline_identity(parameter_node)
+            else:
+                identity = self._manual_jog_current_identity(
+                    parameter_node, for_task_home_review=True
+                )
         except Exception as exc:
             return RobotActionResult(
                 False,
@@ -5525,6 +5916,7 @@ class DENTORobotWorkflowFacade:
         self._manual_task_home_review = {
             "identity": dict(identity),
             "candidateJointPositionsSi": candidate,
+            "setupMode": setup_mode,
         }
         self._manual_task_home_review_status = "review"
         self._manual_task_home_review_failure = None
@@ -5600,6 +5992,24 @@ class DENTORobotWorkflowFacade:
             )
         try:
             parameter_node = self._require_context()
+            setup_mode = self._manual_task_home_setup_mode(parameter_node)
+            if review.get("setupMode") != setup_mode:
+                message = "The staged Task Home candidate belongs to another setup mode; cancel it before accepting it."
+                self._manual_task_home_review_status = "rejected"
+                self._manual_task_home_review_failure = {
+                    "code": "manual_task_home_review_stale",
+                    "message": message,
+                    "candidateSetupMode": str(review.get("setupMode") or ""),
+                    "setupMode": setup_mode,
+                }
+                return RobotActionResult(
+                    False,
+                    "manual_task_home_review_stale",
+                    message,
+                    details=self._manual_task_home_review_details(identity_status="stale"),
+                )
+            if setup_mode == "offline":
+                return self._accept_manual_task_home_offline(parameter_node, review)
             identity = self._manual_jog_current_identity(
                 parameter_node, for_task_home_review=True
             )
@@ -5842,6 +6252,15 @@ class DENTORobotWorkflowFacade:
             self._manual_task_home_review_status = "unknown"
             return finish(
                 "manual_task_home_acceptance_unknown", message, identity_status=identity_status
+            )
+
+        if (
+            isinstance(self._manual_task_home_review, Mapping)
+            and self._manual_task_home_review.get("setupMode") == "offline"
+        ):
+            return unresolved(
+                "offline_task_home_configuration_unknown",
+                "Offline Task Home writes cannot be reconciled through connected native-state evidence; retain the saved-record evidence for explicit resolution.",
             )
 
         if self._manual_task_home_acceptance_in_progress:
@@ -7568,12 +7987,87 @@ class DENTORobotWorkflowFacade:
             if not payload:
                 raise ValueError("No retained Step 6 motion diagnostic is available.")
             session = parse_motion_diagnostic_session(payload)
+
+            def freshness_issues() -> tuple[str, ...]:
+                issues = []
+                try:
+                    if self._parameter_node() is not parameter_node:
+                        issues.append("The active case changed during diagnostic inspection.")
+                except Exception as exc:
+                    issues.append(f"The active case identity could not be verified: {exc}")
+                try:
+                    current_payload = str(
+                        parameter_node.step6MotionDiagnosticJson or ""
+                    ).strip()
+                except Exception as exc:
+                    current_payload = ""
+                    issues.append(f"The retained diagnostic session could not be read: {exc}")
+                if current_payload not in {
+                    payload,
+                    inspection_payload,
+                }:
+                    issues.append("The retained diagnostic session changed during inspection.")
+                if getattr(session, "state", "") != "Current":
+                    issues.append("The retained motion diagnostic is not Current.")
+                stale_reason = str(getattr(session, "stale_reason", "") or "").strip()
+                if stale_reason:
+                    issues.append(stale_reason)
+                checker = getattr(self._logic, "motionDiagnosticFreshnessIssues", None)
+                if not callable(checker):
+                    issues.append("Current motion-diagnostic identity could not be verified.")
+                else:
+                    try:
+                        issues.extend(str(issue) for issue in checker(parameter_node))
+                    except Exception as exc:
+                        issues.append(f"Current motion-diagnostic identity could not be verified: {exc}")
+                return tuple(dict.fromkeys(issue for issue in issues if issue))
+
+            inspection_payload = None
+
+            def stale_result(issues, inspection=None):
+                reason = "; ".join(issues)
+                details = {
+                    "staleReason": str(getattr(session, "stale_reason", "") or ""),
+                    "freshnessIssues": tuple(issues),
+                }
+                if inspection is not None:
+                    details["diagnosticInspection"] = inspection
+                return RobotActionResult(
+                    False,
+                    "diagnostic_candidate_stale",
+                    "The retained diagnostic is stale or no longer matches the current scene. "
+                    "Re-run Step 6 diagnostics before inspecting or displaying this candidate. "
+                    + reason,
+                    details=details,
+                )
+
+            def discard_inspection(issues, message):
+                if (
+                    inspection_payload is not None
+                    and parameter_node.step6MotionDiagnosticJson == inspection_payload
+                ):
+                    parameter_node.step6MotionDiagnosticJson = payload
+                return stale_result(
+                    issues,
+                    {"status": "discarded", "message": message},
+                )
+
+            initial_issues = freshness_issues()
+            if initial_issues:
+                return stale_result(initial_issues)
+            if self.previewActive or self._guarded_preview_active:
+                return RobotActionResult(
+                    False,
+                    "diagnostic_candidate_display_blocked",
+                    "Stop or finish the active preview before inspecting or displaying a diagnostic candidate.",
+                )
             index = int(candidate_index)
             if index < 0 or index >= len(session.candidate_records):
                 raise ValueError("Diagnostic candidate index is out of range.")
-            record = session.candidate_records[index]
+            record = dict(session.candidate_records[index])
             positions = record.get("last_valid_joint_positions_si")
             display_only_best_failed_ik = False
+            inspection = None
             if not isinstance(positions, dict):
                 preentry_ik_session = (
                     isinstance(session.full_task_outcome, Mapping)
@@ -7612,29 +8106,307 @@ class DENTORobotWorkflowFacade:
                         details=record,
                     )
                 display_only_best_failed_ik = True
-            ok, message = self._bridge.show_goal_robot_joint_positions(positions)
+                conditioning = session.full_task_outcome.get("target_conditioning")
+                if not isinstance(conditioning, Mapping):
+                    return RobotActionResult(
+                        False,
+                        "diagnostic_state_unavailable",
+                        "The retained PreEntry diagnostic has no exact target pose and drilling axis for inspection.",
+                        details=record,
+                    )
+                try:
+                    expected_position = tuple(
+                        float(value)
+                        for value in conditioning["pre_entry_world_ras_mm"]
+                    )
+                    expected_axis = tuple(
+                        float(value)
+                        for value in conditioning["drilling_axis_world_unit"]
+                    )
+                    expected_axis_length = sqrt(
+                        sum(value * value for value in expected_axis)
+                    )
+                    if (
+                        len(expected_position) != 3
+                        or len(expected_axis) != 3
+                        or not all(isfinite(value) for value in (*expected_position, *expected_axis))
+                        or not isfinite(expected_axis_length)
+                        or expected_axis_length <= 1.0e-12
+                    ):
+                        raise ValueError("retained PreEntry target is incomplete")
+                except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                    return RobotActionResult(
+                        False,
+                        "diagnostic_state_unavailable",
+                        f"The retained PreEntry diagnostic target is invalid: {exc}",
+                        details=record,
+                    )
+
+                static_check = getattr(
+                    self._bridge, "check_moveit_static_joint_state", None
+                )
+                try:
+                    if not callable(static_check):
+                        raise RuntimeError("MoveIt static-state validity is unavailable.")
+                    static_valid, static_message, static_authoritative = static_check(
+                        positions
+                    )
+                    static_authoritative = (
+                        static_authoritative is True
+                        and isinstance(static_valid, bool)
+                    )
+                    static_state = {
+                        "status": (
+                            "valid"
+                            if static_authoritative and static_valid is True
+                            else "invalid"
+                            if static_authoritative and static_valid is False
+                            else "unavailable"
+                        ),
+                        "authoritative": static_authoritative,
+                        "message": str(static_message or ""),
+                    }
+                except Exception as exc:
+                    static_state = {
+                        "status": "unavailable",
+                        "authoritative": False,
+                        "message": str(exc),
+                    }
+
+                issues = freshness_issues()
+                if issues:
+                    return discard_inspection(
+                        issues,
+                        "Scene identity changed after static-state inspection.",
+                    )
+
+                try:
+                    endpoint = self._evaluate_step6_tcp_endpoint(
+                        parameter_node,
+                        positions,
+                        expected_tcp_world_ras_mm=expected_position,
+                        expected_drill_axis_world_ras_unit=expected_axis,
+                        check_static=False,
+                    )
+                except Exception as exc:
+                    endpoint = {
+                        "status": "unknown",
+                        "fk": {
+                            "status": "unknown",
+                            "message": str(exc),
+                            "pose_world_ras_mm": None,
+                        },
+                        "position_residual_mm": None,
+                        "drilling_axis_residual_deg": None,
+                    }
+
+                issues = freshness_issues()
+                if issues:
+                    return discard_inspection(
+                        issues,
+                        "Scene identity changed after FK inspection.",
+                    )
+
+                fk = endpoint.get("fk", {})
+                pose = fk.get("pose_world_ras_mm")
+                actual_axis = None
+                if fk.get("status") == "passed" and pose is not None:
+                    actual_axis_values = tuple(float(pose[row][2]) for row in range(3))
+                    axis_length = sqrt(sum(value * value for value in actual_axis_values))
+                    if axis_length > 1.0e-12 and all(
+                        isfinite(value) for value in actual_axis_values
+                    ):
+                        actual_axis = tuple(value / axis_length for value in actual_axis_values)
+                inspection = {
+                    "status": "current",
+                    "static_state_validity": static_state,
+                    "fk": {
+                        "status": str(fk.get("status") or "unknown"),
+                        "message": str(fk.get("message") or ""),
+                        "pose_world_ras_mm": pose,
+                        "drilling_axis_world_ras_unit": actual_axis,
+                    },
+                    "expected": {
+                        "tcp_world_ras_mm": expected_position,
+                        "drilling_axis_world_ras_unit": expected_axis,
+                    },
+                    "position_residual_mm": endpoint.get("position_residual_mm"),
+                    "drilling_axis_residual_deg": endpoint.get(
+                        "drilling_axis_residual_deg"
+                    ),
+                    "native": {
+                        "message": str(record.get("solver_message") or ""),
+                        "termination_reason": str(
+                            record.get("termination_reason") or "unknown"
+                        ),
+                        "collision_check_status": str(
+                            record.get("collision_check_status") or "unknown"
+                        ),
+                        "position_residual_mm": record.get("position_residual_mm"),
+                        "drilling_axis_residual_deg": record.get(
+                            "drilling_axis_residual_deg"
+                        ),
+                    },
+                }
+                fk_status = str(fk.get("status") or "unknown")
+                position_residual = endpoint.get("position_residual_mm")
+                axis_residual = endpoint.get("drilling_axis_residual_deg")
+                authoritative_fk_status = (
+                    "Failed"
+                    if fk_status != "passed" or position_residual is None or axis_residual is None
+                    else "OutsideTolerance"
+                    if endpoint.get("status") == "failed"
+                    else "Passed"
+                )
+                record.update(
+                    {
+                        "static_state_validity_status": {
+                            "valid": "Valid",
+                            "invalid": "Invalid",
+                            "unavailable": "Unavailable",
+                        }[static_state["status"]],
+                        "static_state_validity_message": static_state["message"],
+                        "authoritative_fk_status": authoritative_fk_status,
+                        "authoritative_fk_message": str(fk.get("message") or ""),
+                        "authoritative_position_residual_mm": position_residual,
+                        "authoritative_drilling_axis_residual_deg": axis_residual,
+                        "authoritative_tcp_pose_world_ras_mm": pose,
+                        "authoritative_drilling_axis_world_ras_unit": actual_axis,
+                    }
+                )
+                updated_records = [dict(candidate) for candidate in session.candidate_records]
+                updated_records[index] = record
+                updated_session = build_motion_diagnostic_session(
+                    state=session.state,
+                    stale_reason=session.stale_reason,
+                    task_fingerprint=session.task_fingerprint,
+                    base_fingerprint=session.base_fingerprint,
+                    trajectory_fingerprint=session.trajectory_fingerprint,
+                    robot_profile_fingerprint=session.robot_profile_fingerprint,
+                    collision_audit_fingerprint=session.collision_audit_fingerprint,
+                    planning_parameters_fingerprint=session.planning_parameters_fingerprint,
+                    candidate_records=updated_records,
+                    selected_candidate_index=session.selected_candidate_index,
+                    failure_classification=session.failure_classification,
+                    operator_review_state=session.operator_review_state,
+                    generated_at_utc=session.generated_at_utc,
+                    schema_version=session.schema_version,
+                    stage_outcomes=session.stage_outcomes,
+                    full_task_outcome=session.full_task_outcome,
+                )
+                updated_payload = canonical_json(updated_session.to_dict())
+                parameter_node.step6MotionDiagnosticJson = updated_payload
+                inspection_payload = updated_payload
+                session = updated_session
+                issues = freshness_issues()
+                if issues:
+                    return discard_inspection(
+                        issues,
+                        "Scene identity changed before display.",
+                    )
+
+            issues = freshness_issues()
+            if issues:
+                return discard_inspection(
+                    issues, "Scene identity changed before display."
+                )
             evidence_ok, evidence_message = self._bridge.show_motion_diagnostic_evidence(
                 first_invalid_ras_mm=record.get("first_invalid_ras_mm"),
                 collision_pairs=record.get("first_invalid_collision_pairs", ()),
             )
+            issues = freshness_issues()
+            if issues:
+                clear_display = getattr(
+                    self._bridge, "clear_motion_diagnostic_display", None
+                )
+                if callable(clear_display):
+                    clear_display()
+                return discard_inspection(
+                    issues, "Scene identity changed during evidence display."
+                )
+            ok, message = self._bridge.show_goal_robot_joint_positions(
+                positions, diagnostic=True
+            )
+            issues = freshness_issues()
+            if issues:
+                clear_display = getattr(
+                    self._bridge, "clear_motion_diagnostic_display", None
+                )
+                if callable(clear_display):
+                    clear_display()
+                return discard_inspection(
+                    issues, "Scene identity changed during candidate display."
+                )
             if display_only_best_failed_ik:
                 message = (
-                    "Best failed PreEntry IK state displayed on the translucent goal robot for visualization only. "
-                    "Static validity and collision may be unverified; this has no accepted-state, guard, or route authority."
-                    + (" " + message if not ok else "")
+                    "Best failed PreEntry IK state inspected for visualization only. "
+                    "Static validity and FK remain independent; no IK success, accepted-state, guard, or route authority is implied. "
+                    + ("Displayed. " if ok else "Display was blocked. ")
+                    + message
                 )
+            details = dict(record)
+            if inspection is not None:
+                details["diagnosticInspection"] = inspection
             return RobotActionResult(
                 ok and evidence_ok,
                 (
                     "diagnostic_candidate_shown"
                     if ok and evidence_ok
+                    else "diagnostic_candidate_display_blocked"
+                    if "TCP Drag" in str(message)
                     else "diagnostic_candidate_failed"
                 ),
                 message + " " + evidence_message,
-                details=record,
+                details=details,
             )
         except (RuntimeError, ValueError, OSError, KeyError) as exc:
             return RobotActionResult(False, "diagnostic_candidate_failed", str(exc))
+
+    def clearDiagnosticDisplay(self) -> RobotActionResult:
+        """Stop only this façade's diagnostic timer and clear owned display evidence."""
+        diagnostic_timer = self._diagnostic_preview_timer
+        if diagnostic_timer is not None:
+            if (
+                self._preview_timer is diagnostic_timer
+                and not self._guarded_preview_active
+            ):
+                try:
+                    diagnostic_timer.stop()
+                except Exception as exc:
+                    return RobotActionResult(
+                        False,
+                        "diagnostic_display_cleanup_failed",
+                        f"Could not stop the diagnostic preview timer: {exc}",
+                    )
+                self._preview_timer = None
+                if not self._preview_waypoint_in_flight:
+                    self._preview_index = 0
+                self._diagnostic_preview_timer = None
+            elif self._preview_timer is not diagnostic_timer:
+                self._diagnostic_preview_timer = None
+        clear = getattr(self._bridge, "clear_motion_diagnostic_display", None)
+        if not callable(clear):
+            return RobotActionResult(
+                False,
+                "diagnostic_display_cleanup_unavailable",
+                "The ROS bridge does not expose diagnostic display cleanup.",
+            )
+        try:
+            if self._guarded_preview_active:
+                ok, message = clear(hide_goal=False)
+            else:
+                ok, message = clear()
+        except Exception as exc:
+            return RobotActionResult(
+                False,
+                "diagnostic_display_cleanup_failed",
+                str(exc),
+            )
+        return RobotActionResult(
+            bool(ok),
+            "diagnostic_display_cleared" if ok else "diagnostic_display_cleanup_failed",
+            str(message),
+        )
 
     def showDiagnosticCandidatePaths(self, candidate_index: int) -> RobotActionResult:
         """Show all retained display-only TCP paths for one live planner leg."""
@@ -7674,7 +8446,7 @@ class DENTORobotWorkflowFacade:
         interval_ms: int = 50,
     ) -> RobotActionResult:
         """Animate one retained route on the translucent goal robot only."""
-        if self.previewActive:
+        if self.previewActive or self._guarded_preview_active:
             return RobotActionResult(
                 False,
                 "guarded_preview_active",
@@ -7716,12 +8488,15 @@ class DENTORobotWorkflowFacade:
             if self._preview_index >= len(waypoints):
                 self.stopPreview()
                 return
-            self._bridge.show_goal_robot_joint_positions(waypoints[self._preview_index])
+            self._bridge.show_goal_robot_joint_positions(
+                waypoints[self._preview_index], diagnostic=True
+            )
             self._preview_index += 1
 
         timer.timeout.connect(advance)
         timer.start()
         self._preview_timer = timer
+        self._diagnostic_preview_timer = timer
         return RobotActionResult(
             True,
             "diagnostic_preview_started",
@@ -13078,6 +13853,7 @@ class DENTORobotWorkflowFacade:
         if self._preview_timer is not None:
             self._preview_timer.stop()
             self._preview_timer = None
+        self._diagnostic_preview_timer = None
         if not self._preview_waypoint_in_flight:
             self._preview_index = 0
         return RobotActionResult(True, "preview_stopped", "Simulated preview stopped.")

@@ -119,8 +119,12 @@ def test_guide_allowlist_uses_acknowledged_or_explicit_deferred_static_audit():
 from DENTOROS2Bridge import ROS2_JOINT_SI_ORDER  # noqa: E402
 from DENTOStep6Planning import TaskSpaceRoi  # noqa: E402
 from DENTOStep6State import (  # noqa: E402
+    build_task_home,
+    build_robot_environment_snapshot,
+    canonical_json,
     fingerprint,
     parse_manual_simulation_record,
+    parse_task_home,
 )
 import DENTORobotWorkflowFacade as workflow_facade_module  # noqa: E402
 from DENTORobotWorkflowFacade import (  # noqa: E402
@@ -2193,87 +2197,321 @@ def test_preentry_ik_diagnostic_retains_failed_seed_without_planning(monkeypatch
     assert bridge.phase_calls == []
 
 
-def test_best_failed_preentry_ik_state_is_display_only(monkeypatch):
-    facade, parameter_node, _logic, bridge = make_facade()
-    parameter_node.step6MotionDiagnosticJson = "diagnostic"
-    records = []
-    session = SimpleNamespace(candidate_records=records, full_task_outcome={})
-    monkeypatch.setattr(
-        workflow_facade_module,
-        "parse_motion_diagnostic_session",
-        lambda _payload: session,
+def _failed_preentry_diagnostic_payload(
+    *, best=None, state="Current", stale_reason=""
+):
+    from DENTOStep6State import build_motion_diagnostic_session, canonical_json
+
+    best = best or {
+        name: 0.1 * (index + 1)
+        for index, name in enumerate(ROS2_JOINT_SI_ORDER)
+    }
+    record = {
+        "candidate_index": 0,
+        "axial_roll_deg": 0.0,
+        "success": False,
+        "completion_fraction": 0.0,
+        "completed_distance_mm": 0.0,
+        "requested_distance_mm": 0.0,
+        "waypoint_count": 0,
+        "failure_classification": "position_axis_ik_failed",
+        "full_chain_failure_stage": "preentry_ik",
+        "solver_success": False,
+        "solver_message": "native solver rejected the exact pose",
+        "termination_reason": "iteration_limit",
+        "collision_check_status": "unavailable",
+        "position_residual_mm": 0.8,
+        "drilling_axis_residual_deg": 1.4,
+        "best_joint_positions_si": dict(best),
+        "static_state_validity_status": "not_attempted",
+        "authoritative_fk_status": "not_attempted",
+    }
+    session = build_motion_diagnostic_session(
+        state=state,
+        stale_reason=stale_reason,
+        task_fingerprint="task",
+        base_fingerprint="base",
+        trajectory_fingerprint="trajectory",
+        robot_profile_fingerprint="profile",
+        collision_audit_fingerprint="scene",
+        planning_parameters_fingerprint="parameters",
+        candidate_records=(record,),
+        selected_candidate_index=0,
+        failure_classification="preentry_ik_endpoint_diagnostic_only",
+        full_task_outcome={
+            "diagnostic_kind": "preentry_ik",
+            "target_conditioning": {
+                "world_frame": "RAS_mm",
+                "pre_entry_world_ras_mm": (1.0, 2.0, 3.0),
+                "entry_world_ras_mm": (1.0, 2.0, 4.0),
+                "target_world_ras_mm": (1.0, 2.0, 14.0),
+                "drilling_axis_world_unit": (0.0, 0.0, 1.0),
+            },
+            "plan_authority": False,
+            "route_selection_allowed": False,
+        },
     )
+    return canonical_json(session.to_dict())
+
+
+def test_best_failed_preentry_inspects_static_fk_and_retains_exact_evidence():
+    from DENTOStep6State import parse_motion_diagnostic_session
+
+    facade, parameter_node, logic, bridge = make_facade()
+    parameter_node.step6MotionDiagnosticJson = _failed_preentry_diagnostic_payload()
+    logic.motionDiagnosticFreshnessIssues = lambda _node: ()
+    valid = {
+        name: 0.1 * (index + 1)
+        for index, name in enumerate(ROS2_JOINT_SI_ORDER)
+    }
+    static_calls = []
+    fk_calls = []
     shown = []
-    bridge.show_goal_robot_joint_positions = lambda positions: (
-        shown.append(dict(positions)) or (True, "displayed")
-    )
     evidence_calls = []
+    bridge.check_moveit_static_joint_state = lambda positions: (
+        static_calls.append(dict(positions)) or (False, "static collision", True)
+    )
+    pose = (
+        (1.0, 0.0, 0.0, 1.0),
+        (0.0, 1.0, 0.0, 2.0),
+        (0.0, 0.0, 1.0, 4.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+
+    def compute_fk(positions, *, base_transform):
+        fk_calls.append((dict(positions), base_transform))
+        return True, "finite FK", pose
+
+    bridge.compute_tcp_pose_world_ras_mm = compute_fk
+    bridge.show_goal_robot_joint_positions = lambda positions, **kwargs: (
+        shown.append((dict(positions), kwargs)) or (True, "displayed")
+    )
     bridge.show_motion_diagnostic_evidence = lambda **kwargs: (
         evidence_calls.append(kwargs) or (True, "evidence shown")
     )
-    valid = {name: float(index) for index, name in enumerate(ROS2_JOINT_SI_ORDER)}
-    records.append(
-        {
-            "full_chain_failure_stage": "preentry_ik",
-            "best_joint_positions_si": valid,
-        }
+    accepted_before = dict(bridge.accepted)
+    display_before = tuple(
+        getattr(parameter_node, field)
+        for field in (
+            "robotJoint1Deg",
+            "robotJoint2Mm",
+            "robotJoint3Deg",
+            "robotJoint4Mm",
+            "robotJoint5Deg",
+        )
     )
 
     result = facade.showDiagnosticCandidate(0)
 
     assert result.success and result.code == "diagnostic_candidate_shown"
-    assert "Best failed PreEntry IK state" in result.message
-    assert "visualization only" in result.message
-    assert "Static validity and collision may be unverified" in result.message
-    assert "no accepted-state, guard, or route authority" in result.message
-    assert shown == [valid]
+    assert "failed PreEntry IK state inspected" in result.message
+    assert "no IK success, accepted-state, guard, or route authority" in result.message
+    assert static_calls == [valid]
+    assert fk_calls == [(valid, parameter_node.robotBaseTransform)]
+    assert shown == [(valid, {"diagnostic": True})]
     assert len(evidence_calls) == 1
+    inspection = result.details["diagnosticInspection"]
+    assert inspection["static_state_validity"] == {
+        "status": "invalid",
+        "authoritative": True,
+        "message": "static collision",
+    }
+    assert inspection["fk"]["status"] == "passed"
+    assert inspection["fk"]["pose_world_ras_mm"] == pose
+    assert inspection["fk"]["drilling_axis_world_ras_unit"] == (0.0, 0.0, 1.0)
+    assert inspection["expected"]["tcp_world_ras_mm"] == (1.0, 2.0, 3.0)
+    assert inspection["position_residual_mm"] == 1.0
+    assert inspection["drilling_axis_residual_deg"] == 0.0
+    assert inspection["native"]["message"] == "native solver rejected the exact pose"
+    assert inspection["native"]["termination_reason"] == "iteration_limit"
+    updated = parse_motion_diagnostic_session(
+        parameter_node.step6MotionDiagnosticJson
+    ).candidate_records[0]
+    assert updated["solver_success"] is False
+    assert updated["static_state_validity_status"] == "Invalid"
+    assert updated["authoritative_fk_status"] == "OutsideTolerance"
+    assert updated["authoritative_position_residual_mm"] == 1.0
+    assert updated["authoritative_drilling_axis_residual_deg"] == 0.0
+    assert tuple(
+        tuple(row) for row in updated["authoritative_tcp_pose_world_ras_mm"]
+    ) == pose
+    assert tuple(
+        updated["authoritative_drilling_axis_world_ras_unit"]
+    ) == (0.0, 0.0, 1.0)
+    assert bridge.accepted == accepted_before
+    assert bridge.applied == [] and bridge.phase_calls == []
+    assert tuple(
+        getattr(parameter_node, field)
+        for field in (
+            "robotJoint1Deg",
+            "robotJoint2Mm",
+            "robotJoint3Deg",
+            "robotJoint4Mm",
+            "robotJoint5Deg",
+        )
+    ) == display_before
+    assert facade.motionPlan is None
+    assert facade._accepted_motion_history == []
 
-    session.full_task_outcome = {"diagnostic_kind": "preentry_ik"}
-    records[:] = [{"solver_success": False, "best_joint_positions_si": valid}]
-    standalone_result = facade.showDiagnosticCandidate(0)
-    assert standalone_result.success
-    assert "Best failed PreEntry IK state" in standalone_result.message
-    assert shown == [valid, valid]
-    assert len(evidence_calls) == 2
 
-    records[:] = [{"solver_success": True, "best_joint_positions_si": valid}]
-    successful_seed = facade.showDiagnosticCandidate(0)
-    assert not successful_seed.success
-    assert successful_seed.code == "diagnostic_state_unavailable"
-
-    session.full_task_outcome = {}
-    malformed_records = (
-        {"full_chain_failure_stage": "preentry_ik"},
-        {
-            "full_chain_failure_stage": "preentry_ik",
-            "best_joint_positions_si": {
-                **valid,
-                "unexpected_joint": 0.0,
-            },
-        },
-        {
-            "full_chain_failure_stage": "preentry_ik",
-            "best_joint_positions_si": {
-                **valid,
-                ROS2_JOINT_SI_ORDER[0]: float("nan"),
-            },
-        },
-        {
-            "full_chain_failure_stage": "stage1_free_space",
-            "best_joint_positions_si": valid,
-        },
+def test_best_failed_preentry_inspection_keeps_fk_independent_when_unavailable():
+    facade, parameter_node, logic, bridge = make_facade()
+    parameter_node.step6MotionDiagnosticJson = _failed_preentry_diagnostic_payload()
+    logic.motionDiagnosticFreshnessIssues = lambda _node: ()
+    static_calls = []
+    fk_calls = []
+    bridge.check_moveit_static_joint_state = lambda positions: (
+        static_calls.append(dict(positions)) or (False, "query timed out", False)
     )
-    for record in malformed_records:
-        records[:] = [record]
-        rejected = facade.showDiagnosticCandidate(0)
-        assert not rejected.success
-        assert rejected.code == "diagnostic_state_unavailable"
+    bridge.compute_tcp_pose_world_ras_mm = lambda *args, **kwargs: (
+        fk_calls.append((args, kwargs)) or (False, "FK unavailable", None)
+    )
+    bridge.show_goal_robot_joint_positions = lambda *_args, **_kwargs: (
+        True,
+        "displayed",
+    )
+    bridge.show_motion_diagnostic_evidence = lambda **_kwargs: (True, "evidence shown")
 
-    assert shown == [valid, valid]
-    assert len(evidence_calls) == 2
-    assert bridge.applied == []
-    assert bridge.phase_calls == []
+    result = facade.showDiagnosticCandidate(0)
+
+    assert result.success
+    assert static_calls and fk_calls
+    inspection = result.details["diagnosticInspection"]
+    assert inspection["static_state_validity"]["status"] == "unavailable"
+    assert inspection["fk"]["status"] == "unknown"
+    assert inspection["fk"]["message"] == "FK unavailable"
+    assert inspection["position_residual_mm"] is None
+    assert inspection["drilling_axis_residual_deg"] is None
+    assert result.details["solver_success"] is False
+
+
+def test_stale_or_replaced_preentry_identity_rejects_before_fk_or_display():
+    facade, parameter_node, logic, bridge = make_facade()
+    stale_payload = _failed_preentry_diagnostic_payload(
+        state="Stale", stale_reason="saved scene changed"
+    )
+    parameter_node.step6MotionDiagnosticJson = stale_payload
+    logic.motionDiagnosticFreshnessIssues = lambda _node: ()
+    bridge.check_moveit_static_joint_state = lambda *_args: pytest.fail(
+        "stale diagnostics must not query MoveIt"
+    )
+    bridge.compute_tcp_pose_world_ras_mm = lambda *_args, **_kwargs: pytest.fail(
+        "stale diagnostics must not query FK"
+    )
+    bridge.show_goal_robot_joint_positions = lambda *_args, **_kwargs: pytest.fail(
+        "stale diagnostics must not display a goal"
+    )
+    bridge.show_motion_diagnostic_evidence = lambda **_kwargs: pytest.fail(
+        "stale diagnostics must not display evidence"
+    )
+    result = facade.showDiagnosticCandidate(0)
+    assert not result.success and result.code == "diagnostic_candidate_stale"
+    assert "saved scene changed" in result.message
+
+    parameter_node.step6MotionDiagnosticJson = _failed_preentry_diagnostic_payload()
+    logic.motionDiagnosticFreshnessIssues = lambda _node: ("base identity changed",)
+    freshness_rejected = facade.showDiagnosticCandidate(0)
+    assert not freshness_rejected.success
+    assert freshness_rejected.code == "diagnostic_candidate_stale"
+    assert "base identity changed" in freshness_rejected.message
+
+    logic.motionDiagnosticFreshnessIssues = lambda _node: ()
+    replacement = FakeParameterNode()
+    active = {"node": parameter_node}
+    facade._parameter_node_provider = lambda: active["node"]
+    logic.motionDiagnosticFreshnessIssues = lambda _node: ()
+    fk_calls = []
+
+    def switch_case(_positions):
+        active["node"] = replacement
+        return True, "valid", True
+
+    bridge.check_moveit_static_joint_state = switch_case
+    bridge.compute_tcp_pose_world_ras_mm = lambda *args, **kwargs: (
+        fk_calls.append((args, kwargs)) or (True, "fk", None)
+    )
+    switched = facade.showDiagnosticCandidate(0)
+    assert not switched.success and switched.code == "diagnostic_candidate_stale"
+    assert fk_calls == []
+
+    active["node"] = parameter_node
+    replacement_payload = _failed_preentry_diagnostic_payload(
+        best={name: 0.02 for name in ROS2_JOINT_SI_ORDER}
+    )
+    parameter_node.step6MotionDiagnosticJson = _failed_preentry_diagnostic_payload()
+
+    def replace_session(_positions):
+        parameter_node.step6MotionDiagnosticJson = replacement_payload
+        return True, "valid", True
+
+    bridge.check_moveit_static_joint_state = replace_session
+    replaced = facade.showDiagnosticCandidate(0)
+    assert not replaced.success and replaced.code == "diagnostic_candidate_stale"
+    assert parameter_node.step6MotionDiagnosticJson == replacement_payload
+    assert fk_calls == []
+
+    parameter_node.step6MotionDiagnosticJson = _failed_preentry_diagnostic_payload()
+    bridge.check_moveit_static_joint_state = lambda _positions: (True, "valid", True)
+    pose = (
+        (1.0, 0.0, 0.0, 1.0),
+        (0.0, 1.0, 0.0, 2.0),
+        (0.0, 0.0, 1.0, 3.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+
+    def replace_session_during_fk(*_args, **_kwargs):
+        parameter_node.step6MotionDiagnosticJson = replacement_payload
+        return True, "fk", pose
+
+    bridge.compute_tcp_pose_world_ras_mm = replace_session_during_fk
+    replaced_after_fk = facade.showDiagnosticCandidate(0)
+    assert not replaced_after_fk.success
+    assert replaced_after_fk.code == "diagnostic_candidate_stale"
+    assert replaced_after_fk.details["diagnosticInspection"]["status"] == "discarded"
+    assert parameter_node.step6MotionDiagnosticJson == replacement_payload
+    assert fk_calls == []
+
+
+def test_clear_diagnostic_display_stops_only_owned_timer_and_preserves_guarded_preview():
+    class Timer:
+        def __init__(self):
+            self.stop_calls = 0
+
+        def stop(self):
+            self.stop_calls += 1
+
+    facade, _parameter_node, _logic, bridge = make_facade()
+    clears = []
+    bridge.clear_motion_diagnostic_display = lambda **kwargs: (
+        clears.append(kwargs) or (True, "cleared")
+    )
+    guarded_timer = Timer()
+    facade._preview_timer = guarded_timer
+    facade._diagnostic_preview_timer = None
+    facade._guarded_preview_active = True
+    facade._incomplete_preview_evidence = {"retained": True}
+    facade._accepted_motion_history = [{"accepted": True}]
+    retained_evidence = facade._incomplete_preview_evidence
+    retained_history = list(facade._accepted_motion_history)
+
+    guarded_result = facade.clearDiagnosticDisplay()
+
+    assert guarded_result.success
+    assert guarded_timer.stop_calls == 0
+    assert facade._preview_timer is guarded_timer
+    assert facade._incomplete_preview_evidence is retained_evidence
+    assert facade._accepted_motion_history == retained_history
+    assert clears[-1] == {"hide_goal": False}
+
+    facade._guarded_preview_active = False
+    diagnostic_timer = Timer()
+    facade._preview_timer = diagnostic_timer
+    facade._diagnostic_preview_timer = diagnostic_timer
+    diagnostic_result = facade.clearDiagnosticDisplay()
+    assert diagnostic_result.success
+    assert diagnostic_timer.stop_calls == 1
+    assert facade._preview_timer is None
+    assert facade._diagnostic_preview_timer is None
 
 
 def test_goal1_preentry_failure_retains_geometry_and_session_fingerprint():
@@ -4406,6 +4644,461 @@ def _unreviewed_taskless_home_review_probe(monkeypatch):
 
 def _manual_task_home_candidate(values=(0.01, 0.001, 0.02, 0.002, 0.03)):
     return dict(zip(ROS2_JOINT_SI_ORDER, values))
+
+
+def _offline_task_home_review_probe(monkeypatch):
+    facade, parameter_node, logic, bridge = _manual_task_home_review_probe(monkeypatch)
+    parameter_node.robotBaseTransform.active = False
+    parameter_node.step6TrajectoryRegistryJson = json.dumps(
+        {
+            "selected_branch_id": "branch-a",
+            "prepared_branches": {
+                "branch-a": {
+                    "primary_trajectory_id": "trajectory-id",
+                    "trajectory_ids": ["trajectory-id"],
+                    "revision": 3,
+                    "verification_revision": 4,
+                }
+            },
+        }
+    )
+    parameter_node.trajectoryLine = SimpleNamespace(
+        GetAttribute=lambda _name: "trajectory-id"
+    )
+    logic.step6BasePlacementFreshnessIssues = lambda _node: ()
+    logic.evaluateCaseFoundationEligibility = lambda _node: {
+        "pose": {"eligible": True},
+        "base": {"eligible": True},
+    }
+    logic.buildCaseFoundationSnapshot = lambda _node: SimpleNamespace(
+        case_identity="case-a",
+        foundation_fingerprint="foundation-a",
+        to_dict=lambda: {
+            "case": "case-a",
+            "task_home_configuration": {"excluded": True},
+        },
+    )
+    logic.step6TrajectoryRevision = lambda _node: "trajectory-revision-a"
+    logic.evaluatePreparedBranchEligibility = (
+        lambda *_args, **_kwargs: {"eligible": True}
+    )
+    logic.taskHomeFreshnessIssues = lambda _node: ()
+    home_store = {"record": None, "saveCalls": []}
+
+    def task_home_record(_node):
+        return home_store["record"]
+
+    def save_task_home(_node, *, runtime_validation, joint_positions_si):
+        home_store["saveCalls"].append(
+            (dict(runtime_validation), dict(joint_positions_si))
+        )
+        previous = home_store["record"]
+        revision = 1 if previous is None else previous.revision + 1
+        payload = {
+            "revision": revision,
+            "joint_names": list(ROS2_JOINT_SI_ORDER),
+            "joint_positions_si": [
+                joint_positions_si[name] for name in ROS2_JOINT_SI_ORDER
+            ],
+            "base_fingerprint": "base-a",
+            "robot_profile_fingerprint": "robot-a",
+            "runtime_validation_status": runtime_validation[
+                "runtimeValidationStatus"
+            ],
+        }
+        home_store["record"] = SimpleNamespace(
+            revision=revision,
+            joint_names=tuple(payload["joint_names"]),
+            joint_positions_si=tuple(payload["joint_positions_si"]),
+            base_fingerprint=payload["base_fingerprint"],
+            robot_profile_fingerprint=payload["robot_profile_fingerprint"],
+            runtime_validation_status=payload["runtime_validation_status"],
+            to_dict=lambda: dict(payload),
+        )
+        _node.step6TaskHomeJson = json.dumps(payload, sort_keys=True)
+        return home_store["record"]
+
+    logic.taskHomeRecord = task_home_record
+    logic.saveCurrentTaskHome = save_task_home
+    return facade, parameter_node, logic, bridge, home_store
+
+
+def _install_real_environment_snapshot(logic, parameter_node):
+    environment = {
+        "case_identity": "case-a",
+        "anatomy_fingerprint": "anatomy-a",
+        "source_volume_fingerprint": "volume-a",
+        "source_segmentation_fingerprint": "segmentation-a",
+        "jaw_source_fingerprint": "jaw-source-a",
+        "jaw_landmarks_fingerprint": "landmarks-a",
+        "robot_profile_fingerprint": "robot-a",
+        "tool_identity": "tool-a",
+        "tool_fingerprint": "tool-fingerprint-a",
+        "base_matrix": tuple(float(index) for index in range(16)),
+        "base_status": "RegisteredLocked",
+        "base_locked": True,
+        "base_fingerprint": "base-a",
+        "base_authority": "reviewed",
+        "base_revision": 1,
+        "common_collision_fingerprint": "collision-a",
+        "limits_fingerprint": "limits-a",
+        "workspace_fingerprint": "workspace-a",
+    }
+
+    def build_snapshot(_node):
+        raw_home = str(parameter_node.step6TaskHomeJson or "").strip()
+        home = json.loads(raw_home) if raw_home else None
+        return build_robot_environment_snapshot(
+            **environment,
+            task_home_configuration=home,
+        )
+
+    logic.buildCaseFoundationSnapshot = build_snapshot
+    return environment, build_snapshot
+
+
+def _real_task_home_writer():
+    source = HELPERS / "dentobot_workflow" / "logic_robot.py"
+    tree = ast.parse(source.read_text())
+    logic_class = next(
+        node for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "RobotLogicMixin"
+    )
+    writer_node = next(
+        node for node in logic_class.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "saveCurrentTaskHome"
+    )
+    namespace = {
+        "build_task_home": build_task_home,
+        "canonical_json": canonical_json,
+        "joint_positions_si_from_display": lambda *_values: {},
+        "parse_task_home": parse_task_home,
+        "_": lambda message: message,
+    }
+    exec(
+        compile(ast.Module(body=[writer_node], type_ignores=[]), str(source), "exec"),
+        namespace,
+    )
+    return namespace["saveCurrentTaskHome"]
+
+
+def test_offline_task_home_save_uses_reviewed_candidate_without_native_or_display_changes(
+    monkeypatch,
+):
+    facade, parameter_node, logic, bridge, home_store = _offline_task_home_review_probe(
+        monkeypatch
+    )
+    environment, build_snapshot = _install_real_environment_snapshot(
+        logic, parameter_node
+    )
+    environment_fingerprint_before = build_snapshot(parameter_node).environment_fingerprint
+    real_writer = _real_task_home_writer()
+
+    def write_with_real_owner(node, *, runtime_validation, joint_positions_si):
+        home_store["saveCalls"].append(
+            (dict(runtime_validation), dict(joint_positions_si))
+        )
+        record = real_writer(
+            logic,
+            node,
+            runtime_validation=runtime_validation,
+            joint_positions_si=joint_positions_si,
+        )
+        home_store["record"] = record
+        return record
+
+    logic.saveCurrentTaskHome = write_with_real_owner
+    logic.invalidateStep6TaskConfirmation = lambda _node, _message: None
+    candidate = _manual_task_home_candidate()
+    display_before = tuple(
+        getattr(parameter_node, field)
+        for field in (
+            "robotJoint1Deg",
+            "robotJoint2Mm",
+            "robotJoint3Deg",
+            "robotJoint4Mm",
+            "robotJoint5Deg",
+        )
+    )
+    bridge_before = dict(bridge.accepted)
+    updates_before = list(logic.updated)
+
+    staged = facade.stageManualTaskHomeReview(candidate)
+    staged_identity = dict(facade._manual_task_home_review["identity"])
+    saved = facade.acceptManualTaskHomeReview()
+    environment_fingerprint_after = build_snapshot(parameter_node).environment_fingerprint
+    identity_after = facade._manual_task_home_offline_identity(parameter_node)
+
+    assert staged.success and staged.details["setupMode"] == "offline"
+    assert saved.success and saved.code == "manual_task_home_configuration_saved"
+    assert saved.details["acceptanceStatus"] == "configuration_saved"
+    assert saved.details["runtimeValidated"] is False
+    assert saved.details["acceptedJointPositionsSi"] is None
+    assert saved.details["configuredJointPositionsSi"] == candidate
+    assert saved.payload.revision == 1
+    assert saved.payload.runtime_validation_status == "Unreviewed"
+    assert dict(zip(saved.payload.joint_names, saved.payload.joint_positions_si)) == candidate
+    assert home_store["record"] is saved.payload
+    assert home_store["saveCalls"] == [
+        ({"runtimeValidationStatus": "Unreviewed"}, candidate)
+    ]
+    assert environment_fingerprint_before != environment_fingerprint_after
+    assert staged_identity["homeSnapshot"] != identity_after["homeSnapshot"]
+    assert staged_identity["caseFoundationSnapshot"] == identity_after[
+        "caseFoundationSnapshot"
+    ]
+    assert facade._manual_task_home_offline_non_home_identity(staged_identity) == (
+        facade._manual_task_home_offline_non_home_identity(identity_after)
+    )
+    assert tuple(
+        getattr(parameter_node, field)
+        for field in (
+            "robotJoint1Deg",
+            "robotJoint2Mm",
+            "robotJoint3Deg",
+            "robotJoint4Mm",
+            "robotJoint5Deg",
+        )
+    ) == display_before
+    assert bridge.accepted == bridge_before
+    assert bridge.applied == [] and bridge.phase_calls == []
+    assert bridge.manual_requests == [] and bridge.query_requests == []
+    assert logic.updated == updates_before
+
+
+def test_offline_task_home_review_rejects_changed_real_environment_components(monkeypatch):
+    for field in (
+        "base_matrix",
+        "anatomy_fingerprint",
+        "limits_fingerprint",
+        "workspace_fingerprint",
+        "common_collision_fingerprint",
+    ):
+        facade, parameter_node, logic, _bridge, home_store = (
+            _offline_task_home_review_probe(monkeypatch)
+        )
+        environment, build_snapshot = _install_real_environment_snapshot(
+            logic, parameter_node
+        )
+        before_fingerprint = build_snapshot(parameter_node).environment_fingerprint
+        candidate = _manual_task_home_candidate()
+        staged = facade.stageManualTaskHomeReview(candidate)
+        assert staged.success
+
+        if field == "base_matrix":
+            environment[field] = (environment[field][0] + 1.0,) + environment[field][1:]
+        else:
+            environment[field] += "-changed"
+        assert build_snapshot(parameter_node).environment_fingerprint != before_fingerprint
+
+        stale = facade.acceptManualTaskHomeReview()
+
+        assert not stale.success and stale.code == "manual_task_home_review_stale"
+        assert stale.details["identityStatus"] == "stale"
+        assert home_store["saveCalls"] == []
+
+
+def test_task_home_owner_writer_persists_explicit_candidate_as_unreviewed_schema_1_0():
+    save_current_task_home = _real_task_home_writer()
+
+    class LogicWriter:
+        saveCurrentTaskHome = save_current_task_home
+
+        def __init__(self):
+            self.invalidated = []
+
+        @staticmethod
+        def step6BasePlacementFreshnessIssues(_node):
+            return ()
+
+        @staticmethod
+        def taskHomeRecord(node):
+            raw = str(node.step6TaskHomeJson or "").strip()
+            return parse_task_home(raw) if raw else None
+
+        @staticmethod
+        def robotBaseFingerprint(_node):
+            return "base-a"
+
+        @staticmethod
+        def robotProfileFingerprint():
+            return "robot-a"
+
+        def invalidateStep6TaskConfirmation(self, node, message):
+            self.invalidated.append((node, message))
+
+    node = FakeParameterNode()
+    node.step6TaskHomeJson = ""
+    node.robotJoint1Deg = 12.0
+    node.robotJoint2Mm = 34.0
+    node.robotJoint3Deg = -56.0
+    node.robotJoint4Mm = 78.0
+    node.robotJoint5Deg = -9.0
+    display_before = (
+        node.robotJoint1Deg,
+        node.robotJoint2Mm,
+        node.robotJoint3Deg,
+        node.robotJoint4Mm,
+        node.robotJoint5Deg,
+    )
+    candidate = _manual_task_home_candidate()
+    logic = LogicWriter()
+
+    returned = logic.saveCurrentTaskHome(
+        node,
+        runtime_validation={"runtimeValidationStatus": "Unreviewed"},
+        joint_positions_si=candidate,
+    )
+    parsed = parse_task_home(node.step6TaskHomeJson)
+
+    assert json.loads(node.step6TaskHomeJson)["schema_version"] == "1.0"
+    assert parsed.schema_version == "1.0"
+    assert parsed.runtime_validation_status == "Unreviewed"
+    assert dict(zip(parsed.joint_names, parsed.joint_positions_si)) == candidate
+    assert returned == parsed
+    assert (
+        node.robotJoint1Deg,
+        node.robotJoint2Mm,
+        node.robotJoint3Deg,
+        node.robotJoint4Mm,
+        node.robotJoint5Deg,
+    ) == display_before
+    assert logic.invalidated == [(node, "Task Home changed.")]
+
+
+def test_offline_task_home_rejects_out_of_bounds_stale_and_changed_mode_candidates(
+    monkeypatch,
+):
+    facade, _node, _logic, bridge, home_store = _offline_task_home_review_probe(
+        monkeypatch
+    )
+    outside = _manual_task_home_candidate((1.0, 0.001, 0.02, 0.002, 0.03))
+    rejected = facade.stageManualTaskHomeReview(outside)
+    assert not rejected.success and rejected.code == "manual_task_home_review_rejected"
+    assert "mechanical limits" in rejected.message
+    assert home_store["saveCalls"] == []
+
+    facade, _node, logic, _bridge, home_store = _offline_task_home_review_probe(
+        monkeypatch
+    )
+    candidate = _manual_task_home_candidate()
+    assert facade.stageManualTaskHomeReview(candidate).success
+    logic.robotBaseFingerprint = lambda _node: "base-changed"
+    stale = facade.acceptManualTaskHomeReview()
+    assert not stale.success and stale.code == "manual_task_home_review_stale"
+    assert stale.details["candidateJointPositionsSi"] == candidate
+    assert home_store["saveCalls"] == []
+
+    facade, parameter_node, _logic, _bridge, home_store = _offline_task_home_review_probe(
+        monkeypatch
+    )
+    assert facade.stageManualTaskHomeReview(candidate).success
+    parameter_node.robotBaseTransform.active = True
+    changed_mode = facade.acceptManualTaskHomeReview()
+    assert not changed_mode.success
+    assert changed_mode.code == "manual_task_home_review_stale"
+    assert changed_mode.details["candidateSetupMode"] == "offline"
+    assert changed_mode.details["setupMode"] == "connected"
+    assert home_store["saveCalls"] == []
+
+
+def test_offline_task_home_latches_unknown_write_and_blocks_retry_or_cancel(
+    monkeypatch,
+):
+    facade, _node, logic, bridge, home_store = _offline_task_home_review_probe(
+        monkeypatch
+    )
+    candidate = _manual_task_home_candidate()
+    save = logic.saveCurrentTaskHome
+
+    def save_then_raise(*args, **kwargs):
+        save(*args, **kwargs)
+        raise RuntimeError("post-save reporting failed")
+
+    logic.saveCurrentTaskHome = save_then_raise
+    assert facade.stageManualTaskHomeReview(candidate).success
+    result = facade.acceptManualTaskHomeReview()
+
+    assert not result.success and result.code == "manual_task_home_acceptance_unknown"
+    assert result.details["acceptanceStatus"] == "unknown"
+    assert result.details["failureEvidence"]["ownerError"] == "post-save reporting failed"
+    retry = facade.acceptManualTaskHomeReview()
+    cancel = facade.cancelManualTaskHomeReview()
+    assert retry.code == cancel.code == "manual_task_home_acceptance_unknown"
+    assert retry.details["staged"] and cancel.details["staged"]
+    assert retry.details["candidateJointPositionsSi"] == candidate
+    assert home_store["saveCalls"] == [
+        ({"runtimeValidationStatus": "Unreviewed"}, candidate)
+    ]
+    assert bridge.applied == [] and bridge.manual_requests == []
+
+
+def test_offline_task_home_invalidation_failure_is_unknown_and_reentrancy_is_blocked(
+    monkeypatch,
+):
+    facade, _node, _logic, _bridge, home_store = _offline_task_home_review_probe(
+        monkeypatch
+    )
+    candidate = _manual_task_home_candidate()
+    assert facade.stageManualTaskHomeReview(candidate).success
+    facade.invalidateWorkspaceRuntimeValidation = lambda: (_ for _ in ()).throw(
+        RuntimeError("workspace invalidation failed")
+    )
+    result = facade.acceptManualTaskHomeReview()
+    assert not result.success and result.code == "manual_task_home_acceptance_unknown"
+    assert result.details["failureEvidence"]["authorityInvalidationError"] == (
+        "workspace invalidation failed"
+    )
+    assert facade.acceptManualTaskHomeReview().code == "manual_task_home_acceptance_unknown"
+    assert facade.cancelManualTaskHomeReview().code == "manual_task_home_acceptance_unknown"
+    assert home_store["saveCalls"]
+
+    facade, _node, _logic, _bridge, home_store = _offline_task_home_review_probe(
+        monkeypatch
+    )
+    candidate = _manual_task_home_candidate()
+    assert facade.stageManualTaskHomeReview(candidate).success
+    reentrant = []
+
+    def invalidate_with_reentry():
+        reentrant.extend(
+            (
+                facade.stageManualTaskHomeReview(_manual_task_home_candidate()),
+                facade.acceptManualTaskHomeReview(),
+                facade.cancelManualTaskHomeReview(),
+            )
+        )
+
+    facade.invalidateWorkspaceRuntimeValidation = invalidate_with_reentry
+    result = facade.acceptManualTaskHomeReview()
+    assert result.success and result.code == "manual_task_home_configuration_saved"
+    assert len(reentrant) == 3 and all(not action.success for action in reentrant)
+    assert reentrant[1].code == reentrant[2].code == "manual_task_home_review_busy"
+    assert facade._manual_task_home_review is None
+    assert home_store["saveCalls"] == [
+        ({"runtimeValidationStatus": "Unreviewed"}, candidate)
+    ]
+
+
+def test_connected_review_can_follow_offline_task_home_configuration(monkeypatch):
+    facade, parameter_node, _logic, _bridge, home_store = _offline_task_home_review_probe(
+        monkeypatch
+    )
+    candidate = _manual_task_home_candidate()
+    assert facade.stageManualTaskHomeReview(candidate).success
+    saved = facade.acceptManualTaskHomeReview()
+    assert saved.success
+    parameter_node.robotBaseTransform.active = True
+
+    reviewed = facade.manualTaskHomeReview()
+
+    assert reviewed.success and reviewed.details["setupMode"] == "connected"
+    assert not reviewed.details["staged"]
+    assert reviewed.details["acceptanceStatus"] == "review"
+    assert reviewed.details["configuredJointPositionsSi"] == candidate
+    assert reviewed.details["runtimeValidated"] is False
+    assert len(home_store["saveCalls"]) == 1
 
 
 def test_unreviewed_taskless_home_review_reads_and_stages_detached_current_candidate(

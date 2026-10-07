@@ -58,6 +58,13 @@ from run_dentobot_tcp_workbench_headed import (  # noqa: E402
     run_case_bound_tcp_probe,
 )
 from step6_full_chain_probe import run_full_chain_interruption_probe  # noqa: E402
+from step6_base_home_uncertainty_probe import (  # noqa: E402
+    run_base_home_uncertainty_probe,
+)
+from step6_complete_cycle_probe import run_complete_cycles  # noqa: E402
+from step6_expected_error_dialog import (  # noqa: E402
+    make_expected_error_dialog_callback,
+)
 
 
 CHECKOUT_PROFILES = {
@@ -76,12 +83,17 @@ NATIVE_BINARY_RELATIVE_PATH = Path(
     "lib/dentobot_moveit_config/collision_guard"
 )
 ACCEPTED_DELTA_DEG = 0.1
+BASE_HOME_UNCERTAINTY_DIALOG_TIMEOUT_SEC = 180.0
 SOURCE_FILES = (
     "DENTOWorkflow/Resources/Python/DENTORobotSimulationPanel.py",
     "DENTOWorkflow/Resources/Python/DENTORobotWorkflowFacade.py",
+    "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_robot.py",
     "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_robot.py",
     "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_robot_shell.py",
     "Testing/run_dentobot_manual_jog_headless.py",
+    "Testing/step6_base_home_uncertainty_probe.py",
+    "Testing/step6_complete_cycle_probe.py",
+    "Testing/step6_expected_error_dialog.py",
 )
 CHECK_NAMES = (
     "checkout_and_case_provenance",
@@ -90,6 +102,7 @@ CHECK_NAMES = (
     "simulation_robot_models_loaded",
     "planning_context_imported",
     "base_controls_and_accepted_status",
+    "offline_base_home_configuration",
     "draft_state_control_visible",
     "native_version_preflight",
     "base_profile_rebind_prerequisite",
@@ -107,7 +120,10 @@ CHECK_NAMES = (
     "unknown_reconcile_state",
     "save_current_case",
     "manual_jog_keyboard_draft_check",
+    "base_home_uncertainty",
     "case_bound_tcp_workbench",
+    "planning_prerequisites",
+    "complete_cycles",
     "full_chain_interruption",
 )
 
@@ -364,11 +380,32 @@ def _capture_screenshots(label: str, evidence_dir: Path) -> dict[str, str]:
     window = slicer.util.mainWindow()
     if window is None:
         raise RuntimeError("Slicer main window is unavailable for required evidence.")
-    window.show()
+    missing = object()
+    active_modal_reader = getattr(qt.QApplication, "activeModalWidget", missing)
+    if active_modal_reader is missing:
+        raise RuntimeError("Qt active-modal-widget reader is unavailable for required evidence.")
+    active_modal = active_modal_reader() if callable(active_modal_reader) else active_modal_reader
+    modal_path = None
+    if active_modal is not None:
+        modal_grab = getattr(active_modal, "grab", None)
+        if not callable(modal_grab):
+            raise RuntimeError("Active modal does not provide a screenshot capture method.")
+        modal_pixmap = modal_grab()
+        modal_is_null = getattr(modal_pixmap, "isNull", None)
+        modal_save = getattr(modal_pixmap, "save", None)
+        if modal_pixmap is None or not callable(modal_is_null) or modal_is_null():
+            raise RuntimeError(f"Could not capture active modal screenshot: {label}-modal.png")
+        modal_path = evidence_dir / f"{label}-modal.png"
+        if not callable(modal_save) or not modal_save(str(modal_path)):
+            raise RuntimeError(f"Could not save active modal screenshot: {modal_path.name}")
+        if not modal_path.is_file() or modal_path.stat().st_size <= 0:
+            raise RuntimeError(f"Active modal screenshot is empty: {modal_path.name}")
     old_title = str(window.windowTitle)
     window.windowTitle = f"DENTOBOT Step 6 review — {label}"
     try:
-        _process_events(0.2)
+        if active_modal is None:
+            window.show()
+            _process_events(0.2)
         ui_path = evidence_dir / f"{label}-ui.png"
         pixmap = window.grab()
         if pixmap.isNull() or not pixmap.save(str(ui_path)):
@@ -387,7 +424,12 @@ def _capture_screenshots(label: str, evidence_dir: Path) -> dict[str, str]:
         writer.Write()
         if not viewport_path.is_file() or viewport_path.stat().st_size <= 0:
             raise RuntimeError(f"Could not capture viewport screenshot: {viewport_path.name}")
-        return {"ui": ui_path.name, "viewport": viewport_path.name, "captured_at_utc": _utc_now()}
+        return {
+            "ui": ui_path.name,
+            "viewport": viewport_path.name,
+            "modal": modal_path.name if modal_path is not None else None,
+            "captured_at_utc": _utc_now(),
+        }
     finally:
         window.windowTitle = old_title
 
@@ -528,6 +570,32 @@ def _exact_env_opt_in(name: str) -> bool:
     return value == "1"
 
 
+def _validate_step6_live_probe_opt_ins(
+    *,
+    base_home_uncertainty: bool,
+    complete_cycles: bool,
+    full_chain: bool,
+    allow_jog: bool,
+    allow_base_home_accept: bool,
+    workspace_diagnostic: bool,
+    draft_only: bool,
+) -> None:
+    selected = base_home_uncertainty or complete_cycles
+    if complete_cycles and full_chain:
+        raise RuntimeError(
+            "DENTOBOT_HEADED_COMPLETE_CYCLES and DENTOBOT_HEADED_FULL_CHAIN "
+            "must run in separate fresh processes."
+        )
+    if selected and workspace_diagnostic:
+        raise RuntimeError("Base/Home uncertainty and complete-cycle probes cannot run in workspace diagnostic mode.")
+    if selected and draft_only:
+        raise RuntimeError("Base/Home uncertainty and complete-cycle probes cannot run in taskless draft-only mode.")
+    if selected and not allow_jog:
+        raise RuntimeError("These headed Step 6 probes require DENTOBOT_HEADED_ALLOW_JOG=1.")
+    if selected and not allow_base_home_accept:
+        raise RuntimeError("These headed Step 6 probes require DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1.")
+
+
 def _validate_workspace_diagnostic_opt_in() -> bool:
     if not _exact_env_opt_in("DENTOBOT_HEADED_STOP_AFTER_WORKSPACE"):
         return False
@@ -545,9 +613,12 @@ def _validate_workspace_diagnostic_opt_in() -> bool:
         "DENTOBOT_HEADED_RECORD_REOPEN",
         "DENTOBOT_HEADED_JOINT_KEYBOARD",
         "DENTOBOT_HEADED_TCP_CASE",
+        "DENTOBOT_HEADED_BASE_HOME_UNCERTAINTY",
+        "DENTOBOT_HEADED_COMPLETE_CYCLES",
         "DENTOBOT_HEADED_FULL_CHAIN",
         "DENTOBOT_HEADED_ALLOW_REJECTED_JOG",
         "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION",
+        "DENTOBOT_HEADED_OFFLINE_HOME_SETUP",
     )
     enabled = [name for name in incompatible if _exact_env_opt_in(name)]
     if enabled:
@@ -557,6 +628,10 @@ def _validate_workspace_diagnostic_opt_in() -> bool:
     if "DENTOBOT_HEADED_OUTPUT_CASE" in os.environ:
         raise RuntimeError(
             "Workspace diagnostic mode cannot be combined with DENTOBOT_HEADED_OUTPUT_CASE."
+        )
+    if "DENTOBOT_HEADED_OFFLINE_HOME_CASE_OUTPUT" in os.environ:
+        raise RuntimeError(
+            "Workspace diagnostic mode cannot be combined with DENTOBOT_HEADED_OFFLINE_HOME_CASE_OUTPUT."
         )
     return True
 
@@ -958,6 +1033,96 @@ def _retain_full_chain_probe_counts(report, evidence) -> None:
     )
     if "preview_approach" in invocations:
         report["preview_started"] = invocations["preview_approach"] > 0
+
+
+def _retain_complete_cycle_probe_counts(report, evidence) -> None:
+    if not isinstance(evidence, Mapping):
+        return
+    invocations = evidence.get("button_invocations")
+    if not isinstance(invocations, Mapping):
+        return
+    try:
+        report["planner_calls"] += int(invocations.get("plan_guarded_approach", 0))
+    except (TypeError, ValueError, OverflowError):
+        pass
+    for key in ("preview_approach", "preview_drill"):
+        try:
+            if int(invocations.get(key, 0) or 0) > 0:
+                report["preview_started"] = True
+        except (TypeError, ValueError, OverflowError):
+            continue
+
+
+def _complete_cycles_passed(evidence) -> bool:
+    if (
+        not isinstance(evidence, Mapping)
+        or evidence.get("fresh_repeat_completed") is not True
+        or evidence.get("route_fingerprint_comparison_used") is not False
+        or not isinstance(evidence.get("cycles"), list)
+        or len(evidence["cycles"]) != 2
+    ):
+        return False
+    observed_fresh_identities = []
+    for cycle in evidence["cycles"]:
+        boundaries = cycle.get("boundaries") if isinstance(cycle, Mapping) else None
+        provenance = cycle.get("route_provenance") if isinstance(cycle, Mapping) else None
+        if not isinstance(boundaries, Mapping) or not isinstance(provenance, Mapping):
+            return False
+        if not all(provenance.get(key) for key in (
+            "task_identity", "diagnostic_session_fingerprint", "phase_guard_session_id"
+        )):
+            return False
+        if not all(isinstance(provenance.get(key), str) for key in (
+            "diagnostic_session_fingerprint", "phase_guard_session_id"
+        )):
+            return False
+        approach_plan = provenance.get("approach_plan")
+        plan_instance_id = (
+            approach_plan.get("plan_instance_id")
+            if isinstance(approach_plan, Mapping)
+            else None
+        )
+        if isinstance(plan_instance_id, bool) or not isinstance(plan_instance_id, int):
+            return False
+        observed_fresh_identities.append((
+            provenance["diagnostic_session_fingerprint"],
+            provenance["phase_guard_session_id"],
+            approach_plan["plan_instance_id"],
+        ))
+        for phase_name in ("approach_endpoint_verified", "drill_endpoint_verified"):
+            phase = boundaries.get(phase_name)
+            completion = phase.get("completion_observation") if isinstance(phase, Mapping) else None
+            endpoint = phase.get("endpoint_fk") if isinstance(phase, Mapping) else None
+            if (
+                not isinstance(phase, Mapping)
+                or phase.get("endpoint_verified") is not True
+                or not isinstance(completion, Mapping)
+                or completion.get("observed_active") is not True
+                or completion.get("configured_preview_speed_multiplier") != 0.25
+                or not isinstance(endpoint, Mapping)
+                or endpoint.get("status") != "passed"
+                or endpoint.get("observation_kind") != "post_completion_observation"
+            ):
+                return False
+        returned = boundaries.get("return_home_verified")
+        reverse = returned.get("reverse_phase_execution_status_evidence") if isinstance(returned, Mapping) else None
+        home_error = returned.get("saved_home_error") if isinstance(returned, Mapping) else None
+        if (
+            not isinstance(returned, Mapping)
+            or returned.get("phase_session_cleared") is not True
+            or not isinstance(reverse, Mapping)
+            or reverse.get("phase_destination_sequence_matches_history") is not True
+            or reverse.get("axial_retraction_completed") is not True
+            or reverse.get("production_result_details_captured_by_read_only_observer") is not True
+            or not isinstance(home_error, Mapping)
+            or home_error.get("accepted_monitored_displayed_all_match_saved_home") is not True
+        ):
+            return False
+    return len(set(observed_fresh_identities)) == 2 and all(
+        observed_fresh_identities[0][index] != observed_fresh_identities[1][index]
+        # Python object addresses may be reused after the previous plan is released.
+        for index in range(2)
+    )
 
 
 def _write_report(report: dict[str, object]) -> None:
@@ -1628,6 +1793,389 @@ def _target_j1(logic, parameter_node, accepted: dict[str, float]):
     raise RuntimeError("J1 +/- 0.1 degree is outside a current reviewed or mechanical limit.")
 
 
+def _run_offline_base_home_configuration(
+    widget, panel, logic, parameter_node, facade, case_path, case_hash,
+    output_path, report, evidence_dir, run_id,
+):
+    name = "offline_base_home_configuration"
+    evidence = {
+        "status": "RUNNING",
+        "opt_in": "DENTOBOT_HEADED_OFFLINE_HOME_SETUP=1",
+        "acceptance_opt_in": "DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1",
+        "case_sha256_before": case_hash,
+        "offline_case_output": str(output_path),
+        "screenshots": {},
+        "screenshot_framing": {},
+    }
+    report["offline_home_setup"] = evidence
+    report[name] = evidence
+    _write_report(report)
+
+    def stop(reason, **details):
+        evidence.update({"status": "FAIL", "reason": reason, **details})
+        _record(report, name, "FAIL", **{k: v for k, v in evidence.items() if k != "status"})
+        raise RuntimeError(reason)
+
+    def physical_joints():
+        return tuple(float(getattr(parameter_node, field)) for field in (
+            "robotJoint1Deg", "robotJoint2Mm", "robotJoint3Deg",
+            "robotJoint4Mm", "robotJoint5Deg",
+        ))
+
+    try:
+        if facade.capabilities().connected:
+            stop("Offline Home probe requires ROS/MoveIt to remain disconnected.")
+        if _sha256_file(case_path) != case_hash:
+            stop("The source case changed before offline Base/Home setup.")
+        profile = str(logic.robotProfileFingerprint() or "")
+        if not profile:
+            stop("The current robot profile fingerprint is unavailable.")
+        joints_before = physical_joints()
+        home_before = logic.taskHomeRecord(parameter_node)
+        home_revision_before = int(home_before.revision) if home_before is not None else 0
+        evidence.update({
+            "robot_profile_fingerprint_before": profile,
+            "robot_joint_parameters_before": joints_before,
+            "saved_home_before": home_before.to_dict() if home_before else None,
+            "saved_home_revision_before": home_revision_before,
+            "route_preview_before": {
+                "route_authority": report.get("route_authority"),
+                "planner_calls": report.get("planner_calls"),
+                "preview_started": report.get("preview_started"),
+                "preview_active": bool(facade.previewActive),
+            },
+            "jog_requests_before": report.get("jog_requests", 0),
+        })
+        if evidence["route_preview_before"]["route_authority"] != "none" or evidence["route_preview_before"]["planner_calls"] != 0 or evidence["route_preview_before"]["preview_started"] or evidence["route_preview_before"]["preview_active"]:
+            stop("Route or preview authority exists before the offline probe.")
+
+        widget._configureRobotSimulationShellSubstep(1)
+        widget._updateStep6PlanningUi()
+        _process_events(0.1)
+        if panel._activeSubstep != 1:
+            stop("Production 6.1 Base controls are not active.")
+        before_result = _base_review(facade)
+        base_matrix = tuple(before_result.details["acceptedMatrixWorldRasMm"])
+        evidence["base_matrix_before"] = base_matrix
+        evidence["base_locked_before"] = bool(parameter_node.robotBaseMountLocked)
+        evidence["base_status_before"] = str(parameter_node.step6BasePlacementStatus or "")
+        evidence["screenshot_framing"]["base_before"] = _scroll_to_visible(
+            widget, panel.manualBaseReviewGroup, "offline Base before review"
+        )
+        evidence["screenshots"]["base_before"] = _capture(
+            report, evidence_dir, run_id, "offline-home-base-before"
+        )
+
+        if bool(parameter_node.robotBaseMountLocked):
+            unlock = widget.ui.unlockRobotBaseMountButton
+            if not unlock.enabled:
+                stop("Production 6.1 Unlock Base control is disabled.")
+            unlock.click()
+            _process_events(0.1)
+            if bool(parameter_node.robotBaseMountLocked):
+                stop("Production Unlock Base did not unlock the accepted Base.")
+        unlocked = facade.manualBaseReview()
+        if not unlocked.success or unlocked.details.get("staged") is True or not _same_matrix(unlocked.details.get("acceptedMatrixWorldRasMm"), base_matrix):
+            stop("Unlocking Base changed its matrix or left a detached candidate.", review=unlocked.details)
+        evidence["screenshot_framing"]["base_unlocked"] = _scroll_to_visible(
+            widget, panel.manualBaseReviewGroup, "unlocked offline Base"
+        )
+        evidence["screenshots"]["base_unlocked"] = _capture(
+            report, evidence_dir, run_id, "offline-home-base-unlocked"
+        )
+        if not panel.beginManualBaseReviewButton.enabled:
+            stop("Production Review Current Base control is disabled.")
+        panel.beginManualBaseReviewButton.click()
+        _process_events(0.1)
+        staged_result = facade.manualBaseReview()
+        staged = dict(staged_result.details or {})
+        if not staged_result.success or staged.get("identityStatus") != "current" or staged.get("staged") is not True or staged.get("acceptanceStatus") == "unknown" or staged.get("acceptanceUncertainty") or not _same_matrix(staged.get("candidateMatrixWorldRasMm"), base_matrix) or not _same_matrix(staged.get("acceptedMatrixWorldRasMm"), base_matrix):
+            stop("Review Current Base did not stage the unchanged accepted matrix.", review=staged)
+        evidence["base_review_staged"] = staged
+        evidence["screenshot_framing"]["base_staged"] = _scroll_to_visible(
+            widget, panel.manualBaseReviewGroup, "staged offline Base"
+        )
+        evidence["screenshots"]["base_staged"] = _capture(
+            report, evidence_dir, run_id, "offline-home-base-staged"
+        )
+        accept_base = widget.ui.lockRobotBaseMountButton
+        if not accept_base.enabled:
+            stop("Production Accept Base owner is disabled for the unchanged matrix.")
+        accept_base.click()
+        _process_events(0.2)
+        accepted_result = facade.manualBaseReview()
+        accepted = dict(accepted_result.details or {})
+        base = parameter_node.robotBaseTransform
+        current_profile = str(logic.robotProfileFingerprint() or "")
+        base_profile = str(base.GetAttribute("DENTOBOT.RobotProfileFingerprint") or "")
+        base_issues = tuple(logic.step6BasePlacementFreshnessIssues(parameter_node))
+        foundation = logic.evaluateCaseFoundationEligibility(parameter_node)
+        if not accepted_result.success or accepted.get("identityStatus") != "current" or accepted.get("staged") is True or accepted.get("candidateMatrixWorldRasMm") is not None or accepted.get("acceptanceStatus") == "unknown" or accepted.get("acceptanceUncertainty") or not parameter_node.robotBaseMountLocked or not _same_matrix(accepted.get("acceptedMatrixWorldRasMm"), base_matrix) or current_profile != profile or base_profile != profile or base_issues or not foundation.get("base", {}).get("eligible"):
+            stop("Accept Base did not leave an unchanged, current, eligible Base.", review=accepted, base_freshness_issues=base_issues, foundation_base=foundation.get("base"), robot_profile_fingerprint=current_profile, base_profile_fingerprint=base_profile)
+        evidence["base_matrix_after"] = tuple(accepted["acceptedMatrixWorldRasMm"])
+        evidence["base_current_and_eligible"] = True
+        evidence["robot_profile_fingerprint_after"] = current_profile
+        evidence["screenshot_framing"]["base_accepted"] = _scroll_to_visible(
+            widget, panel.manualBaseReviewGroup, "accepted offline Base"
+        )
+        evidence["screenshots"]["base_accepted"] = _capture(
+            report, evidence_dir, run_id, "offline-home-base-accepted"
+        )
+
+        widget._configureRobotSimulationShellSubstep(2)
+        widget._updateStep6PlanningUi()
+        _process_events(0.1)
+        if panel._activeSubstep != 2:
+            stop("Production 6.2 Task Home controls are not active.")
+        local_pose = _finite_vector(widget._robotJointPositionsSi())
+        reset_review = facade.manualTaskHomeReview()
+        reset_review_details = dict(reset_review.details or {})
+        if not reset_review.success:
+            stop("Could not determine the current production Reset Draft target.", review=reset_review_details)
+        reset_target = (
+            _finite_vector(reset_review_details.get("configuredJointPositionsSi"))
+            if reset_review_details.get("configurationReady") is True
+            else local_pose
+        )
+        if reset_target is None:
+            stop(
+                "Production Home Reset has no finite current configuration or local pose.",
+                reset_review=reset_review_details,
+            )
+        evidence["reset_target_source"] = (
+            "saved_home_configuration"
+            if reset_review_details.get("configurationReady") is True
+            else "current_local_pose"
+        )
+        evidence["reset_target_joint_positions_si"] = reset_target
+        reset_button = panel.resetManualJogDraftButton
+        if not reset_button.enabled:
+            stop("Production 6.2 Reset Draft to Local Robot Pose is disabled.")
+        reset_button.click()
+        _process_events(0.05)
+        draft = _finite_vector(panel.manualJogJointPositionsSi())
+        if not _exactly_matches(draft, reset_target):
+            stop(
+                "6.2 Reset Draft did not use its current saved-Home/local-pose target.",
+                reset_target=reset_target,
+                observed_draft=draft,
+            )
+        evidence["offline_draft_joint_positions_si"] = draft
+        evidence["screenshot_framing"]["home_draft_before_review"] = _scroll_to_visible(
+            widget, panel.homeGroup, "offline Home draft before review"
+        )
+        evidence["screenshots"]["home_draft_before_review"] = _capture(
+            report, evidence_dir, run_id, "offline-home-draft-before-review"
+        )
+        if not panel.reviewTaskHomeButton.enabled:
+            stop("Production Review Draft as Task Home control is disabled.")
+        panel.reviewTaskHomeButton.click()
+        _process_events(0.1)
+        staged_home_result = facade.manualTaskHomeReview()
+        staged_home = dict(staged_home_result.details or {})
+        if not staged_home_result.success or staged_home.get("setupMode") != "offline" or staged_home.get("identityStatus") != "current" or staged_home.get("staged") is not True or staged_home.get("acceptanceStatus") != "review" or not _exactly_matches(staged_home.get("candidateJointPositionsSi"), draft) or staged_home.get("acceptedJointPositionsSi") is not None:
+            stop("Offline Review Draft did not stage the exact local J1–J5 vector.", review=staged_home)
+        evidence["home_review_staged"] = staged_home
+        evidence["screenshot_framing"]["home_staged"] = _scroll_to_visible(
+            widget, panel.homeGroup, "staged offline Home"
+        )
+        evidence["screenshots"]["home_staged"] = _capture(
+            report, evidence_dir, run_id, "offline-home-staged"
+        )
+        if not panel.acceptTaskHomeButton.enabled:
+            stop("Production Save Home Configuration control is disabled.")
+        panel.acceptTaskHomeButton.click()
+        _process_events(0.1)
+        saved_result = facade.manualTaskHomeReview()
+        saved_details = dict(saved_result.details or {})
+        home_after = logic.taskHomeRecord(parameter_node)
+        saved_vector = _finite_vector(dict(zip(home_after.joint_names, home_after.joint_positions_si))) if home_after is not None else None
+        if not saved_result.success or saved_details.get("setupMode") != "offline" or saved_details.get("identityStatus") != "current" or saved_details.get("staged") is not False or saved_details.get("acceptanceStatus") != "configuration_saved" or saved_details.get("runtimeValidated") is not False or saved_details.get("acceptedJointPositionsSi") is not None or saved_details.get("acceptanceUncertainty") or home_after is None or home_after.revision != home_revision_before + 1 or home_after.runtime_validation_status != "Unreviewed" or not _exactly_matches(saved_vector, draft) or not _exactly_matches(saved_details.get("configuredJointPositionsSi"), draft) or home_after.base_fingerprint != str(logic.robotBaseFingerprint(parameter_node) or "") or home_after.robot_profile_fingerprint != profile:
+            stop("Offline Save Home did not create the exact next Unreviewed configuration.", review=saved_details, saved_home=home_after.to_dict() if home_after else None)
+        if not _exactly_matches(physical_joints(), joints_before):
+            stop("Physical J1–J5 parameter values changed during offline configuration.")
+        base_after_home = _base_review(facade)
+        base_after_home_details = dict(base_after_home.details or {})
+        current_base_fingerprint = str(logic.robotBaseFingerprint(parameter_node) or "")
+        base_issues_after_home = tuple(logic.step6BasePlacementFreshnessIssues(parameter_node))
+        if not base_after_home.success or base_after_home_details.get("identityStatus") != "current" or base_after_home_details.get("staged") is True or base_after_home_details.get("acceptanceStatus") == "unknown" or base_after_home_details.get("acceptanceUncertainty") or not _same_matrix(base_after_home_details.get("acceptedMatrixWorldRasMm"), base_matrix) or current_base_fingerprint != home_after.base_fingerprint or base_issues_after_home:
+            stop("Base identity or matrix changed while saving offline Home.", base_review=base_after_home_details, base_freshness_issues=base_issues_after_home)
+        if facade.capabilities().connected:
+            stop("ROS/MoveIt connected during offline Base/Home setup.")
+        controls_disabled = {
+            "check_draft_state": not panel.checkManualDraftStateButton.enabled,
+            "reconcile_manual_jog": not panel.reconcileManualJogButton.enabled,
+            "guarded_jog": not panel.guardedManualJogButton.enabled,
+            "tcp_drag": not panel.tcpDragEnabledCheckBox.enabled,
+            "solve_ik": not panel.solveIkButton.enabled,
+            "plan_goal": not panel.planGoalButton.enabled,
+            "plan_approach": not panel.planApproachButton.enabled,
+            "compare_planners": not panel.comparePlannersButton.enabled,
+            "plan_drilling": not panel.planDrillingButton.enabled,
+            "preview_approach": not panel.previewApproachButton.enabled,
+            "preview_drilling": not panel.previewDrillingButton.enabled,
+        }
+        if not all(controls_disabled.values()):
+            stop("A native guard, IK, planner, or preview control remained enabled offline.", controls_disabled=controls_disabled)
+        route_preview_after = {
+            "route_authority": report.get("route_authority"),
+            "planner_calls": report.get("planner_calls"),
+            "preview_started": report.get("preview_started"),
+            "preview_active": bool(facade.previewActive),
+        }
+        evidence["route_preview_after"] = route_preview_after
+        evidence["jog_requests_after"] = report.get("jog_requests", 0)
+        if route_preview_after["route_authority"] != "none" or route_preview_after["planner_calls"] != 0 or route_preview_after["preview_started"] is not False or route_preview_after["preview_active"] or report.get("jog_requests", 0) != evidence["jog_requests_before"]:
+            stop("Offline setup changed jog, planner, route, or preview authority.")
+        evidence.update({
+            "saved_home_after": home_after.to_dict(),
+            "saved_home_revision_after": home_after.revision,
+            "saved_home_vector_si": saved_vector,
+            "robot_joint_parameters_after": physical_joints(),
+            "controls_disabled": controls_disabled,
+            "no_staged_or_uncertain_state": True,
+            "ros_inactive_throughout": True,
+            "case_sha256_after": _sha256_file(case_path),
+        })
+        if evidence["case_sha256_after"] != case_hash:
+            stop("Source case changed during offline Home setup.")
+        evidence["screenshot_framing"]["home_saved"] = _scroll_to_visible(
+            widget, panel.homeGroup, "saved offline Home"
+        )
+        evidence["screenshots"]["home_saved"] = _capture(
+            report, evidence_dir, run_id, "offline-home-saved"
+        )
+        save_evidence = _save_current_case(widget, output_path, case_path, case_hash)
+        validate_case_bundle(output_path)
+        evidence["saved_case"] = save_evidence
+        evidence["provenance"] = {
+            "checkout": report.get("checkout"),
+            "runner_sha256": _sha256_file(Path(__file__).resolve()),
+            "input_case_sha256": case_hash,
+            "offline_case_sha256": save_evidence["sha256"],
+            "opt_in": evidence["opt_in"],
+            "acceptance_opt_in": evidence["acceptance_opt_in"],
+        }
+        evidence["status"] = "PASS"
+        report["offline_saved_case"] = save_evidence
+        _record(report, name, "PASS", **{k: v for k, v in evidence.items() if k != "status"})
+        return evidence
+    except Exception as exc:
+        if evidence.get("status") == "RUNNING":
+            evidence.update({"status": "FAIL", "reason": f"{type(exc).__name__}: {exc}"})
+            _record(report, name, "FAIL", **{k: v for k, v in evidence.items() if k != "status"})
+        raise
+
+
+def _validate_offline_home_after_connection(
+    widget, panel, logic, parameter_node, facade, report, evidence_dir, run_id,
+):
+    offline = report.get("offline_home_setup")
+    if not isinstance(offline, Mapping) or offline.get("status") != "PASS":
+        return None
+    evidence = {"status": "RUNNING", "screenshots": {}, "screenshot_framing": {}}
+    offline["post_connect_validation"] = evidence
+    _write_report(report)
+
+    def stop(reason, **details):
+        evidence.update({"status": "FAIL", "reason": reason, **details})
+        offline["status"] = "FAIL"
+        _record(
+            report,
+            "offline_base_home_configuration",
+            "FAIL",
+            reason=reason,
+            offline_home_setup=offline,
+            post_connect_validation=evidence,
+        )
+        _write_report(report)
+        raise RuntimeError(reason)
+
+    saved_home = logic.taskHomeRecord(parameter_node)
+    saved_vector = offline.get("saved_home_vector_si")
+    saved_home_evidence = offline.get("saved_home_after")
+    current_base_fingerprint = str(logic.robotBaseFingerprint(parameter_node) or "")
+    current_profile_fingerprint = str(logic.robotProfileFingerprint() or "")
+    review = facade.manualTaskHomeReview()
+    review_details = dict(review.details or {})
+    saved_home_vector_now = (
+        _finite_vector(dict(zip(saved_home.joint_names, saved_home.joint_positions_si)))
+        if saved_home is not None else None
+    )
+    if not facade.capabilities().connected or not review.success or review_details.get("setupMode") != "connected" or review_details.get("identityStatus") != "current" or review_details.get("staged") is True or review_details.get("acceptanceStatus") == "unknown" or review_details.get("acceptanceUncertainty") or saved_home is None or not isinstance(saved_home_evidence, Mapping) or saved_home.revision != saved_home_evidence.get("revision") or saved_home.runtime_validation_status != "Unreviewed" or not _exactly_matches(saved_home_vector_now, saved_vector) or saved_home.base_fingerprint != current_base_fingerprint or saved_home.robot_profile_fingerprint != current_profile_fingerprint or facade.taskHomeRuntimeValidated(parameter_node) is not False:
+        stop("Saved offline Home identity/configuration was not preserved Unreviewed after ROS scene acknowledgement.", review=review_details, saved_home=saved_home.to_dict() if saved_home else None, saved_home_evidence=saved_home_evidence, current_base_fingerprint=current_base_fingerprint, current_profile_fingerprint=current_profile_fingerprint)
+    state = _actual_joint_state(facade)
+    accepted = state.get("accepted_si")
+    evidence["saved_home_vector_si"] = saved_vector
+    evidence["saved_home_record_before_validation"] = saved_home.to_dict()
+    evidence["saved_home_revision_before_validation"] = saved_home.revision
+    evidence["base_fingerprint_before_validation"] = current_base_fingerprint
+    evidence["robot_profile_fingerprint_before_validation"] = current_profile_fingerprint
+    evidence["current_state"] = state
+    if not accepted or not _exactly_matches(saved_vector, accepted):
+        stop("Saved offline Home differs from current accepted pose; stopping without staging or motion.", mismatch=True, configured_home=saved_vector, accepted_current_pose=accepted, monitored_current_pose=state.get("monitored_si"), displayed_current_pose=state.get("displayed_si"), mismatch_action="stopped_without_staging_or_motion")
+    if not all(_exactly_matches(accepted, state.get(key)) for key in ("monitored_si", "displayed_si")):
+        stop("Accepted, monitored, and displayed J1–J5 differ after ROS acknowledgement.", state=state)
+    widget._configureRobotSimulationShellSubstep(2)
+    widget._updateStep6PlanningUi()
+    _process_events(0.1)
+    if panel._activeSubstep != 2 or not panel.resetManualJogDraftButton.enabled:
+        stop("Production 6.2 Home Reset control is unavailable.")
+    evidence["screenshot_framing"]["before_validation"] = _scroll_to_visible(
+        widget, panel.homeGroup, "offline Home before runtime validation"
+    )
+    evidence["screenshots"]["before_validation"] = _capture(
+        report, evidence_dir, run_id, "offline-home-postconnect-before-validation"
+    )
+    panel.resetManualJogDraftButton.click()
+    _process_events(0.05)
+    if not _exactly_matches(panel.manualJogJointPositionsSi(), saved_vector):
+        stop("6.2 Reset Draft did not restore the saved offline Home.")
+    if not panel.reviewTaskHomeButton.enabled:
+        stop("Production Review Draft as Task Home is disabled for the matching pose.")
+    panel.reviewTaskHomeButton.click()
+    _process_events(0.1)
+    staged = facade.manualTaskHomeReview()
+    staged_details = dict(staged.details or {})
+    if not staged.success or staged_details.get("identityStatus") != "current" or staged_details.get("staged") is not True or staged_details.get("acceptanceStatus") != "review" or not _exactly_matches(staged_details.get("candidateJointPositionsSi"), saved_vector) or not _exactly_matches(staged_details.get("acceptedJointPositionsSi"), accepted):
+        stop("6.2 review did not stage saved Home matching current accepted state.", stage_result=staged_details)
+    if not panel.acceptTaskHomeButton.enabled:
+        stop("Production Accept and Validate Task Home is disabled for the matching pose.")
+    evidence["staged_review"] = staged_details
+    panel.acceptTaskHomeButton.click()
+    _process_events(0.2)
+    accepted_review = facade.manualTaskHomeReview()
+    accepted_details = dict(accepted_review.details or {})
+    validated_home = logic.taskHomeRecord(parameter_node)
+    validated_vector = _finite_vector(dict(zip(validated_home.joint_names, validated_home.joint_positions_si))) if validated_home is not None else None
+    post_state = _actual_joint_state(facade)
+    evidence.update({
+        "accepted_review": accepted_details,
+        "validated_home": validated_home.to_dict() if validated_home else None,
+        "validated_vector_si": validated_vector,
+        "post_validation_state": post_state,
+    })
+    if not accepted_review.success or accepted_details.get("identityStatus") != "current" or accepted_details.get("acceptanceStatus") != "accepted" or accepted_details.get("staged") is not False or accepted_details.get("runtimeValidated") is not True or validated_home is None or validated_home.runtime_validation_status != "Validated" or facade.taskHomeRuntimeValidated(parameter_node) is not True or not _exactly_matches(validated_vector, saved_vector) or not all(_exactly_matches(saved_vector, post_state.get(key)) for key in ("accepted_si", "monitored_si", "displayed_si")):
+        stop("Explicit connected validation did not preserve and validate the saved Home vector.")
+    evidence["screenshot_framing"]["after_validation"] = _scroll_to_visible(
+        widget, panel.homeGroup, "validated offline Home"
+    )
+    evidence["screenshots"]["after_validation"] = _capture(
+        report, evidence_dir, run_id, "offline-home-postconnect-after-validation"
+    )
+    evidence["status"] = "PASS"
+    evidence["runtime_validated_same_saved_vector"] = True
+    _record(
+        report,
+        "offline_base_home_configuration",
+        "PASS",
+        offline_home_setup=offline,
+        post_connect_validation=evidence,
+    )
+    _write_report(report)
+    return evidence
+
+
 def _ensure_current_home_workspace_task(
     widget, panel, logic, parameter_node, facade, case_path, case_hash,
     report, evidence_dir, run_id, *, phase, check_name, skip_reason=None,
@@ -1665,7 +2213,7 @@ def _ensure_current_home_workspace_task(
         "workspace_runtime_validated": workspace_current,
     }
     needs_recovery = not limits_reviewed or confirmed is None or bool(task_issues)
-    if phase == "before_save":
+    if phase in {"before_save", "before_planning"}:
         needs_recovery = needs_recovery or not home_current or not workspace_current
     if workspace_diagnostic and phase == "after_scene_ack":
         needs_recovery = True
@@ -2449,6 +2997,7 @@ def run() -> int:
         "case_sha256_before_open": None,
         "case_sha256_after_open": None,
         "saved_case": False,
+        "offline_saved_case": None,
         "simulation_only": True,
         "hardware_execution": False,
         "planner_calls": 0,
@@ -2458,10 +3007,16 @@ def run() -> int:
         "taskless_draft_only": False,
         "manual_jog_keyboard_draft_only": False,
         "historical_record_reopen_opt_in": False,
+        "base_home_uncertainty_opt_in": False,
+        "complete_cycles_opt_in": False,
+        "offline_home_setup_opt_in": False,
         "scenario_opt_ins": {
             "rejected_guard": False,
             "unknown_reconciliation": False,
             "joint_keyboard_draft": False,
+            "base_home_uncertainty": False,
+            "complete_cycles": False,
+            "offline_home_setup": False,
             "workspace_diagnostic": False,
         },
         "outcome_scenarios": {
@@ -2492,6 +3047,11 @@ def run() -> int:
     message = ""
     allow_rejected_guard = False
     allow_unknown_reconciliation = False
+    offline_home_setup_opt_in = False
+    offline_home_output_text = os.environ.get(
+        "DENTOBOT_HEADED_OFFLINE_HOME_CASE_OUTPUT"
+    )
+    offline_home_output_path = None
     manual_jog_fixture_identity = None
     rejection_plan = None
     rejection_limits = None
@@ -2509,17 +3069,83 @@ def run() -> int:
 
     try:
         report["checkout"] = _checkout_evidence()
+        active_check = "offline_base_home_configuration"
+        try:
+            offline_home_setup_opt_in = _exact_env_opt_in(
+                "DENTOBOT_HEADED_OFFLINE_HOME_SETUP"
+            )
+        except RuntimeError as exc:
+            fail(active_check, str(exc))
+        report["offline_home_setup_opt_in"] = offline_home_setup_opt_in
+        report["scenario_opt_ins"]["offline_home_setup"] = offline_home_setup_opt_in
+        if offline_home_setup_opt_in:
+            try:
+                allow_base_home_accept = _exact_env_opt_in(
+                    "DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT"
+                )
+            except RuntimeError as exc:
+                fail(active_check, str(exc))
+            if not allow_base_home_accept:
+                fail(
+                    active_check,
+                    "DENTOBOT_HEADED_OFFLINE_HOME_SETUP=1 requires "
+                    "DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1.",
+                )
+            if not str(offline_home_output_text or "").strip():
+                fail(
+                    active_check,
+                    "DENTOBOT_HEADED_OFFLINE_HOME_SETUP=1 requires a unique "
+                    "DENTOBOT_HEADED_OFFLINE_HOME_CASE_OUTPUT .dentocase path.",
+                )
+        elif offline_home_output_text is not None:
+            fail(
+                active_check,
+                "DENTOBOT_HEADED_OFFLINE_HOME_CASE_OUTPUT requires "
+                "DENTOBOT_HEADED_OFFLINE_HOME_SETUP=1.",
+            )
+        active_check = "checkout_and_case_provenance"
         draft_only = _draft_only_requested()
         invalid_draft_review = _invalid_draft_review_requested()
         record_reopen = _historical_record_reopen_requested()
         joint_keyboard_opt_in = _exact_env_opt_in("DENTOBOT_HEADED_JOINT_KEYBOARD")
         tcp_case_opt_in = _exact_env_opt_in("DENTOBOT_HEADED_TCP_CASE")
         full_chain_opt_in = _exact_env_opt_in("DENTOBOT_HEADED_FULL_CHAIN")
+        try:
+            base_home_uncertainty_opt_in = _exact_env_opt_in(
+                "DENTOBOT_HEADED_BASE_HOME_UNCERTAINTY"
+            )
+        except RuntimeError as exc:
+            fail("base_home_uncertainty", str(exc))
+        try:
+            complete_cycles_opt_in = _exact_env_opt_in(
+                "DENTOBOT_HEADED_COMPLETE_CYCLES"
+            )
+        except RuntimeError as exc:
+            fail("complete_cycles", str(exc))
         allow_rejected_guard = _exact_env_opt_in("DENTOBOT_HEADED_ALLOW_REJECTED_JOG")
         allow_unknown_reconciliation = _exact_env_opt_in(
             "DENTOBOT_HEADED_ALLOW_UNKNOWN_RECONCILIATION"
         )
         allow_jog_requested = os.environ.get("DENTOBOT_HEADED_ALLOW_JOG", "") == "1"
+        report["base_home_uncertainty_opt_in"] = base_home_uncertainty_opt_in
+        report["complete_cycles_opt_in"] = complete_cycles_opt_in
+        try:
+            _validate_step6_live_probe_opt_ins(
+                base_home_uncertainty=base_home_uncertainty_opt_in,
+                complete_cycles=complete_cycles_opt_in,
+                full_chain=full_chain_opt_in,
+                allow_jog=allow_jog_requested,
+                allow_base_home_accept=allow_base_home_accept,
+                workspace_diagnostic=workspace_diagnostic,
+                draft_only=draft_only,
+            )
+        except RuntimeError as exc:
+            failing_item = (
+                "complete_cycles" if complete_cycles_opt_in
+                else "base_home_uncertainty" if base_home_uncertainty_opt_in
+                else "full_chain_interruption"
+            )
+            fail(failing_item, str(exc))
         joint_keyboard_only = joint_keyboard_opt_in and not (
             allow_jog_requested or draft_only or invalid_draft_review
         )
@@ -2530,6 +3156,9 @@ def run() -> int:
             "joint_keyboard_draft": joint_keyboard_opt_in,
             "case_bound_tcp": tcp_case_opt_in,
             "full_chain_interruption": full_chain_opt_in,
+            "base_home_uncertainty": base_home_uncertainty_opt_in,
+            "complete_cycles": complete_cycles_opt_in,
+            "offline_home_setup": offline_home_setup_opt_in,
             "workspace_diagnostic": workspace_diagnostic,
         }
         if (tcp_case_opt_in or full_chain_opt_in) and not (
@@ -2599,6 +3228,36 @@ def run() -> int:
                     f"{type(exc).__name__}: {exc}",
                     output_path=output_case_text,
                 )
+        if offline_home_setup_opt_in:
+            try:
+                offline_home_output_path = _validate_output_case_path(
+                    str(offline_home_output_text), case_path
+                )
+                if (
+                    output_case_path is not None
+                    and offline_home_output_path == output_case_path
+                ):
+                    raise ValueError(
+                        "Offline and final case outputs must use distinct paths."
+                    )
+            except Exception as exc:
+                fail(
+                    "offline_base_home_configuration",
+                    f"{type(exc).__name__}: {exc}",
+                    input_path=str(case_path),
+                    offline_output_path=offline_home_output_text,
+                    final_output_path=(
+                        str(output_case_path) if output_case_path is not None else None
+                    ),
+                )
+            report["offline_home_setup_case_output"] = str(
+                offline_home_output_path
+            )
+        else:
+            report["items"]["offline_base_home_configuration"] = {
+                "status": "NOT_RUN",
+                "reason": "DENTOBOT_HEADED_OFFLINE_HOME_SETUP is unset or '0'.",
+            }
         report["case_source"] = str(case_path)
         case_hash = _sha256_file(case_path)
         validate_case_bundle(case_path)
@@ -2756,6 +3415,14 @@ def run() -> int:
                 screenshot=report["screenshots"]["base-controls"],
                 screenshot_framing=base_frame)
 
+        if offline_home_setup_opt_in:
+            active_check = "offline_base_home_configuration"
+            _run_offline_base_home_configuration(
+                widget, panel, logic, parameter_node, facade,
+                case_path, case_hash, offline_home_output_path,
+                report, evidence_dir, run_id,
+            )
+
         active_check = "draft_state_control_visible"
         widget._configureRobotSimulationShellSubstep(3)
         _process_events(0.1)
@@ -2794,17 +3461,19 @@ def run() -> int:
             and not invalid_draft_review
             and not joint_keyboard_opt_in
             and not workspace_diagnostic
+            and not offline_home_setup_opt_in
         ) or native is None:
             reasons = []
             if (
                 not allow_jog
                 and not draft_only
-                and not invalid_draft_review
-                and not joint_keyboard_opt_in
-                and not workspace_diagnostic
+                    and not invalid_draft_review
+                    and not joint_keyboard_opt_in
+                    and not workspace_diagnostic
+                    and not offline_home_setup_opt_in
             ):
                 reasons.append(
-                    "No guarded-jog, taskless-draft, invalid-draft, joint-keyboard, or workspace-diagnostic opt-in is enabled."
+                    "No guarded-jog, taskless-draft, invalid-draft, joint-keyboard, workspace-diagnostic, or offline-Home opt-in is enabled."
                 )
             if native is None:
                 reasons.append("Exact native source/binary preflight is unavailable.")
@@ -2872,6 +3541,12 @@ def run() -> int:
                 fail(active_check, "Native collision-scene object-presence readback did not match the case objects.",
                      scene=scene)
             report["simulation_scene_readback"] = scene
+            if offline_home_setup_opt_in:
+                active_check = "offline_base_home_configuration"
+                _validate_offline_home_after_connection(
+                    widget, panel, logic, parameter_node, facade,
+                    report, evidence_dir, run_id,
+                )
             active_check = "profile_migration_recovery_after_scene_ack"
             _ensure_current_home_workspace_task(
                 widget, panel, logic, parameter_node, facade, case_path, case_hash,
@@ -3752,6 +4427,92 @@ def run() -> int:
                         "accepted": task_home_accepted_frame,
                     },
                 )
+            if base_home_uncertainty_opt_in:
+                active_check = "base_home_uncertainty"
+                dialog_timeout_sec = BASE_HOME_UNCERTAINTY_DIALOG_TIMEOUT_SEC
+                accepted_trials = {
+                    "base_acceptance_trial": report["items"]["base_acceptance_trial"]["status"],
+                    "task_home_review_acceptance_trial": report["items"]["task_home_review_acceptance_trial"]["status"],
+                    "base_acceptance_attempted": report["base_acceptance_attempted"],
+                    "task_home_acceptance_attempted": report["task_home_acceptance_attempted"],
+                }
+                if (
+                    not allow_jog_requested
+                    or not allow_base_home_accept
+                    or any(accepted_trials[name] != "PASS" for name in (
+                        "base_acceptance_trial", "task_home_review_acceptance_trial"
+                    ))
+                    or not accepted_trials["base_acceptance_attempted"]
+                    or not accepted_trials["task_home_acceptance_attempted"]
+                ):
+                    fail(
+                        active_check,
+                        "Base/Home uncertainty requires completed guarded-jog and Base/Home acceptance trials.",
+                        acceptance_prerequisites=accepted_trials,
+                        expected_error_dialog_combined_action_and_modal_appearance_timeout_sec=dialog_timeout_sec,
+                    )
+                report["items"][active_check][
+                    "expected_error_dialog_combined_action_and_modal_appearance_timeout_sec"
+                ] = dialog_timeout_sec
+                _write_report(report)
+                capture_uncertainty = lambda stage: _capture(
+                    report, evidence_dir, run_id, f"base-home-uncertainty-{stage}"
+                )
+                try:
+                    active_modal_widget = getattr(
+                        qt.QApplication, "activeModalWidget", None
+                    )
+                    if active_modal_widget is None:
+                        raise RuntimeError("Qt active-modal-widget reader is unavailable.")
+                    dialog_callback = make_expected_error_dialog_callback(
+                        qt,
+                        active_modal_widget,
+                        capture_uncertainty,
+                        timeout_sec=dialog_timeout_sec,
+                    )
+                    uncertainty_evidence = run_base_home_uncertainty_probe(
+                        widget,
+                        panel,
+                        facade,
+                        process_events=_process_events,
+                        capture_callback=capture_uncertainty,
+                        joint_names=JOINT_NAMES,
+                        expected_error_dialog_callback=dialog_callback,
+                    )
+                except Exception as exc:
+                    fail(
+                        active_check,
+                        f"{type(exc).__name__}: {exc}",
+                        acceptance_prerequisites=accepted_trials,
+                        expected_error_dialog_combined_action_and_modal_appearance_timeout_sec=dialog_timeout_sec,
+                        probe_evidence=getattr(exc, "evidence", None),
+                    )
+                if (
+                    not isinstance(uncertainty_evidence, Mapping)
+                    or uncertainty_evidence.get("status") != "probe_complete"
+                ):
+                    fail(
+                        active_check,
+                        "Base/Home uncertainty probe did not return probe_complete evidence.",
+                        acceptance_prerequisites=accepted_trials,
+                        expected_error_dialog_combined_action_and_modal_appearance_timeout_sec=dialog_timeout_sec,
+                        probe_evidence=uncertainty_evidence,
+                    )
+                _record(
+                    report,
+                    active_check,
+                    "PASS",
+                    expected_error_dialog_combined_action_and_modal_appearance_timeout_sec=dialog_timeout_sec,
+                    probe_evidence=uncertainty_evidence,
+                )
+            else:
+                _record(
+                    report,
+                    "base_home_uncertainty",
+                    "NOT_RUN",
+                    reason="DENTOBOT_HEADED_BASE_HOME_UNCERTAINTY is unset or '0'.",
+                )
+
             if tcp_case_opt_in:
                 active_check = "case_bound_tcp_workbench"
                 widget._configureRobotSimulationShellSubstep(3)
@@ -3777,6 +4538,118 @@ def run() -> int:
             else:
                 _record(report, "case_bound_tcp_workbench", "NOT_RUN",
                         reason="DENTOBOT_HEADED_TCP_CASE is unset or '0'.")
+
+            if complete_cycles_opt_in or full_chain_opt_in:
+                active_check = "planning_prerequisites"
+                _ensure_current_home_workspace_task(
+                    widget, panel, logic, parameter_node, facade, case_path, case_hash,
+                    report, evidence_dir, run_id, phase="before_planning",
+                    check_name=active_check,
+                )
+                widget._configureRobotSimulationShellSubstep(3)
+                widget._updateStep6PlanningUi()
+                _process_events(0.1)
+                planning_controls = {
+                    "plan_approach_enabled": bool(panel.planApproachButton.enabled),
+                    "compare_planners_enabled": bool(panel.comparePlannersButton.enabled),
+                    "status_text": str(panel.confirmationStatusLabel.text),
+                }
+                prerequisites = report.get("planning_prerequisites", {})
+                if not all(
+                    planning_controls[name]
+                    for name in (
+                        "plan_approach_enabled",
+                        "compare_planners_enabled",
+                    )
+                ):
+                    fail(
+                        active_check,
+                        "Current Home, workspace, reviewed limits, and task confirmation "
+                        "did not enable the selected planning probe controls.",
+                        prerequisite_evidence=prerequisites,
+                        planning_controls=planning_controls,
+                    )
+                _record(
+                    report,
+                    active_check,
+                    "PASS",
+                    phase="before_planning",
+                    prerequisite_evidence=prerequisites,
+                    planning_controls=planning_controls,
+                )
+            else:
+                _record(
+                    report,
+                    "planning_prerequisites",
+                    "NOT_RUN",
+                    reason=(
+                        "Neither DENTOBOT_HEADED_COMPLETE_CYCLES nor "
+                        "DENTOBOT_HEADED_FULL_CHAIN is selected."
+                    ),
+                )
+
+            if complete_cycles_opt_in:
+                active_check = "complete_cycles"
+                accepted_trials = {
+                    "base_acceptance_trial": report["items"]["base_acceptance_trial"]["status"],
+                    "task_home_review_acceptance_trial": report["items"]["task_home_review_acceptance_trial"]["status"],
+                    "base_acceptance_attempted": report["base_acceptance_attempted"],
+                    "task_home_acceptance_attempted": report["task_home_acceptance_attempted"],
+                }
+                if (
+                    not allow_jog_requested
+                    or not allow_base_home_accept
+                    or any(accepted_trials[name] != "PASS" for name in (
+                        "base_acceptance_trial", "task_home_review_acceptance_trial"
+                    ))
+                    or not accepted_trials["base_acceptance_attempted"]
+                    or not accepted_trials["task_home_acceptance_attempted"]
+                ):
+                    fail(
+                        active_check,
+                        "Complete cycles require completed guarded-jog and Base/Home acceptance trials.",
+                        acceptance_prerequisites=accepted_trials,
+                    )
+                widget._configureRobotSimulationShellSubstep(3)
+                widget._updateStep6PlanningUi()
+                _process_events(0.1)
+                try:
+                    cycle_evidence = run_complete_cycles(
+                        widget,
+                        panel,
+                        facade,
+                        process_events=_process_events,
+                        capture_callback=lambda stage: _capture(
+                            report, evidence_dir, run_id, f"complete-cycle-{stage}"
+                        ),
+                        joint_names=JOINT_NAMES,
+                        cycles=2,
+                    )
+                except Exception as exc:
+                    cycle_evidence = getattr(exc, "evidence", None)
+                    _retain_complete_cycle_probe_counts(report, cycle_evidence)
+                    fail(
+                        active_check,
+                        f"{type(exc).__name__}: {exc}",
+                        acceptance_prerequisites=accepted_trials,
+                        probe_evidence=cycle_evidence,
+                    )
+                _retain_complete_cycle_probe_counts(report, cycle_evidence)
+                if not _complete_cycles_passed(cycle_evidence):
+                    fail(
+                        active_check,
+                        "Complete-cycle probe returned missing or incomplete cycle evidence.",
+                        acceptance_prerequisites=accepted_trials,
+                        probe_evidence=cycle_evidence,
+                    )
+                _record(report, active_check, "PASS", probe_evidence=cycle_evidence)
+            else:
+                _record(
+                    report,
+                    "complete_cycles",
+                    "NOT_RUN",
+                    reason="DENTOBOT_HEADED_COMPLETE_CYCLES is unset or '0'.",
+                )
 
             if full_chain_opt_in:
                 active_check = "full_chain_interruption"

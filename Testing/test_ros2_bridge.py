@@ -30,6 +30,7 @@ from DENTOROS2Bridge import (  # noqa: E402
     ROS2_TASK_JOINT_STATUS_SCHEMA,
     ROS2_TOOL_TCP_LINK,
     RuntimeState,
+    acknowledge_moveit_collision_scene,
     _pose_residual_mm_degrees,
     _nudged_tcp_goal_matrix,
     _compute_live_tcp_kinematic_ik,
@@ -712,6 +713,147 @@ def test_position_axis_limit_diagnostic_reports_only_commandable_bounds():
     assert all("pneumatic_spindle" not in str(item) for item in blockers)
 
 
+def _ack_collision_scene(monkeypatch, *, expected_bounds_mm, observed_bounds_m,
+                         expected_pose=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+                         observed_pose=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)):
+    observed = {
+        "id": "world-object",
+        "shape_count": 1,
+        "pose_base_link_m_xyzw": observed_pose,
+        "bounds_base_link_m": observed_bounds_m,
+    }
+    status = SimpleNamespace(
+        world_object_evidence_present=True,
+        world_object_count=1,
+        world_objects=(observed,),
+        collision_scene_policy_fingerprint="",
+    )
+    monkeypatch.setattr(
+        bridge_module, "apply_joint_positions_si_to_motion_control", lambda _positions: None
+    )
+    monkeypatch.setattr(bridge_module, "joint_command_status", lambda **_kwargs: status)
+    clock_values = iter((0.0, 0.0, 1.0))
+    monkeypatch.setattr(bridge_module.time, "monotonic", lambda: next(clock_values))
+    monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
+    return acknowledge_moveit_collision_scene(
+        expected_objects=(
+            {
+                "outgoing_collision_object_id": "world-object",
+                "outgoing_pose_base_link_m_xyzw": expected_pose,
+                "outgoing_bounds_base_link_mm": expected_bounds_mm,
+            },
+        ),
+        current_joint_positions_si={},
+        timeout_sec=0.1,
+    )
+
+
+def test_collision_scene_acknowledgement_accepts_matching_bounds(monkeypatch):
+    result = _ack_collision_scene(
+        monkeypatch,
+        expected_bounds_mm=(-10.0, -5.0, 20.0, 30.0, -50.0, -40.0),
+        observed_bounds_m=(-0.010, -0.005, 0.020, 0.030, -0.050, -0.040),
+    )
+    assert result["status"] == "Acknowledged"
+    assert result["acknowledged_object_ids"] == ["world-object"]
+
+
+def test_collision_scene_acknowledgement_keeps_one_micrometre_tolerance(monkeypatch):
+    result = _ack_collision_scene(
+        monkeypatch,
+        expected_bounds_mm=(-10.0, -5.0, 20.0, 30.0, -50.0, -40.0),
+        observed_bounds_m=(
+            -0.0100009,
+            -0.005,
+            0.020,
+            0.030,
+            -0.050,
+            -0.040,
+        ),
+    )
+    assert result["status"] == "Acknowledged"
+
+
+def test_collision_scene_acknowledgement_reports_bound_mismatch_in_units(monkeypatch):
+    result = _ack_collision_scene(
+        monkeypatch,
+        expected_bounds_mm=(-10.0, -5.0, 20.0, 30.0, -50.0, -40.0),
+        observed_bounds_m=(-0.0112, -0.005, 0.020, 0.030, -0.050, -0.040),
+    )
+    mismatch = " ".join(result["mismatches"])
+    assert result["status"] == "Mismatch"
+    assert "runtime bounds differ for world-object" in mismatch
+    assert "base_link bounds=(-10.0, -5.0, 20.0, 30.0, -50.0, -40.0) mm" in mismatch
+    assert "base_link bounds=(-0.0112, -0.005, 0.02, 0.03, -0.05, -0.04) m" in mismatch
+    assert "max_abs_delta=1.200000 mm" in mismatch
+
+
+@pytest.mark.parametrize(
+    "bad_bounds",
+    [
+        None,
+        (0.0,) * 5,
+        (0.0,) * 7,
+        (0.0, 0.0, 0.0, float("nan"), 0.0, 0.0),
+        (0.0, 0.0, 0.0, float("inf"), 0.0, 0.0),
+        (0.0, 0.0, 0.0, "malformed", 0.0, 0.0),
+        (1.0, 0.0, 0.0, 1.0, 0.0, 1.0),
+        (0.0, 1.0, 1.0, 0.0, 0.0, 1.0),
+        (0.0, 1.0, 0.0, 1.0, 1.0, 0.0),
+    ],
+)
+@pytest.mark.parametrize("side", ("expected", "observed"))
+def test_collision_scene_acknowledgement_rejects_invalid_bounds(
+    monkeypatch, bad_bounds, side
+):
+    result = _ack_collision_scene(
+        monkeypatch,
+        expected_bounds_mm=(
+            bad_bounds
+            if side == "expected"
+            else (-10.0, -5.0, 20.0, 30.0, -50.0, -40.0)
+        ),
+        observed_bounds_m=(
+            bad_bounds
+            if side == "observed"
+            else (-0.010, -0.005, 0.020, 0.030, -0.050, -0.040)
+        ),
+    )
+    assert result["status"] == "Mismatch"
+    assert any(
+        "invalid comparable base-link bounds" in mismatch
+        for mismatch in result["mismatches"]
+    )
+
+
+@pytest.mark.parametrize(
+    "side,bad_pose",
+    (
+        ("expected", (float("nan"), 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)),
+        ("observed", (0.0, 0.0, 0.0, float("inf"), 0.0, 0.0, 1.0)),
+    ),
+)
+def test_collision_scene_acknowledgement_rejects_nonfinite_poses(
+    monkeypatch, side, bad_pose
+):
+    result = _ack_collision_scene(
+        monkeypatch,
+        expected_bounds_mm=(-10.0, -5.0, 20.0, 30.0, -50.0, -40.0),
+        observed_bounds_m=(-0.010, -0.005, 0.020, 0.030, -0.050, -0.040),
+        expected_pose=(
+            bad_pose if side == "expected" else (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+        ),
+        observed_pose=(
+            bad_pose if side == "observed" else (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+        ),
+    )
+    assert result["status"] == "Mismatch"
+    assert any(
+        "invalid comparable base-link pose" in mismatch
+        for mismatch in result["mismatches"]
+    )
+
+
 def test_joint_guard_status_parses_accepted_state_and_clearances():
     payload = json.dumps(
         {
@@ -1345,6 +1487,181 @@ def test_position_axis_ik_diagnostics_map_and_support_older_nodes(monkeypatch):
     assert diagnostic["collision_check_status"] == "unknown"
     assert diagnostic["task_jacobian_condition_ratio"] is None
     assert diagnostic["collision_pairs"] == ()
+
+
+def test_position_axis_ik_residuals_are_strict_json_safe_without_faking_success(
+    monkeypatch,
+):
+    residual = {"value": 0.0}
+    robot_node = SimpleNamespace(
+        ComputeMoveItPositionAxisIK=lambda *_args, **_kwargs: None,
+        GetLastMoveItPositionAxisIKMessage=lambda: "native solver rejected target",
+        GetLastMoveItPositionAxisIKPositionResidualMm=lambda: residual["value"],
+        GetLastMoveItPositionAxisIKAxisResidualDeg=lambda: residual["value"],
+        GetLastMoveItPositionAxisIKBestJointValues=lambda: [0.1] * 5,
+        GetMoveItCollidingBodyPairs=lambda *_args: (),
+    )
+    logic = SimpleNamespace(computeIKWithMoveIt=lambda **_kwargs: [])
+    monkeypatch.setattr(
+        bridge_module,
+        "_dentobot_native_motion_context",
+        lambda **_kwargs: (logic, robot_node, None, None),
+    )
+
+    for value in (float("nan"), float("inf"), float("-inf"), -0.1):
+        residual["value"] = value
+        ok, message, positions, diagnostic = (
+            bridge_module.solve_moveit_tcp_position_axis_goal()
+        )
+        assert not ok
+        assert message == "native solver rejected target"
+        assert positions == {}
+        assert diagnostic["position_residual_mm"] is None
+        assert diagnostic["drilling_axis_residual_deg"] is None
+        json.dumps(diagnostic, allow_nan=False)
+
+
+def test_diagnostic_display_cleanup_restores_only_owned_evidence_and_goal(
+    monkeypatch,
+):
+    class Display:
+        def __init__(self, color, visibility):
+            self.color = tuple(color)
+            self.visibility = bool(visibility)
+            self.opacity = 1.0
+
+        def GetColor(self):
+            return self.color
+
+        def SetColor(self, *color):
+            self.color = tuple(color)
+
+        def GetVisibility(self):
+            return int(self.visibility)
+
+        def SetVisibility(self, visible):
+            self.visibility = bool(visible)
+
+        def SetOpacity(self, opacity):
+            self.opacity = float(opacity)
+
+    class Node:
+        def __init__(self, name, color=(0.2, 0.3, 0.4), visibility=True):
+            self.name = name
+            self.attributes = {}
+            self.display = Display(color, visibility)
+
+        def GetAttribute(self, name):
+            return self.attributes.get(name)
+
+        def SetAttribute(self, name, value):
+            if value is None:
+                self.attributes.pop(name, None)
+            else:
+                self.attributes[name] = str(value)
+
+        def GetDisplayNode(self):
+            return self.display
+
+    collision = Node("collision", color=(0.1, 0.2, 0.3), visibility=False)
+    collision.SetAttribute("DENTOBOT.CollisionAuditCopy", "true")
+    collision.SetAttribute("DENTOBOT.OutgoingCollisionObjectId", "world-object")
+    unrelated_collision = Node("unrelated", color=(0.3, 0.4, 0.5), visibility=True)
+    unrelated_collision.SetAttribute("DENTOBOT.CollisionAuditCopy", "true")
+    unrelated_collision.SetAttribute("DENTOBOT.OutgoingCollisionObjectId", "other-object")
+    goal_model = Node("goal", visibility=False)
+    boundary = Node("boundary")
+    boundary.SetAttribute("DENTOBOT.MotionDiagnosticBoundary", "true")
+    ordinary_markup = Node("ordinary-markup")
+    nodes = {
+        "vtkMRMLModelNode": [collision, unrelated_collision, goal_model],
+        "vtkMRMLMarkupsFiducialNode": [boundary, ordinary_markup],
+    }
+    removed = []
+
+    class Scene:
+        def RemoveNode(self, node):
+            removed.append(node)
+            for group in nodes.values():
+                if node in group:
+                    group.remove(node)
+
+    class Robot:
+        def GetNumberOfNodeReferences(self, role):
+            return 1 if role == "goal_model" else 0
+
+        def GetNthNodeReference(self, role, index):
+            return goal_model if role == "goal_model" and index == 0 else None
+
+    slicer_stub = SimpleNamespace(
+        util=SimpleNamespace(getNodesByClass=lambda node_class: list(nodes[node_class])),
+        mrmlScene=Scene(),
+    )
+    monkeypatch.setitem(sys.modules, "slicer", slicer_stub)
+    monkeypatch.setitem(sys.modules, "vtk", SimpleNamespace())
+    robot = Robot()
+    monkeypatch.setattr(
+        bridge_module,
+        "find_ros2_robot_by_name",
+        lambda _name: robot,
+    )
+    transform_updates = []
+    monkeypatch.setattr(
+        bridge_module,
+        "get_motion_control_logic",
+        lambda: SimpleNamespace(
+            updategoalTransformsFromJointsKDL=lambda _robot, values: transform_updates.append(
+                tuple(values)
+            )
+        ),
+    )
+    monkeypatch.setattr(bridge_module, "_native_tcp_drag_enabled", False)
+    positions = {name: 0.0 for name in ROS2_JOINT_SI_ORDER}
+
+    shown, _message = bridge_module.show_goal_robot_joint_positions(
+        positions, diagnostic=True
+    )
+    evidence_ok, _message = bridge_module.show_motion_diagnostic_evidence(
+        first_invalid_ras_mm=None,
+        collision_pairs=(("world-object", "jaw"),),
+    )
+
+    assert shown and evidence_ok
+    assert goal_model.display.visibility is True
+    assert goal_model.GetAttribute("DENTOBOT.MotionDiagnosticGoal") == "true"
+    assert collision.display.color == (1.0, 0.15, 0.10)
+    assert collision.display.visibility is True
+    assert collision.GetAttribute(
+        bridge_module.ROS2_MOTION_DIAGNOSTIC_HIGHLIGHT_ATTRIBUTE
+    ) == "true"
+    assert unrelated_collision.display.color == (0.3, 0.4, 0.5)
+    assert unrelated_collision.display.visibility is True
+
+    cleared, _message = bridge_module.clear_motion_diagnostic_display()
+
+    assert cleared
+    assert removed == [boundary]
+    assert ordinary_markup in nodes["vtkMRMLMarkupsFiducialNode"]
+    assert collision.display.color == (0.1, 0.2, 0.3)
+    assert collision.display.visibility is False
+    assert collision.GetAttribute(
+        bridge_module.ROS2_MOTION_DIAGNOSTIC_HIGHLIGHT_ATTRIBUTE
+    ) is None
+    assert goal_model.display.visibility is False
+    assert goal_model.GetAttribute("DENTOBOT.MotionDiagnosticGoal") is None
+
+    monkeypatch.setattr(bridge_module, "_native_tcp_drag_enabled", True)
+    goal_model.SetAttribute("DENTOBOT.MotionDiagnosticGoal", "true")
+    goal_model.display.SetVisibility(True)
+    cleared, _message = bridge_module.clear_motion_diagnostic_display()
+    assert cleared
+    assert goal_model.display.visibility is True
+    assert goal_model.GetAttribute("DENTOBOT.MotionDiagnosticGoal") == "true"
+    blocked, message = bridge_module.show_goal_robot_joint_positions(
+        positions, diagnostic=True
+    )
+    assert not blocked and "Disable TCP Drag" in message
+    assert len(transform_updates) == 1
 
 
 def test_joint_goal_planning_waits_for_a_stable_scene_and_retries_boundedly():

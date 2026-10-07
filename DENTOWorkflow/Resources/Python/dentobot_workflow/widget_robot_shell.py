@@ -11,10 +11,15 @@ from .workflow_progress import WorkflowProgress
 from DENTOStep6Planning import TaskSpaceRoi
 from DENTOROS2Bridge import (
     clear_manual_simulation_record_paths,
+    clear_motion_diagnostic_display,
     show_goal_robot_joint_positions,
     show_manual_simulation_record_paths,
 )
-from DENTOStep6State import JOINT_NAMES, parse_manual_simulation_record
+from DENTOStep6State import (
+    JOINT_NAMES,
+    parse_manual_simulation_record,
+    parse_motion_diagnostic_session,
+)
 
 
 class RobotShellWidgetMixin:
@@ -374,10 +379,24 @@ class RobotShellWidgetMixin:
     def _onShellManualJogDraftChanged(
         self, joint_positions_si: Mapping[str, float]
     ) -> None:
-        if not self._robotSimulationPanel:
+        panel = self._robotSimulationPanel
+        if not panel:
+            return
+        if panel._taskHomeSetupMode == "offline":
+            panel.setManualJogDraftDisplayResult(
+                False,
+                "live robot ghost visualization is unavailable offline. "
+                "Connect ROS/MoveIt in 6.1 for live display.",
+            )
+            return
+        if panel._taskHomeSetupMode != "connected":
+            panel.setManualJogDraftDisplayResult(
+                False,
+                "no live robot display was updated.",
+            )
             return
         ok, message = show_goal_robot_joint_positions(joint_positions_si)
-        self._robotSimulationPanel.setManualJogDraftDisplayResult(ok, message)
+        panel.setManualJogDraftDisplayResult(ok, message)
 
     def _onShellCheckManualRobotDraftState(
         self, joint_positions_si: Mapping[str, float]
@@ -1092,6 +1111,7 @@ class RobotShellWidgetMixin:
         accepted = details.get("acceptedJointPositionsSi")
         if (
             result.success is True
+            and details.get("setupMode") == "connected"
             and details.get("identityStatus") == "current"
             and details.get("acceptanceStatus") == "accepted"
             and isinstance(accepted, Mapping)
@@ -1362,6 +1382,97 @@ class RobotShellWidgetMixin:
             if node.GetAttribute("DENTOBOT.Step6TargetConditioningDisplay") == "true":
                 slicer.mrmlScene.RemoveNode(node)
 
+    @staticmethod
+    def _step6MotionDiagnosticGenerationIdentity(session) -> tuple[str, ...]:
+        """Return the immutable inputs identifying one diagnostic generation."""
+        return tuple(
+            str(getattr(session, name, "") or "")
+            for name in (
+                "schema_version",
+                "generated_at_utc",
+                "task_fingerprint",
+                "base_fingerprint",
+                "trajectory_fingerprint",
+                "robot_profile_fingerprint",
+                "collision_audit_fingerprint",
+                "planning_parameters_fingerprint",
+            )
+        )
+
+    def _clearStep6MotionDiagnosticDisplay(self) -> bool:
+        self._step6DiagnosticDisplayContext = None
+        clear_errors = []
+        try:
+            self._clearStep6TargetConditioningFiducials()
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            clear_errors.append(str(exc))
+        facade = getattr(self, "_robotWorkflowFacade", None)
+        clear_display = getattr(facade, "clearDiagnosticDisplay", None)
+        try:
+            if callable(clear_display):
+                result = clear_display()
+                success = bool(getattr(result, "success", False))
+                message = str(getattr(result, "message", ""))
+            else:
+                success, message = clear_motion_diagnostic_display()
+                success = bool(success)
+                message = str(message)
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            success, message = False, str(exc)
+        if clear_errors:
+            success = False
+            message = "; ".join(part for part in (message, *clear_errors) if part)
+        if not success:
+            report = "Motion diagnostic display cleanup failed: " + (
+                message or "the display owner did not confirm cleanup."
+            )
+            panel = getattr(self, "_robotSimulationPanel", None)
+            if panel is not None and hasattr(panel, "approachStatusLabel"):
+                panel.approachStatusLabel.text = report
+                panel.approachStatusLabel.setProperty("dentobotRole", "warning")
+            slicer.util.errorDisplay(report)
+        return success
+
+    def _clearStep6MotionDiagnosticDisplayIfContextChanged(self) -> bool:
+        context = getattr(self, "_step6DiagnosticDisplayContext", None)
+        if not context:
+            return False
+        parameter_node, generation_identity = context
+        current_node = getattr(self, "_parameterNode", None)
+        current_payload = str(
+            getattr(current_node, "step6MotionDiagnosticJson", "") or ""
+        ).strip()
+        stale = current_node is not parameter_node or not current_payload
+        if not stale and current_payload:
+            try:
+                session = parse_motion_diagnostic_session(current_payload)
+                stale = bool(
+                    session.state != "Current"
+                    or session.stale_reason
+                    or self._step6MotionDiagnosticGenerationIdentity(session)
+                    != generation_identity
+                )
+            except (TypeError, ValueError):
+                stale = True
+        logic = getattr(self, "logic", None)
+        checker = getattr(logic, "motionDiagnosticFreshnessIssues", None)
+        if not stale and callable(checker):
+            try:
+                stale = bool(checker(current_node))
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+                stale = True
+        if stale:
+            self._clearStep6MotionDiagnosticDisplay()
+            panel = getattr(self, "_robotSimulationPanel", None)
+            dialog = getattr(panel, "_diagnosticDialog", None)
+            if dialog is not None:
+                try:
+                    dialog.close()
+                except RuntimeError:
+                    pass
+            return True
+        return False
+
     def _showStep6TargetConditioningFiducials(
         self, session, expected_fingerprint: str
     ) -> bool:
@@ -1427,8 +1538,49 @@ class RobotShellWidgetMixin:
             return False
         return True
 
+    def _step6ExactMotionDiagnosticDisplayFingerprint(
+        self, session, expected_fingerprint: str = ""
+    ) -> str:
+        """Resolve only an exact-current fingerprint for diagnostic displays."""
+        supplied_fingerprint = str(expected_fingerprint or "").strip()
+        if supplied_fingerprint:
+            candidate_fingerprint = supplied_fingerprint
+        else:
+            logic = getattr(self, "logic", None)
+            checker = getattr(logic, "motionDiagnosticFreshnessIssues", None)
+            parameter_node = getattr(self, "_parameterNode", None)
+            if not callable(checker) or parameter_node is None:
+                return ""
+            try:
+                issues = checker(parameter_node)
+                if not isinstance(issues, (list, tuple)) or issues:
+                    return ""
+            except (
+                AttributeError,
+                OSError,
+                OverflowError,
+                RuntimeError,
+                TypeError,
+                ValueError,
+            ):
+                return ""
+            candidate_fingerprint = str(
+                getattr(session, "session_fingerprint", "") or ""
+            )
+        session_fingerprint = str(
+            getattr(session, "session_fingerprint", "") or ""
+        )
+        return (
+            candidate_fingerprint
+            if candidate_fingerprint
+            and candidate_fingerprint == session_fingerprint
+            and getattr(session, "state", "") == "Current"
+            and not getattr(session, "stale_reason", "")
+            else ""
+        )
+
     def _onStep6ShowMotionDiagnostics(self, expected_fingerprint: str = "") -> None:
-        self._clearStep6TargetConditioningFiducials()
+        self._clearStep6MotionDiagnosticDisplay()
         if not self._parameterNode or not self._robotSimulationPanel:
             return
         payload = str(self._parameterNode.step6MotionDiagnosticJson or "").strip()
@@ -1437,12 +1589,10 @@ class RobotShellWidgetMixin:
             return
         try:
             session = parse_motion_diagnostic_session(payload)
-            exact_current_session = bool(
-                expected_fingerprint
-                and session.session_fingerprint == expected_fingerprint
-                and session.state == "Current"
-                and not session.stale_reason
+            exact_fingerprint = self._step6ExactMotionDiagnosticDisplayFingerprint(
+                session, expected_fingerprint
             )
+            exact_current_session = bool(exact_fingerprint)
             self._robotSimulationPanel.showMotionDiagnostics(
                 session,
                 self._robotWorkflowFacade.showDiagnosticCandidate
@@ -1465,18 +1615,23 @@ class RobotShellWidgetMixin:
                 else None,
                 exact_current_session=exact_current_session,
             )
+            dialog = self._robotSimulationPanel._diagnosticDialog
+            if dialog is not None:
+                self._step6DiagnosticDisplayContext = (
+                    self._parameterNode,
+                    self._step6MotionDiagnosticGenerationIdentity(session),
+                )
+                dialog.connect(
+                    "finished(int)",
+                    lambda _result: self._clearStep6MotionDiagnosticDisplay(),
+                )
             if exact_current_session:
                 fiducials_visible = self._showStep6TargetConditioningFiducials(
-                    session, expected_fingerprint
+                    session, exact_fingerprint
                 )
                 self._robotSimulationPanel.setMotionDiagnosticTargetFiducialStatus(
                     fiducials_visible
                 )
-                if fiducials_visible:
-                    self._robotSimulationPanel._diagnosticDialog.connect(
-                        "finished(int)",
-                        lambda _result: self._clearStep6TargetConditioningFiducials(),
-                    )
         except (ValueError, json.JSONDecodeError) as exc:
             slicer.util.errorDisplay(str(exc))
 
@@ -2382,6 +2537,14 @@ class RobotShellWidgetMixin:
         if not self._robotSimulationPanel:
             return
         index = max(0, min(int(substep_index), 4))
+        if self._step6SubstepIndex == 3 and index != 3:
+            self._clearStep6MotionDiagnosticDisplay()
+            dialog = self._robotSimulationPanel._diagnosticDialog
+            if dialog is not None:
+                try:
+                    dialog.close()
+                except RuntimeError:
+                    pass
         self._step6SubstepIndex = index
         self._robotSimulationPanel.setActiveSubstep(index)
         self._updatingStep6SubstepNavigation = True
@@ -2394,6 +2557,21 @@ class RobotShellWidgetMixin:
                 self._step6NextSubstepButton.enabled = index < 4
         finally:
             self._updatingStep6SubstepNavigation = False
+        panel = self._robotSimulationPanel
+        controls = panel.manualJogControlsGroup
+        if index == 2 and not panel._manualJogControlsInHomeGroup:
+            panel.manualJogGroup.layout().removeWidget(controls)
+            controls.setParent(panel.homeGroup)
+            controls.show()
+            panel.homeGroup.layout().insertWidget(1, controls)
+            panel._manualJogControlsInHomeGroup = True
+        elif index != 2 and panel._manualJogControlsInHomeGroup:
+            panel.homeGroup.layout().removeWidget(controls)
+            controls.setParent(panel.manualJogGroup)
+            controls.show()
+            panel.manualJogGroup.layout().insertWidget(2, controls)
+            panel._manualJogControlsInHomeGroup = False
+        panel._updateManualJogResetLabel()
         groups = (
             self.ui.step6PlanningContextGroupBox,
             self.ui.step6MountLockGroupBox,
@@ -2423,7 +2601,6 @@ class RobotShellWidgetMixin:
                 self._robotSimulationPanel.collisionGroup,
             ),
             2: (
-                self.ui.step6TaskJointLimitsGroupBox,
                 self._robotSimulationPanel.homeGroup,
             ),
             3: (
@@ -2458,14 +2635,16 @@ class RobotShellWidgetMixin:
             and int(self.ui.workflowStageComboBox.currentIndex)
             == len(self._workflowStageEntries()) - 1
         ):
-            qt.QTimer.singleShot(
-                0,
-                lambda: self._workflowContentScrollArea.ensureWidgetVisible(
-                    self._step6SubstepNavigator,
-                    0,
-                    20,
-                ),
-            )
+            qt.QTimer.singleShot(0, self._ensureStep6SubstepNavigatorVisible)
+
+    def _ensureStep6SubstepNavigatorVisible(self) -> None:
+        try:
+            scroll_area = self._workflowContentScrollArea
+            navigator = self._step6SubstepNavigator
+            if scroll_area is not None and navigator is not None:
+                scroll_area.ensureWidgetVisible(navigator, 0, 20)
+        except (AttributeError, RuntimeError, ValueError):
+            return
 
     def _restoreLegacyRobotSimulationGroups(self) -> None:
         if not self._robotSimulationPanel:

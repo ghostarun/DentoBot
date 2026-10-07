@@ -29,11 +29,16 @@ def _identity_outcome(**extra):
     }
 
 
-def _session(stages=(), *, complete=False):
+def _session(stages=(), *, complete=False, candidate_records=(), target_conditioning=None):
     outcome = _identity_outcome(
         diagnostic_kind="preentry_ik",
-        target_conditioning={"drilling_axis_world_unit": [0.0, 0.0, 1.0]},
+        diagnostic_status="NoEndpointPassed",
         status="Complete" if complete else "NotRun",
+        target_conditioning=(
+            target_conditioning
+            if target_conditioning is not None
+            else {"drilling_axis_world_unit": [0.0, 0.0, 1.0]}
+        ),
         tool_orientation_fingerprint="orientation-1" if complete else "",
     )
     return {
@@ -42,6 +47,7 @@ def _session(stages=(), *, complete=False):
         "trajectory_fingerprint": IDENTITY["trajectory"],
         "robot_profile_fingerprint": IDENTITY["robot_profile"],
         "session_fingerprint": "session-1", "full_task_outcome": outcome,
+        "candidate_records": list(candidate_records),
         "stage_outcomes": list(stages),
     }
 
@@ -199,8 +205,13 @@ class _Widget:
         self._workflowActionBusy = False
 
 
-def _harness(*, plan_success=True, full_chain=True, p1_guard_identity=_DEFAULT_GUARD_IDENTITY):
+def _harness(
+    *, plan_success=True, full_chain=True, p1_guard_identity=_DEFAULT_GUARD_IDENTITY,
+    p1_not_reached_reason=None, preentry_session=None,
+):
     widget = _Widget()
+    if preentry_session is not None:
+        widget._parameterNode.step6MotionDiagnosticJson = json.dumps(preentry_session)
     bridge = _Bridge()
     facade = _Facade(widget, bridge)
     facade.allow_full_chain = full_chain
@@ -215,28 +226,38 @@ def _harness(*, plan_success=True, full_chain=True, p1_guard_identity=_DEFAULT_G
 
     for stage in ("P1", "P2", "P3"):
         def diagnostic(stage=stage):
-            session = _session()
+            if stage == "P1" and p1_not_reached_reason is not None:
+                preentry = _session() if preentry_session is None else preentry_session
+                session = dict(preentry)
+                session["stage_outcomes"] = [{
+                    "phase_id": "P1", "status": "NotRun",
+                    "diagnostic_status": "not_reached",
+                    "reason": p1_not_reached_reason, "route_authority": "none",
+                }]
+            else:
+                session = _session()
             outcomes = []
-            for old in ("P1", "P2", "P3"):
-                if old > stage:
-                    continue
-                item = {
-                    "phase_id": old, "status": "Passed", "diagnostic_status": "passed",
-                    "reason": "checked", "route_authority": "none",
-                }
-                if old == "P1":
-                    item["endpoint_evidence"] = {
-                        "guard_policy_fingerprint": "policy-1",
-                        "phase_guard": {
-                            "status": "passed",
-                            "collision_scene_policy_fingerprint": "policy-1",
-                            "first_invalid_evaluated": {"guard_session_id": "guard-1"},
-                        },
+            if not (stage == "P1" and p1_not_reached_reason is not None):
+                for old in ("P1", "P2", "P3"):
+                    if old > stage:
+                        continue
+                    item = {
+                        "phase_id": old, "status": "Passed", "diagnostic_status": "passed",
+                        "reason": "checked", "route_authority": "none",
                     }
-                outcomes.append(item)
-            session["stage_outcomes"] = outcomes
+                    if old == "P1":
+                        item["endpoint_evidence"] = {
+                            "guard_policy_fingerprint": "policy-1",
+                            "phase_guard": {
+                                "status": "passed",
+                                "collision_scene_policy_fingerprint": "policy-1",
+                                "first_invalid_evaluated": {"guard_session_id": "guard-1"},
+                            },
+                        }
+                    outcomes.append(item)
+                session["stage_outcomes"] = outcomes
             widget._parameterNode.step6MotionDiagnosticJson = json.dumps(session)
-            if stage == "P1":
+            if stage == "P1" and p1_not_reached_reason is None:
                 bridge.identity = (
                     {
                         "task_fingerprint": IDENTITY["task"],
@@ -246,16 +267,17 @@ def _harness(*, plan_success=True, full_chain=True, p1_guard_identity=_DEFAULT_G
                     if p1_guard_identity is _DEFAULT_GUARD_IDENTITY
                     else p1_guard_identity
                 )
-            current_identity = bridge.identity or {}
-            bridge.status = SimpleNamespace(
-                task_fingerprint=current_identity.get("task_fingerprint", IDENTITY["task"]),
-                guard_session_id=current_identity.get("guard_session_id", "guard-1"),
-                collision_scene_policy_fingerprint=current_identity.get(
-                    "collision_scene_policy_fingerprint", "policy-1"
-                ),
-                phase="approach" if stage == "P1" else stage,
-                validate_only=True, accepted=True,
-            )
+            if not (stage == "P1" and p1_not_reached_reason is not None):
+                current_identity = bridge.identity or {}
+                bridge.status = SimpleNamespace(
+                    task_fingerprint=current_identity.get("task_fingerprint", IDENTITY["task"]),
+                    guard_session_id=current_identity.get("guard_session_id", "guard-1"),
+                    collision_scene_policy_fingerprint=current_identity.get(
+                        "collision_scene_policy_fingerprint", "policy-1"
+                    ),
+                    phase="approach" if stage == "P1" else stage,
+                    validate_only=True, accepted=True,
+                )
         button(f"checkPlanning{stage}Button", diagnostic)
 
     panel.previewApproachButton = button("previewApproachButton", enabled=False)
@@ -425,4 +447,66 @@ def test_p1_guard_identity_mismatch_stops_before_p2_p3_or_planner(p1_guard_ident
     assert panel.checkPlanningP2Button.clicks == panel.checkPlanningP3Button.clicks == 0
     assert panel.planApproachButton.clicks == 0
     assert "task/session/collision-policy guard identity" in evidence["failure"]["message"]
+    json.dumps(evidence, allow_nan=False)
+
+
+def test_preentry_no_endpoint_retains_exact_evidence_and_stops_before_guard_or_route_authority():
+    candidates = [
+        {
+            "candidate_index": 0,
+            "seed_provenance": "accepted_home",
+            "endpoint_check_status": "Failed",
+            "failure_classification": "no_collision_checked_endpoint",
+            "best_joint_positions_si": {name: 0.01 for name in JOINTS},
+            "mechanical_joint_limit_margins": {name: 0.2 for name in JOINTS},
+            "reviewed_task_joint_limit_margins": {name: 0.1 for name in JOINTS},
+            "route_authority": "none",
+        }
+    ]
+    conditioning = {
+        "world_frame": "RAS_mm",
+        "pre_entry_world_ras_mm": [-10.0, -20.0, 30.0],
+        "entry_world_ras_mm": [-11.0, -20.0, 30.0],
+        "target_world_ras_mm": [-11.0, -24.0, 30.0],
+        "drilling_axis_world_unit": [0.0, 1.0, 0.0],
+    }
+    preentry_session = _session(
+        candidate_records=candidates,
+        target_conditioning=conditioning,
+    )
+    reason = "PreEntry IK produced no collision-checked endpoint candidate."
+    widget, panel, facade = _harness(
+        p1_not_reached_reason=reason,
+        preentry_session=preentry_session,
+    )
+
+    with pytest.raises(probe.FullChainProbeError) as raised:
+        _run(widget, panel, facade)
+
+    evidence = raised.value.evidence
+    assert evidence["preentry_diagnostic_session"]["candidate_records"] == candidates
+    assert evidence["preentry_diagnostic_session"]["full_task_outcome"]["target_conditioning"] == conditioning
+    assert evidence["diagnostic_sessions"]["P1"]["candidate_records"] == candidates
+    assert evidence["diagnostic_sessions"]["P1"]["stage_outcomes"] == [{
+        "phase_id": "P1", "status": "NotRun",
+        "diagnostic_status": "not_reached", "reason": reason,
+        "route_authority": "none",
+    }]
+    assert evidence["diagnostics"] == [{
+        "phase_id": "P1", "status": "NotRun",
+        "diagnostic_status": "not_reached", "reason": reason,
+        "session_fingerprint": "session-1", "guard_status_after": None,
+        "route_authority": "none", "display_only_state_unchanged": True,
+    }]
+    assert evidence["failure"]["message"] == f"P1 was not reached: {reason}"
+    assert "guard identity" not in evidence["failure"]["message"]
+    assert panel.checkPlanningP1Button.clicks == 1
+    assert panel.checkPlanningP2Button.clicks == panel.checkPlanningP3Button.clicks == 0
+    assert panel.planApproachButton.clicks == 0
+    assert panel.previewApproachButton.clicks == panel.previewDrillingButton.clicks == 0
+    assert evidence["probe_local_button_invocations"]["plan_guarded_approach"] == 0
+    assert evidence["probe_local_button_invocations"]["preview_approach"] == 0
+    assert evidence["guard_identity_before"] is None
+    assert facade._bridge.identity is None
+    assert evidence["fresh_complete_cycle"] == "NOT_RUN"
     json.dumps(evidence, allow_nan=False)

@@ -1946,3 +1946,8 @@ runtime authorization. The 27 September attempt stopped at package
 post-hydration integrity before the new controls could be observed.
 For the full repeatable host/container sequence and evidence checklist, see
 [Step 6 recorded headed automation workflow](diagnostics/STEP6_RECORDED_HEADED_AUTOMATION_WORKFLOW.md).
+
+
+### 1 October — renovation collision-guard build provenance
+
+The shared dentobot_moveit_config build/install now derives from `/workspace/ros2_ws/src/DentoBot-step6-renovation/dentobot_moveit_config` with `CMAKE_BUILD_TYPE=Release`. A stale cache pointing to the retired DentoBot checkout was refreshed for this package only, then Release was explicitly restored. Installed guard SHA: `19cdc7800e39d241fe72fbfbc8d20a953f5ab110a9e44b511e0f2ed6c6cbe6a1`. No image/dependency/ROS-setting change or runtime launch. Use the renovation launcher for the next operator trial; launching another checkout can replace shared install provenance as described above.

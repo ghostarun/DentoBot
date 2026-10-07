@@ -1,5 +1,21 @@
 # Step 6 five-DOF detailed acceptance checklist
 
+## 1 October 2026 — operator workflow recovery contract (latest supersession)
+
+**Status correction:** source/host evidence below remains valid, but requested6.1/6.2 workflow/UX completion is reopened after operator dissatisfaction and manual blockers. Do not treat the remaining work as only user confirmation. Follow [the latest bounded recovery contract](STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md): read-only diagnosis first, no new runtime implied, observable setup-to6.3 demonstration required before UX completion.
+
+
+## 1 October 2026 — implementation closure and engineer handoff (operator-approved supersession)
+
+The operator stopped the autonomous successful-planner/whole-run goal and approved **source/host checks followed by Tarun's engineering trials**. This supersedes earlier automatic campaign sequencing, not the guard policy or outstanding runtime acceptance. Do not launch a new Slicer/ROS/MoveIt/planner/preview trial for this pass. A no-solution planner result is a valid diagnostic outcome only when sufficient exact evidence is retained and state remains safe; it is not proof of infeasibility.
+
+Existing owners remain S6-LIVE-01, S6-WORKSPACE-PURPOSE, S6-LIVE-03/04, S6-REUSABLE-CASE-SETUP and S6-P2-03. Close concrete source gaps: non-finite diagnostic metrics, explicit failed-pose read-only FK/static inspection, diagnostic display cleanup, existing-layout clipping and actionable disabled-state explanations. Reuse five-joint state/guard, Base/Home, historical recording/persistence and preview owners; no new robotics framework or parameter tuning. Implementation closure is source/host verified: 469 combined checks passed on 1 October; Python compilation and git diff --check passed. Failed-pose inspection, finite metrics, diagnostic ownership/cleanup, layout wrapping and blocked-action guidance are corrected at this boundary. Rendered GUI and native robotics acceptance remain pending; exact commands and evidence are in the handoff index and dated logbook.
+
+Reuse bounded r22 TCP, r26 uncertainty/reconciliation, r29 offline-to-connected setup and r30 fresh-reopen evidence at their actual scopes. R31 ended 16 PASS / 1 FAIL / 12 NOT_RUN: all14 PreEntry searches reached iteration_limit, exact target/failed-pose evidence retained; P1/complete-plan/preview NotRun, inferior exit1 with signal null, partial video preserved. Earlier campaign verdicts are unchanged. Native positive full-chain/preview/interruption/Return Home/repeat, final post-campaign save/reopen, normal-window responsiveness and Tarun's robotics/usability verdict remain **PENDING**. The conditional ±20mm in-plane Base note awaits reviewed plane basis and budget; performance integration remains deferred.
+
+Feature/evidence handoff: [STEP6_IMPLEMENTATION_HANDOFF_2026-10-01.md](STEP6_IMPLEMENTATION_HANDOFF_2026-10-01.md). Backlog remains the sole pending queue; this amendment creates no task IDs or parallel implementation plan.
+
+
 **Date:** 2026-09-28
 **Owner:** `S6-LIVE-01`, with `S6-LIVE-03/04` for interruption, Return Home and replay
 **Source:** `/home/light-tarun/dentobot/ros2_ws/src/DentoBot-step6-renovation`
@@ -477,3 +493,22 @@ Recorded case-bound r21 passed completed viewport drag, ten Cartesian position/o
 ## 30 September r22 runtime precision confirmation
 
 Exact native five-joint IK draft staging and all selected TCP interaction checks now pass in the recorded case-bearing run:19PASS/0FAIL/6NOT_RUN, Slicer/recorder0, complete bounded video+MP4. Acceptedrobotunchanged, no full taskplan/preview or final newpackage. r22 diagnostics/106-file manifest retained. NegativeIK/native rejected fixture/uncertainBaseHome/fullchain/previewrepeat/finalcase and Tarun verdict remain open.
+
+
+## 30 September — connected recovery evidence and two-path setup amendment
+
+R26 closes only controlled current-case unknown Base/Home acknowledgement recovery:16PASS/0FAIL/11NOTRUN, exactnativequeryOnlyHome reconciliation and31-objectBase scene acknowledgement, no repeatedcommit/jog, failure retained, allruntime/recorderexits0, complete654.3svideo with107-fileverifiedmanifest. [Run diagnostics](/home/light-tarun/dentobot/data/dentobot-runs/s6-live-01-base-home-uncertainty-20260930-r26/diagnostics.md). Translated/rotatedBase representative checks, fullplanner/preview/newcase andTarunverdict are notinferred.
+
+Latestoperator extends6.1Base/6.2Home tooffline andconnectedsetup; canonicalrenovationplan owns design. Add toexistingcampaign beforefullplanning (allPENDING):
+
+- [ ] Offline localrobot/Base review+accept, exact sharedStep3B/6.1 owner preserved.
+- [ ] Offline6.2fivejointdraft review/save asUnreviewed Home boundtoexactBase/profile; noROS/nativepublish/acceptedlive mutation.
+- [ ] Invalidmechanical/staleidentity/busy/unknownwrites retainfailure/candidate and blockpromotion.
+- [ ] Savea separatelynamedcase andfreshreopen offlineconfiguredHome/Base withnoliveauthority.
+- [ ] Connectsameconfiguration: unchangedBase/Home, exactcollisionack/currentprofile, visibleconfiguredversusacceptedstate, explicitHomevalidation.
+- [ ] DifferentconfiguredHome neverteleports onconnect; separatelyguardedmove/Plan+Apply gate or clearblockedreason.
+- [ ] Disconnect/reconnect/modechange preserveconfiguration andstaleoldreview; revalidationrequired.
+- [ ] Shared6.2/6.3draftwidgets haveoneowner, no duplicatecallbacks; connectedreview/unknownreconciliation unchanged.
+- [ ] AfterHomeacceptance, refreshworkspace/limits/confirmedtask BEFOREplanner and provecurrentfullchain authority.
+
+This amendment is implemented/verified onlywhen actualsource/host/headedevidence exists; noofflinecollision/IK/trajectoryclaim. Full6.3goal scope remains intact.

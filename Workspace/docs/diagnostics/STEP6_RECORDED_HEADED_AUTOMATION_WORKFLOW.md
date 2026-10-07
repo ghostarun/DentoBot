@@ -1,10 +1,21 @@
 # Step 6 recorded headed automation workflow
 
+## 1 October 2026 — implementation closure and engineer handoff (operator-approved supersession)
+
+The operator stopped the autonomous successful-planner/whole-run goal and approved **source/host checks followed by Tarun's engineering trials**. This supersedes earlier automatic campaign sequencing, not the guard policy or outstanding runtime acceptance. Do not launch a new Slicer/ROS/MoveIt/planner/preview trial for this pass. A no-solution planner result is a valid diagnostic outcome only when sufficient exact evidence is retained and state remains safe; it is not proof of infeasibility.
+
+Existing owners remain S6-LIVE-01, S6-WORKSPACE-PURPOSE, S6-LIVE-03/04, S6-REUSABLE-CASE-SETUP and S6-P2-03. Close concrete source gaps: non-finite diagnostic metrics, explicit failed-pose read-only FK/static inspection, diagnostic display cleanup, existing-layout clipping and actionable disabled-state explanations. Reuse five-joint state/guard, Base/Home, historical recording/persistence and preview owners; no new robotics framework or parameter tuning. Implementation closure is source/host verified: 469 combined checks passed on 1 October; Python compilation and git diff --check passed. Failed-pose inspection, finite metrics, diagnostic ownership/cleanup, layout wrapping and blocked-action guidance are corrected at this boundary. Rendered GUI and native robotics acceptance remain pending; exact commands and evidence are in the handoff index and dated logbook.
+
+Reuse bounded r22 TCP, r26 uncertainty/reconciliation, r29 offline-to-connected setup and r30 fresh-reopen evidence at their actual scopes. R31 ended 16 PASS / 1 FAIL / 12 NOT_RUN: all14 PreEntry searches reached iteration_limit, exact target/failed-pose evidence retained; P1/complete-plan/preview NotRun, inferior exit1 with signal null, partial video preserved. Earlier campaign verdicts are unchanged. Native positive full-chain/preview/interruption/Return Home/repeat, final post-campaign save/reopen, normal-window responsiveness and Tarun's robotics/usability verdict remain **PENDING**. The conditional ±20mm in-plane Base note awaits reviewed plane basis and budget; performance integration remains deferred.
+
+Feature/evidence handoff: [STEP6_IMPLEMENTATION_HANDOFF_2026-10-01.md](STEP6_IMPLEMENTATION_HANDOFF_2026-10-01.md). Backlog remains the sole pending queue; this amendment creates no task IDs or parallel implementation plan.
+
+
 **Owner:** `S6-LIVE-01`; case restore overlaps `S6-REUSABLE-CASE-SETUP`.
 
 **Use:** repeatable agent runbook and source for a later README/operator manual.
 
-**Last exercised:** 2026-09-27 on `feature/step6-workflow-renovation-20260925`.
+**Last exercised:** 2026-09-30 bounded case-workbench r22 on `feature/step6-workflow-renovation-20260925`.
 
 **Canonical gates:** [verification protocol](../AGENTIC_VERIFICATION_PROTOCOL.md),
 [verification matrix](../../../Testing/verification_matrix.json) profile
@@ -17,8 +28,8 @@ This is a **simulation-only, Xvfb-headed** check of the production DENTO Workflo
 widgets. The video records the whole display; the runner writes itemized JSON
 and state-matched UI/viewport screenshots. It can connect ROS/MoveIt and submit
 at most one in-limit 0.1° J1 guarded jog when `DENTOBOT_HEADED_ALLOW_JOG=1` and
-native provenance passes. It never saves the source case, plans, previews or
-controls hardware. An explicit `DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1`
+native provenance passes. It never overwrites the source case or controls hardware. Planner/preview
+actions require their separate scenario opt-ins and current runtime authorization. An explicit `DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1`
 opt-in adds a zero-displacement Base acceptance and current-pose Task Home
 acceptance through production owners. An Xvfb recording is not
 Tarun's normal-window usability verdict.
@@ -56,6 +67,16 @@ capture and records control/viewport dimensions and scroll positions. A
 control wider than the viewport is flagged as a limitation; intersection
 alone is not a responsive-layout acceptance. The Manual Jog actions were
 split into two shorter rows in source, pending headed visual measurement.
+
+## 30 September scenario extension — host verified, headed acceptance pending
+
+The existing runner is being extended with two separately itemized gates:
+
+- `DENTOBOT_HEADED_OFFLINE_HOME_SETUP=1`: select the bounded offline Base/Home setup and explicit matching connected-validation check. Requires `DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1` and `DENTOBOT_HEADED_OFFLINE_HOME_CASE_OUTPUT` naming a new absolute `.dentocase` path distinct from the input and final output. Save through production ownership while disconnected; retain Unreviewed configuration and unchanged local joints without native motion/route authority. Connect only afterward, then explicitly validate the same saved configuration if it matches authoritative accepted state. A mismatch stops without automatic jog or overwrite. The intermediate output is not the final full-campaign case. Source/host and headed acceptance must be recorded separately; this option is currently under verification.
+- `DENTOBOT_HEADED_BASE_HOME_UNCERTAINTY=1`: simulate a lost acknowledgement only after the original production commit succeeds. Capture the actual Base/Home error dialog before dismissal, retain the candidate and failure evidence, block repeat/cancel, and use the production read-only reconciliation owner. A stale Home prerequisite stops the gate; it cannot be repaired implicitly.
+- `DENTOBOT_HEADED_COMPLETE_CYCLES=1`: execute two complete guarded Approach→Drill→withdrawal→Return Home cycles with fresh plans, endpoint FK and native reverse-call acknowledgements. Run in a fresh process separately from `DENTOBOT_HEADED_FULL_CHAIN=1`, which owns diagnostic P1/P2/P3 and preview interruption. Both require the existing jog and Base/Home acceptance gates.
+
+Use the matrix host checks before runtime. Missing modal capture, partial route, stale identity, failed guard, missing cycle evidence or non-clean teardown must retain failed/partial evidence. No selected bounded pass proves unselected scenarios or Tarun's verdict. R22 verified the bounded TCP/workbench selection only; these new gates, complete planning and final new-case save/fresh reopen remain unaccepted. Runtime resources are currently reserved by the separate integration campaign; wait for its release before launching this checkout.
 
 ## 1. Freeze the run contract
 

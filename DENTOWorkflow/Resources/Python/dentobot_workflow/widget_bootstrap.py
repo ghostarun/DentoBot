@@ -9,6 +9,7 @@ class BootstrapWidgetMixin:
     def __init__(self, parent=None) -> None:
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)
+        self._workflowActionBusy = False
         self.logic: DENTOWorkflowLogic | None = None
         self._parameterNode: DENTOWorkflowParameterNode | None = None
         self._parameterNodeGuiTag = None
@@ -374,6 +375,9 @@ class BootstrapWidgetMixin:
                 "process it in WSL2, validate it, and import it."
             )
 
+        self._caseLibraryButton = qt.QPushButton("DentoCase Library")
+        self.ui.caseButtonGridLayout.addWidget(self._caseLibraryButton, 2, 0, 1, 2)
+        self._caseLibraryButton.connect("clicked(bool)", self.onOpenCaseLibrary)
         self.ui.newCaseButton.connect("clicked(bool)", self.onNewCase)
         self.ui.saveCaseBundleButton.connect(
             "clicked(bool)", self.onSaveCaseBundle

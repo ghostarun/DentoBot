@@ -83,10 +83,22 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
         acceptance_status = str(details.get("acceptanceStatus") or "unknown")
         acceptance_uncertain = bool(details.get("acceptanceUncertainty"))
         success = bool(getattr(review_result, "success", False))
+        setup_mode = str(details.get("setupMode") or "unknown")
+        if setup_mode not in {"offline", "connected"}:
+            setup_mode = "unknown"
+        offline = setup_mode == "offline"
+        connected = setup_mode == "connected"
         accepted = details.get("acceptedJointPositionsSi")
         candidate = details.get("candidateJointPositionsSi")
         try:
+            candidate_valid = (
+                isinstance(candidate, Mapping)
+                and set(candidate) == set(JOINT_NAMES)
+                and all(isfinite(float(candidate[joint])) for joint in JOINT_NAMES)
+            )
             matches = (
+                connected
+                and
                 isinstance(accepted, Mapping)
                 and isinstance(candidate, Mapping)
                 and set(accepted) == set(JOINT_NAMES)
@@ -101,28 +113,35 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 )
             )
         except (TypeError, ValueError, OverflowError):
+            candidate_valid = False
             matches = False
+        allowed_review_statuses = (
+            {"review", "accepted", "configuration_saved"}
+            if offline
+            else {"review", "accepted"}
+        )
         return {
-            "group": bool(live_scene or staged),
+            "group": bool(live_scene or offline or staged or setup_mode == "unknown"),
             "review": bool(
-                live_scene
+                ((live_scene and connected) or offline)
                 and success
                 and identity_current
                 and not staged
-                and acceptance_status in {"review", "accepted"}
+                and acceptance_status in allowed_review_statuses
             ),
             "cancel": staged and not acceptance_uncertain,
             "accept": bool(
-                live_scene
+                ((live_scene and connected) or offline)
                 and success
                 and staged
                 and identity_current
                 and not acceptance_uncertain
                 and acceptance_status == "review"
-                and matches
+                and (candidate_valid if offline else matches if connected else False)
             ),
             "reconcile": bool(
-                live_scene
+                connected
+                and live_scene
                 and staged
                 and acceptance_uncertain
             ),
@@ -465,6 +484,11 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             )
 
     def _updateStep6PlanningUi(self, message: str = "", error: bool = False) -> None:
+        clear_stale_display = getattr(
+            self, "_clearStep6MotionDiagnosticDisplayIfContextChanged", None
+        )
+        if callable(clear_stale_display):
+            clear_stale_display()
         if not hasattr(self, "ui") or not self._parameterNode:
             return
         imported = bool(self._parameterNode.step6PlanningContextImported)
@@ -735,7 +759,16 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 widget.setEnabled(place_enabled)
         self.ui.robotKeyboardNudgeCheckBox.enabled = place_enabled
         self.ui.resetRobotJointsButton.enabled = bool(
-            robot_present and scene_prepared and ros2_active
+            robot_present
+            and scene_prepared
+            and ros2_active
+            and not robot_stage_active
+        )
+        self.ui.resetRobotJointsButton.toolTip = _(
+            "Use the 6.3 Manual Jog draft Reset and Guarded Jog actions to change "
+            "joint state during Step 6."
+            if robot_stage_active
+            else "Reset all joints to the selected zero pose."
         )
         self.ui.deleteRobotSetupButton.enabled = robot_present and not locked
         self.ui.applyTaskJointLimitsButton.enabled = bool(
@@ -767,6 +800,18 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 )
             except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
                 task_home_review_result = None
+            task_home_details = getattr(task_home_review_result, "details", {}) or {}
+            if not isinstance(task_home_details, Mapping):
+                task_home_details = {}
+            offline_home_draft_ready = bool(
+                task_home_details.get("setupMode") == "offline"
+                and bool(getattr(task_home_review_result, "success", False))
+                and str(task_home_details.get("identityStatus") or "") == "current"
+                and str(task_home_details.get("acceptanceStatus") or "")
+                in {"review", "accepted", "configuration_saved"}
+                and not task_home_details.get("acceptanceUncertainty")
+                and not getattr(self, "_workflowActionBusy", False)
+            )
             task_home_live_scene = bool(
                 scene_prepared
                 and robot_present
@@ -781,7 +826,9 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 task_home_live_scene, task_home_review_result
             )
             panel.homeGroup.enabled = bool(
-                scene_prepared or task_home_controls["cancel"]
+                task_home_controls["group"]
+                or scene_prepared
+                or task_home_controls["cancel"]
             )
             panel.reviewTaskHomeButton.enabled = bool(
                 task_home_controls["review"] and not self._workflowActionBusy
@@ -830,20 +877,31 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             try:
                 urdf_path, _package_root = self.logic.robotDescriptionPaths()
                 mechanical_limits = default_task_joint_limits_from_urdf(urdf_path)
-                reviewed_limits = build_task_joint_limits_from_parameter_values(
-                    j1_min=self._parameterNode.robotJoint1TaskMinDeg,
-                    j1_max=self._parameterNode.robotJoint1TaskMaxDeg,
-                    j2_min=self._parameterNode.robotJoint2TaskMinMm,
-                    j2_max=self._parameterNode.robotJoint2TaskMaxMm,
-                    j3_min=self._parameterNode.robotJoint3TaskMinDeg,
-                    j3_max=self._parameterNode.robotJoint3TaskMaxDeg,
-                    j4_min=self._parameterNode.robotJoint4TaskMinMm,
-                    j4_max=self._parameterNode.robotJoint4TaskMaxMm,
-                    j5_min=self._parameterNode.robotJoint5TaskMinDeg,
-                    j5_max=self._parameterNode.robotJoint5TaskMaxDeg,
+                reviewed_limits = (
+                    mechanical_limits
+                    if panel._taskHomeSetupMode == "offline"
+                    else build_task_joint_limits_from_parameter_values(
+                        j1_min=self._parameterNode.robotJoint1TaskMinDeg,
+                        j1_max=self._parameterNode.robotJoint1TaskMaxDeg,
+                        j2_min=self._parameterNode.robotJoint2TaskMinMm,
+                        j2_max=self._parameterNode.robotJoint2TaskMaxMm,
+                        j3_min=self._parameterNode.robotJoint3TaskMinDeg,
+                        j3_max=self._parameterNode.robotJoint3TaskMaxDeg,
+                        j4_min=self._parameterNode.robotJoint4TaskMinMm,
+                        j4_max=self._parameterNode.robotJoint4TaskMaxMm,
+                        j5_min=self._parameterNode.robotJoint5TaskMinDeg,
+                        j5_max=self._parameterNode.robotJoint5TaskMaxDeg,
+                    )
                 )
                 panel.setManualJogLimits(mechanical_limits, reviewed_limits)
-                panel.setManualJogAcceptedState(self._robotJointPositionsSi())
+                if panel._taskHomeSetupMode == "offline":
+                    try:
+                        robot_joint_positions = self._robotJointPositionsSi()
+                    except (AttributeError, RuntimeError, TypeError, ValueError):
+                        robot_joint_positions = {}
+                    panel.setManualJogLocalJointPositions(robot_joint_positions)
+                elif panel._taskHomeSetupMode == "connected":
+                    panel.setManualJogAcceptedState(self._robotJointPositionsSi())
             except (OSError, RuntimeError, TypeError, ValueError) as exc:
                 panel.setManualJogLimitsUnavailable(str(exc))
             panel.loadFallbackButton.enabled = bool(
@@ -862,13 +920,24 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
             panel.applyTaskHomeButton.enabled = bool(
                 scene_prepared and ros2_active and home_ready
             )
-            if home_runtime_validated:
+            if panel._taskHomeSetupMode == "offline":
+                if panel._taskHomeConfigurationReady:
+                    panel.homeStatusLabel.text = _(
+                        "Saved Home configuration is offline only and is not a live-validated robot pose. "
+                        "Connect ROS + MoveIt in 6.1, then return to 6.2 to accept and validate it."
+                    )
+                else:
+                    panel.homeStatusLabel.text = _(
+                        "Offline setup: edit and save a mechanically bounded Home configuration here. "
+                        "Connect ROS + MoveIt in 6.1 to validate it as a live Task Home."
+                    )
+            elif home_runtime_validated:
                 panel.homeStatusLabel.text = _(
                     "Accepted Task Home is current and live-validated in this ROS/MoveIt session."
                 )
             elif home_ready and ros2_active:
                 panel.homeStatusLabel.text = _(
-                    "Saved Task Home is current but unvalidated in this runtime. Plan + Apply it to validate."
+                    "Saved Task Home is current but unvalidated. Review and accept it in 6.2 to validate this runtime; Plan + Apply is a separate operation."
                 )
             elif home_ready:
                 panel.homeStatusLabel.text = _(
@@ -972,7 +1041,10 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                 and self._robotWorkflowFacade.returnHomeRequired
             )
             panel.setManualJogAvailability(
-                draft_available=bool(ros2_active and local_robot_present),
+                draft_available=bool(
+                    (ros2_active and local_robot_present)
+                    or offline_home_draft_ready
+                ),
                 jog_available=bool(
                     planning_anatomy_ready
                     and ros2_active
@@ -984,6 +1056,20 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
                     and not getattr(self, "_workflowActionBusy", False)
                 ),
             )
+            if panel._taskHomeSetupMode == "offline":
+                offline_edit_ready = bool(
+                    offline_home_draft_ready and panel._manualJogAvailable
+                )
+                panel.reviewTaskHomeButton.enabled = bool(
+                    task_home_controls["review"]
+                    and offline_edit_ready
+                    and not self._workflowActionBusy
+                )
+                panel.acceptTaskHomeButton.enabled = bool(
+                    task_home_controls["accept"]
+                    and offline_edit_ready
+                    and not self._workflowActionBusy
+                )
             phase_planning_ready = bool(
                 planning_anatomy_ready
                 and task_ready
@@ -1133,15 +1219,39 @@ class RobotWidgetMixin(RobotSceneWidgetMixin, RobotPlacementWidgetMixin, RobotSh
     def _applyTaskJointLimitsToJointSpinboxes(self) -> None:
         if not self._parameterNode or not self.logic:
             return
-        limits = self.logic.getTaskJointLimits(self._parameterNode)
         pairs = (
-            (self.ui.robotJoint1SpinBox, limits.joint_1),
-            (self.ui.robotJoint2SpinBox, limits.joint_2),
-            (self.ui.robotJoint3SpinBox, limits.joint_3),
-            (self.ui.robotJoint4SpinBox, limits.joint_4),
-            (self.ui.robotJoint5SpinBox, limits.joint_5),
+            (self.ui.robotJoint1SpinBox, "joint_1"),
+            (self.ui.robotJoint2SpinBox, "joint_2"),
+            (self.ui.robotJoint3SpinBox, "joint_3"),
+            (self.ui.robotJoint4SpinBox, "joint_4"),
+            (self.ui.robotJoint5SpinBox, "joint_5"),
         )
-        for spinbox, joint_limit in pairs:
+        if self._isStep6RobotWorkflowActive():
+            urdf_path, _package_root = self.logic.robotDescriptionPaths()
+            mechanical_limits = default_task_joint_limits_from_urdf(urdf_path)
+            for spinbox, joint_name in pairs:
+                joint_limit = getattr(mechanical_limits, joint_name)
+                previously_blocked = spinbox.blockSignals(True)
+                try:
+                    spinbox.setRange(joint_limit.minimum, joint_limit.maximum)
+                    spinbox.setReadOnly(True)
+                finally:
+                    spinbox.blockSignals(previously_blocked)
+            return
+
+        for spinbox, _joint_name in pairs:
+            spinbox.setReadOnly(False)
+        limits = self.logic.getTaskJointLimits(self._parameterNode)
+        reviewed_pairs = (
+            limits.joint_1,
+            limits.joint_2,
+            limits.joint_3,
+            limits.joint_4,
+            limits.joint_5,
+        )
+        for (spinbox, _joint_name), joint_limit in zip(
+            pairs, reviewed_pairs, strict=True
+        ):
             minimum, maximum, value = apply_task_limit_range_to_value(
                 spinbox.value,
                 joint_limit,

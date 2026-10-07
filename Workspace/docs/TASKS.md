@@ -1,5 +1,63 @@
 # DENTOBOT Tasks
 
+## 1 October 2026 — operator workflow recovery contract (latest supersession)
+
+The operator challenges completion of the requested6.1/6.2 GUI reconfiguration after failed/confusing manual testing. S6-LIVE-01 remainsP0: **setup/workbench UX completion OPEN**, not merely a final user verdict on an established usable workflow. Earlier469hostchecks and later339checks/nativeguardbuild retain their actual scope and do not establish GUI recovery. Follow the latest recovery contract in [the existing renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md).
+
+Next action is one **read-only actual-versus-required workflow diagnosis**, then end with one first causal blocker, smallest proposed correction and bounded verification sequence. No source/runtime in that diagnostic checkpoint. Subsequent edits use existing owners and scoped twoLunaMax routing; no broad campaign, planner-success objective, performance/DentoCase integration or parameter tuning. Runtime remains separately gated by the current no-autonomous-runtime boundary. Every turn reports exact operator action, observable result and stop condition. Existing screenshots/tests are scoped evidence, not completion of the requested UX. Backlog remains the sole pending queue.
+
+
+## 1 October 2026 — contract priority amendment and queue compression
+
+Tarun explicitly requested reassignment by implementation maturity, remaining
+acceptance and current relevance. The amendments below supersede older priority
+labels/headings in the linked contracts without changing their IDs, invariants,
+acceptance gates or historical results. IDs containing P0/P1/P2 are stable names,
+not current priority. This is a dated change record, not a second work queue;
+[backlog.md](backlog.md) alone owns live state, ordering and remaining actions.
+
+| Previous priority | Revised priority | Existing contract IDs |
+|---|---|---|
+| 0 | 1 | `W4-U-02`, `W5-U-04`, `S3-P0-DENTAL-SEMANTICS`, `S4A-PULP-ENDPOINT`, `S6-REUSABLE-CASE-SETUP` |
+| 2 | 1 | `W4B-P2-SUPPORT-AUTO`, `S6-P2-03` |
+| 4 | 1 | `S6-U-01` |
+| Unprioritized | 1 | `S6A-CHANGED-TARGET-GEOMETRY`, `S6-U-04`, `S3-U-01`, `S6-RESTORE-ROBOT-ROS`, `S6-WORKSPACE-PURPOSE` |
+| 0 | 2 | `S6-LIVE-03`, `S6-LIVE-04`, `S6-LIVE-05` |
+| Unprioritized | 2 | `W5-U-03`, `W5-U-05`, `VERIFY-LEARN-01`, `W4-U-01`, `VIEW-U-02` |
+| 1 | 3 | `DCP-00`, `S6-P1-01`, `DCP-02..08`, `DCP-09..10`, `DSS-01..05`, `DSS-06..12` |
+| 2 | 3 | `S6-P2-01`, `S6-P2-02` |
+| Unprioritized | 3 | `PLAT-U-01`, `PLAT-U-04`, `PLAT-U-05`, `PLAT-U-07`, `QA-U-01`, `IMG-U-01`, `W5-U-02`, `W5-U-01`, `POC-U-01`, `W4C-U-01`, `ROS-U-01`, `S6-FDI11-DEPTH` |
+| 1 | 4 | `DHW-01..02` |
+| Unprioritized | 4 | `PLAT-U-02`, `PLAT-U-03`, `PLAT-U-06`, `CASE-U-01`, `S6-U-03` |
+
+Unchanged: S6-LIVE-01 remains P0; VIEW-U-01 remains P1; UI-P3-01 remains P3.
+External/team source priorities remain captured metadata with unconfirmed status;
+they were not reconciled against engineer-owned records or rescheduled.
+
+The backlog now distinguishes implemented bounded corrections awaiting Tarun's
+visual verdict, partial implementation or incomplete engineering/physical
+acceptance, and remaining planned/deferred features. Source-complete does not
+mean accepted. In particular, reusable-case, robot restore, workspace,
+responsiveness and full route/preview acceptance retain their existing contracts
+and are not visual-only closures. No task was declared complete or removed.
+
+The prior chronological backlog narrative is preserved in the
+[historical evidence archive](diagnostics/archive/step6/BACKLOG_NARRATIVE_HISTORY_TO_2026-10-01.md);
+its old scheduling instructions are superseded. Detailed contracts remain here;
+new implementation/results must be recorded in dated logbooks and applicable
+contracts, rather than expanding the pending queue with another campaign history.
+
+## 1 October 2026 — implementation closure and engineer handoff (operator-approved supersession)
+
+The operator stopped the autonomous successful-planner/whole-run goal and approved **source/host checks followed by Tarun's engineering trials**. This supersedes earlier automatic campaign sequencing, not the guard policy or outstanding runtime acceptance. Do not launch a new Slicer/ROS/MoveIt/planner/preview trial for this pass. A no-solution planner result is a valid diagnostic outcome only when sufficient exact evidence is retained and state remains safe; it is not proof of infeasibility.
+
+Existing owners remain S6-LIVE-01, S6-WORKSPACE-PURPOSE, S6-LIVE-03/04, S6-REUSABLE-CASE-SETUP and S6-P2-03. Close concrete source gaps: non-finite diagnostic metrics, explicit failed-pose read-only FK/static inspection, diagnostic display cleanup, existing-layout clipping and actionable disabled-state explanations. Reuse five-joint state/guard, Base/Home, historical recording/persistence and preview owners; no new robotics framework or parameter tuning. Implementation closure is source/host verified: 469 combined checks passed on 1 October; Python compilation and git diff --check passed. Failed-pose inspection, finite metrics, diagnostic ownership/cleanup, layout wrapping and blocked-action guidance are corrected at this boundary. Rendered GUI and native robotics acceptance remain pending; exact commands and evidence are in the handoff index and dated logbook.
+
+Reuse bounded r22 TCP, r26 uncertainty/reconciliation, r29 offline-to-connected setup and r30 fresh-reopen evidence at their actual scopes. R31 ended 16 PASS / 1 FAIL / 12 NOT_RUN: all14 PreEntry searches reached iteration_limit, exact target/failed-pose evidence retained; P1/complete-plan/preview NotRun, inferior exit1 with signal null, partial video preserved. Earlier campaign verdicts are unchanged. Native positive full-chain/preview/interruption/Return Home/repeat, final post-campaign save/reopen, normal-window responsiveness and Tarun's robotics/usability verdict remain **PENDING**. The conditional ±20mm in-plane Base note awaits reviewed plane basis and budget; performance integration remains deferred.
+
+Feature/evidence handoff: [STEP6_IMPLEMENTATION_HANDOFF_2026-10-01.md](diagnostics/STEP6_IMPLEMENTATION_HANDOFF_2026-10-01.md). Backlog remains the sole pending queue; this amendment creates no task IDs or parallel implementation plan.
+
+
 Last reconciled: 2026-09-26. Case Foundation AUTO-primary GUI completion
 recorded 2026-09-18; Step 3B placement mirror source-complete 2026-09-19
 (not a second pending queue beyond `S3B-ROBOT-PLACEMENT-MIRROR`).
@@ -2340,3 +2398,71 @@ window responsiveness and Tarun's usability verdict remain pending.
 ## 2026-09-30 — UI-P3-01 bounded Workflow Focus slice
 
 Tarun explicitly authorizes default Workflow Focus in the Step 6 renovation checkout alongside the active “step 6.3 final fix” chat. This advances only current-workflow space recovery; the broad Studio redesign and Priority 3 remain unchanged. Outcome: compact two-row navigation/view header, secondary actions in More, hidden logo/help/Data Probe/toolbars, reversible session-only Show Slicer tools, and exact chrome restoration on module exit/reload. Preserve existing handlers, research warning, MRML/ROS/case state and readiness gates. Header/application and lifecycle/helper ownership is disjoint from the other chat's Step 6 source/test work. Runtime resources stay with that chat. Source and host verification precede one serialized visual/lifecycle check and Tarun's verdict; doubled task-height is a visual target, not a source-only claim.
+
+
+## 30 September — S6-LIVE-01 offline/connected Base and Home setup amendment
+
+Latestoperator requests6.1Base and6.2Home usable beforeorafterROSconnection, with single parent-child GUI ownership. Existingrenovationplan now defines offlineconfiguration Unreviewed versus nativevalidatedlive state, Homecontrolsinside6.2, sharedStep3B/6.1Base owner, explicitConnect/validate transition and unchangedguard/previewauthority. ExistingTaskHomeRecord schema reused; noofflineguard/collisionclaim orautomaticmotion. Sourceimplementation and bothpathheadedacceptance pending underexistingtasks. r26 proves connecteduncertainBase/Home recovery16PASS/0FAIL/11NOTRUN withallprocess/recorderexits0 andcompletevideo, notfulloffline/fullplanneracceptance. See datedlogbook and amendedcanonicalplan.
+
+
+### 2026-10-01 S6-LIVE-01 / S6-WORKSPACE-PURPOSE source checkpoint
+
+Offline/connected Home authoring, explicit configured-Home reuse and mode-specific authority passed 273 combined coordinator host checks, Python compilation and global diff checks. Exact commands and scope are in the dated logbook. The legacy 6.3 value clamping/reset boundary is now corrected through its existing owner and passed 275 combined host tests on 1 October. Explicit offline-save/connect-validation and post-Home preplanning-readiness automation are under disjoint source/test implementation before headed acceptance. Recorded offline setup, fresh reopen/connect validation, remaining full planner/preview campaign and Tarun verdict stay pending; no milestone completion is claimed.
+
+
+### 2026-10-01 S6-LIVE-01 causal checkpoint after r28
+
+r28: 6 PASS / 1 FAIL / 22 NOT_RUN; offline unchanged Base acceptance passed, exact Home revision 23→24 committed but parent identity falsely changed via the Home-derived environment fingerprint. Source correction removes only that derived aggregate from the parent payload; independent identity fields remain checked. Real-builder regressions passed 136 worker facade tests and 3 coordinator focused tests; global diff check passed. Corrected headed transition remains unaccepted. No full planner/preview or final new-case acceptance; operator verdict PENDING. Optional scope is frozen following the operator's delay/rabbit-hole concern. Exact commands and evidence are in the 1 October logbook.
+
+
+**1 October r29 bounded runtime acceptance:** {'NOT_RUN': 17, 'PASS': 12}; offline Base/Home configuration and explicit same-vector connected validation passed, 31 scene objects and workspace/task readiness recovered. Complete bounded video 425.833000s, all process/video exits0, owned cleanup verified. Intermediate new case saved; fresh reopen, full planner/preview/final case and operator verdict PENDING. See current logbook/r29 diagnostics.
+
+
+**1 October r30 boundary:** 18PASS/1FAIL/10NOTRUN; freshnewcase restore and currentplannerprerequisitespassed. PreEntryIKnoendpoint blockedP1, nofullplan/preview. Existingproductiondiagnosticpayload omittedrunner; minimalcapture/causalreportcorrectionactive. Partial781.366svideo,104fileverifiedmanifest,ownedcleanupretained. Fullcycle/finalcase/operatorverdictPENDING; currentlogbook/r30diagnostics holdcommands/evidence.
+
+
+## 1 October 2026 — Project DentoCase parallel foundation contract
+
+Owners remain DCP-09..10 (current P3), S6-REUSABLE-CASE-SETUP (P1 semantics) and S6-P2-01 (P3 presentation), preserving the dated queue priority amendment. Tarun approved isolated implementation in DentoBot-step6-renovation on its existing branch. This advances the library foundation before production integration; no Step6 task acceptance is changed.
+
+Outcome: explicitly invoked, rebuildable SQLite metadata catalog and inspectable saved lineage. New dentobot_case/contracts.py is coordinator-owned; exactly two GPT-6 Luna Max workers own lineage/test and inspection/catalog/CLI/test respectively. Existing package validator is reused only by the adapter. Core has no Slicer/Qt/ROS/runtime/parameter-node dependency. Stable checkpoint IDs and prerequisite edges are separate from UI labels/order and archive/workflow versions. Saved stale/incomplete evidence is retained; missing predecessors, incomplete explicit pairs and unknown ownership block selection. A permitted prefix preview assigns independent identity/Fresh history; it does not construct geometry or load a scene.
+
+Catalog scans chosen local roots in place, groups identical package copies, reports identity conflicts/missing/changed/error locations and revalidates before any future activation. Legacy cases remain independent and ownership incomplete. Integrity, saved lineage and live Unverified freshness remain distinct. Actual partial construction requires a complete persistent-node/parameter/reference audit, a reserved offline Slicer round trip and recovery-backed activation. Full identity/schema/browser and partial Save As/load behavior require later file handoff and bounded acceptance.
+
+Stop condition for this foundation: actual source review, focused combined host checks and prepared handoff list. Whole project acceptance still requires integrated full/partial paths and Tarun's independent-case continuation verdict. Operator explicitly holds integration until implementation, testing and verification are complete. No merge, installation or startup import is performed here. Backlog remains the sole queue; detailed evidence and file reservation hashes: diagnostics/PROJECT_DENTOCASE_IMPLEMENTATION_2026-10-01.md.
+
+
+### DCP-09..10 foundation source/host result — 1 October 2026
+
+New isolated catalog/lineage delivery reviewed and verified:36 combined focused host passes (0.54s,exit 0),9new files compile/whitespace pass, git diff --check0. CLI inspect/scan/list passed on synthetic copies; r29 read-only inspection Valid/schema2/liveUnverified preserved exact source SHA. Seven reserved production files and branch/HEAD unchanged. Worker initial catalog assertion failures and corrections are recorded in the dated logbook/supporting record. Production writer/browser/projection/activation/runtime/operator acceptance remain outside this foundation; keep the DCP row open and Tarun's integration hold active. Evidence/commands: diagnostics/PROJECT_DENTOCASE_IMPLEMENTATION_2026-10-01.md and /tmp/dentocase-foundation-20261001-aypz31ru.
+
+
+### 1 October — S6-LIVE-01 operator Base/Home trial corrections
+
+The first engineering trial reports connected Base collision-bounds acknowledgement failure/unknown rollback, offline stale-placement blocking, and collapsed/expanded joint controls in 6.2. Reuse S6-LIVE-01 with S6-REUSABLE-CASE-SETUP; correction acceptance requires readable compact J1–J5 rows and fresh offline review/accept followed by explicit connected scene acknowledgement. Native cache lifetime source correction is not built: Tarun holds the incremental guard build. Bounds diagnostics preserve tolerance and reject incomplete/non-finite evidence. Offline failure context and current-state reason remain to be resolved without clearing unknown authority. See today's logbook for implementation and verification; existing global 469-pass handoff does not prove these operator failures resolved.
+
+
+### 1 October — S6-LIVE-01 Base lock notification ordering
+
+Keep Base lock state, reviewed authority, pose/profile fingerprints, dependent invalidation and interaction update inside the existing parameter-node modify transaction. The production-method host regression reproduced a locked notification with old Unreviewed/missing evidence before the change and passes afterward, including unchanged relock and unlock. Final affected host selection339 passed; native cache build and GUI verdict remain pending under Tarun's hold. Unknown commit reconciliation and all eligibility/geometry/collision policy gates remain unchanged. Operator closed Slicer and authorized finishing source corrections; no new runtime/build authority was inferred.
+
+
+### 1 October — S6-LIVE-01 native-build hold superseded and build verified
+
+Tarun's “do it” authorizes the previously held single-package native build/install verification. Renovation dentobot_moveit_config now builds with preserved Release optimization and correct CMake source root; built/installed collision_guard bytes match SHA19cdc7800e39d241fe72fbfbc8d20a953f5ab110a9e44b511e0f2ed6c6cbe6a1. Older source-root cache mismatch was resolved only for this package. No GUI/ROS/planner/motion trial follows from build approval; normal-window Base/layout and exact failure verdict remain pending. Exact commands/results in today's logbook and /tmp/dentobot-verification/base-bounds-build-20261001/result.json.
+
+
+### DentoCase integration authorization — supersedes foundation hold
+
+Operator: “no other active implementation is running, we can proceed and complete this integration now/. Use Luna max workers”; then explicitly permits up to four. DCP-09..10/S6-REUSABLE-CASE-SETUP/S6-P2-01 integration proceeds in existing checkout/branch, three available Luna Max lanes, disjoint schema/browser/projection ownership. Coordinator owns mapping, persistence activation, source review and acceptance. Snapshot/contract: diagnostics/PROJECT_DENTOCASE_IMPLEMENTATION_2026-10-01.md. No main merge, publication, robot action or inferred operator acceptance. Foundation36pass evidence preserved; integrated round trips remain required.
+
+
+## 2026-10-01 — integrated manual trial: responsiveness remains open
+
+Operator reports the 5.10 performance fixes have been integrated into the Step6 renovation checkout and manual testing still produced several Not Responding dialogs. This explicit update supersedes older statements that performance integration is awaiting Step6 completion; it does not accept universal responsiveness. Active performance work now uses DentoBot-step6-renovation; PLAT-U-06 remains indefinitely held.
+
+Read-only review of the newest paired UI/resource session (2026-09-30 21:46–22:19 UTC) found 14 recovered heartbeat gaps >=5 s. The largest were 22.735/49.144/31.626 s at 22:02–22:03 UTC (03:32–03:33 IST, 1 October), with the last recorded label “Refreshing connected workflow”; that label was retained for minutes and cannot identify the action causing those gaps. Explicit TCP-workspace phases recorded 8.070 s in IK, 8.651 s in static-state checking, and 11.330 s under connectivity. Guarded PreEntry route checking recorded 8.665 and 11.778 s. Progress exists but does not bound each blocking operation.
+
+Across 398 Slicer-present resource samples: peak Slicer RSS 2941.8 MiB, threads 92, FDs 57; minimum host available memory 2.469 GiB, minimum free swap 2.847 GiB; no sampled zombies or alerts, no cgroup OOM/kill or CPU quota throttling. Significant concurrent host pressure is real: at 22:03:12 UTC I/O some avg10=68.97%, memory some avg10=4.66%; at 22:02:02 memory some avg10=12.69%. Absence of an alert does not exclude this pressure. Logs do not identify its originating host process, prove a leak, supply current blocking stacks, or establish the exact installed source revision. SESSION_END and external SLICER_EXIT_OBSERVED are present; wrapper HANDOFF_EXIT status0 is not independent proof of native Slicer exit0.
+
+Disposition: S6-P2-03 remains OPEN, coordinated with S6-LIVE-01 and S6-U-01. Retain prior scoped improvements and reopen integrated ordinary-session responsiveness acceptance. Next bounded action is read-only tracing of existing workspace/static-check/route-call boundaries and their duration/checkpoint coverage, plus correlation with available launcher/action logs for the ambiguous long gaps. Propose one supported shared-path correction before implementation. No additional runtime, scheduled traceback dump, worker-thread MRML, planner-policy change or 5.12 work is authorized by this review.

@@ -8,6 +8,17 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_collision_world_bounds_cache_keeps_pointer_key_objects_alive():
+    source = (ROOT / "dentobot_moveit_config/src/collision_guard.cpp").read_text()
+    rebuild = source.split(
+        "if (world_signature.str() != world_evidence_signature_)", 1
+    )[1].split("result.world_objects = world_evidence_cache_;", 1)[0]
+    assert "std::vector<collision_detection::World::ObjectConstPtr> world_evidence_objects_;" in source
+    assert rebuild.index("world_evidence_objects_.clear();") < rebuild.index(
+        "world_evidence_objects_.push_back(object);"
+    ) < rebuild.index("world_evidence_cache_.push_back(std::move(evidence));")
+
+
 def test_diagnostic_urdf_omits_only_spindle_collision():
     canonical = (ROOT / "dentobot_description/urdf/dentobot.urdf").read_bytes()
     diagnostic = (

@@ -74,6 +74,14 @@ ROS2_OBSTACLE_PROXY_ATTRIBUTE = "DENTOBOT.MoveItObstacleProxy"
 ROS2_OBSTACLE_SOURCE_ATTRIBUTE = "DENTOBOT.MoveItObstacleSource"
 ROS2_OBSTACLE_PUBLISHED_ID_ATTRIBUTE = "DENTOBOT.MoveItObstaclePublishedId"
 ROS2_PHASE_PATH_ATTRIBUTE = "DENTOBOT.Step6PhasePlanPath"
+ROS2_MOTION_DIAGNOSTIC_HIGHLIGHT_ATTRIBUTE = "DENTOBOT.MotionDiagnosticHighlight"
+ROS2_MOTION_DIAGNOSTIC_ORIGINAL_COLOR_ATTRIBUTE = (
+    "DENTOBOT.MotionDiagnosticOriginalColor"
+)
+ROS2_MOTION_DIAGNOSTIC_ORIGINAL_VISIBILITY_ATTRIBUTE = (
+    "DENTOBOT.MotionDiagnosticOriginalVisibility"
+)
+ROS2_MOTION_DIAGNOSTIC_GOAL_ATTRIBUTE = "DENTOBOT.MotionDiagnosticGoal"
 ROS2_MANUAL_SIMULATION_HISTORICAL_PATH_ATTRIBUTE = (
     "DENTOBOT.ManualSimulationHistoricalPath"
 )
@@ -2799,8 +2807,15 @@ def accept_manual_joint_state_reconciliation(
 
 def show_goal_robot_joint_positions(
     positions_si: Mapping[str, float],
+    *,
+    diagnostic: bool = False,
 ) -> Tuple[bool, str]:
     """Apply a display-only diagnostic state to the translucent goal robot."""
+    if _native_tcp_drag_enabled:
+        return (
+            False,
+            "Disable TCP Drag before showing a diagnostic joint state; the active TCP probe was preserved.",
+        )
     robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
     motion_logic = get_motion_control_logic()
     if robot_node is None or motion_logic is None:
@@ -2809,9 +2824,16 @@ def show_goal_robot_joint_positions(
         return False, "The transient goal robot is unavailable."
     try:
         values = joint_si_vector(positions_si)
+        goal_models = tuple(
+            robot_node.GetNthNodeReference("goal_model", index)
+            for index in range(robot_node.GetNumberOfNodeReferences("goal_model"))
+        )
+        if diagnostic:
+            for model in goal_models:
+                if model is not None:
+                    model.SetAttribute(ROS2_MOTION_DIAGNOSTIC_GOAL_ATTRIBUTE, "true")
         motion_logic.updategoalTransformsFromJointsKDL(robot_node, values)
-        for index in range(robot_node.GetNumberOfNodeReferences("goal_model")):
-            model = robot_node.GetNthNodeReference("goal_model", index)
+        for model in goal_models:
             if model is not None and model.GetDisplayNode() is not None:
                 model.GetDisplayNode().SetVisibility(True)
                 model.GetDisplayNode().SetOpacity(0.35)
@@ -3118,9 +3140,9 @@ def show_motion_diagnostic_evidence(
         import slicer
         import vtk
 
-        for node in list(slicer.util.getNodesByClass("vtkMRMLMarkupsFiducialNode")):
-            if node.GetAttribute("DENTOBOT.MotionDiagnosticBoundary") == "true":
-                slicer.mrmlScene.RemoveNode(node)
+        cleared, clear_message = clear_motion_diagnostic_display(hide_goal=False)
+        if not cleared:
+            return False, clear_message
         if first_invalid_ras_mm is not None:
             point = tuple(float(value) for value in first_invalid_ras_mm)
             if len(point) != 3 or not all(isfinite(value) for value in point):
@@ -3152,13 +3174,19 @@ def show_motion_diagnostic_evidence(
             object_id = str(
                 node.GetAttribute("DENTOBOT.OutgoingCollisionObjectId") or ""
             )
-            if display:
-                if object_id in collision_ids:
-                    display.SetColor(1.0, 0.15, 0.10)
-                    display.SetVisibility(True)
-                    highlighted.append(object_id)
-                else:
-                    display.SetColor(0.10, 0.95, 0.95)
+            if display and object_id in collision_ids:
+                node.SetAttribute(ROS2_MOTION_DIAGNOSTIC_HIGHLIGHT_ATTRIBUTE, "true")
+                node.SetAttribute(
+                    ROS2_MOTION_DIAGNOSTIC_ORIGINAL_COLOR_ATTRIBUTE,
+                    json.dumps(tuple(float(value) for value in display.GetColor())),
+                )
+                node.SetAttribute(
+                    ROS2_MOTION_DIAGNOSTIC_ORIGINAL_VISIBILITY_ATTRIBUTE,
+                    str(int(bool(display.GetVisibility()))),
+                )
+                display.SetColor(1.0, 0.15, 0.10)
+                display.SetVisibility(True)
+                highlighted.append(object_id)
         return True, (
             "Displayed the retained first-invalid point"
             + (
@@ -3170,6 +3198,92 @@ def show_motion_diagnostic_evidence(
         )
     except Exception as exc:
         return False, f"Could not show diagnostic boundary evidence: {exc}"
+
+
+def clear_motion_diagnostic_display(
+    *, hide_goal: bool = True
+) -> Tuple[bool, str]:
+    """Clear only transient diagnostic markers, owned highlights, and goal display."""
+    try:
+        import slicer
+    except ImportError:
+        return False, "Slicer is unavailable for diagnostic display cleanup."
+
+    errors = []
+    for node_class in ("vtkMRMLModelNode", "vtkMRMLMarkupsFiducialNode"):
+        try:
+            nodes = list(slicer.util.getNodesByClass(node_class))
+        except Exception as exc:
+            errors.append(f"Could not inspect {node_class}: {exc}")
+            continue
+        for node in nodes:
+            if node.GetAttribute("DENTOBOT.MotionDiagnosticBoundary") != "true":
+                continue
+            try:
+                slicer.mrmlScene.RemoveNode(node)
+            except Exception as exc:
+                errors.append(f"Could not remove a diagnostic marker: {exc}")
+
+    try:
+        collision_models = list(slicer.util.getNodesByClass("vtkMRMLModelNode"))
+    except Exception as exc:
+        collision_models = []
+        errors.append(f"Could not inspect collision display copies: {exc}")
+    for node in collision_models:
+        if node.GetAttribute(ROS2_MOTION_DIAGNOSTIC_HIGHLIGHT_ATTRIBUTE) != "true":
+            continue
+        display = node.GetDisplayNode()
+        if display is None:
+            errors.append("A diagnostic collision highlight has no display node.")
+            continue
+        try:
+            color = json.loads(
+                node.GetAttribute(ROS2_MOTION_DIAGNOSTIC_ORIGINAL_COLOR_ATTRIBUTE)
+                or "[]"
+            )
+            visibility = int(
+                node.GetAttribute(
+                    ROS2_MOTION_DIAGNOSTIC_ORIGINAL_VISIBILITY_ATTRIBUTE
+                )
+            )
+            if (
+                len(color) != 3
+                or not all(isfinite(float(value)) for value in color)
+                or visibility not in (0, 1)
+            ):
+                raise ValueError("saved display state is invalid")
+            display.SetColor(*(float(value) for value in color))
+            display.SetVisibility(visibility)
+            node.SetAttribute(ROS2_MOTION_DIAGNOSTIC_HIGHLIGHT_ATTRIBUTE, None)
+            node.SetAttribute(ROS2_MOTION_DIAGNOSTIC_ORIGINAL_COLOR_ATTRIBUTE, None)
+            node.SetAttribute(
+                ROS2_MOTION_DIAGNOSTIC_ORIGINAL_VISIBILITY_ATTRIBUTE, None
+            )
+        except Exception as exc:
+            errors.append(f"Could not restore a diagnostic collision highlight: {exc}")
+
+    if hide_goal and not _native_tcp_drag_enabled:
+        try:
+            robot_node = find_ros2_robot_by_name(ROS2_ROBOT_NAME)
+            if robot_node is not None:
+                for index in range(robot_node.GetNumberOfNodeReferences("goal_model")):
+                    model = robot_node.GetNthNodeReference("goal_model", index)
+                    if (
+                        model is None
+                        or model.GetAttribute(ROS2_MOTION_DIAGNOSTIC_GOAL_ATTRIBUTE)
+                        != "true"
+                    ):
+                        continue
+                    display = model.GetDisplayNode() if model is not None else None
+                    if display is not None:
+                        display.SetVisibility(False)
+                    model.SetAttribute(ROS2_MOTION_DIAGNOSTIC_GOAL_ATTRIBUTE, None)
+        except Exception as exc:
+            errors.append(f"Could not hide the diagnostic goal robot: {exc}")
+
+    if errors:
+        return False, " ".join(errors)
+    return True, "Cleared transient motion-diagnostic display evidence."
 
 
 def connect_dentobot_motion_control(
@@ -5492,10 +5606,14 @@ def solve_moveit_tcp_position_axis_goal(
         "collision_check_status": collision_check_status,
         "task_jacobian_condition_ratio": condition_ratio,
         "position_residual_mm": (
-            position_residual if position_residual >= 0.0 else None
+            position_residual
+            if isfinite(position_residual) and position_residual >= 0.0
+            else None
         ),
         "drilling_axis_residual_deg": (
-            axis_residual if axis_residual >= 0.0 else None
+            axis_residual
+            if isfinite(axis_residual) and axis_residual >= 0.0
+            else None
         ),
         "best_joint_positions_si": (
             canonicalize_planning_joint_positions(
@@ -6307,29 +6425,78 @@ def acknowledge_moveit_collision_scene(
                 mismatches.append(f"missing comparable base-link pose for {object_id}")
             else:
                 try:
-                    if len(expected_pose) != 7 or len(observed_pose) != 7 or any(
-                        abs(float(expected_value) - float(observed_value)) > 1.0e-9
-                        for expected_value, observed_value in zip(expected_pose, observed_pose)
+                    expected_pose_values = tuple(float(value) for value in expected_pose)
+                    observed_pose_values = tuple(float(value) for value in observed_pose)
+                    if (
+                        len(expected_pose_values) != 7
+                        or len(observed_pose_values) != 7
+                        or not all(isfinite(value) for value in expected_pose_values)
+                        or not all(isfinite(value) for value in observed_pose_values)
+                    ):
+                        mismatches.append(
+                            f"invalid comparable base-link pose for {object_id}"
+                        )
+                    elif any(
+                        abs(expected_value - observed_value) > 1.0e-9
+                        for expected_value, observed_value in zip(
+                            expected_pose_values, observed_pose_values
+                        )
                     ):
                         mismatches.append(f"runtime pose differs for {object_id}")
-                except (TypeError, ValueError):
+                except (OverflowError, TypeError, ValueError):
                     mismatches.append(f"invalid comparable base-link pose for {object_id}")
-            expected_bounds_mm = tuple(
-                float(value)
-                for value in expected.get("outgoing_bounds_base_link_mm", ())
-            )
-            observed_bounds_m = observed.get("bounds_base_link_m")
-            if len(expected_bounds_mm) != 6 or observed_bounds_m is None:
-                mismatches.append(f"missing comparable bounds for {object_id}")
-                continue
-            expected_bounds_m = tuple(value * 0.001 for value in expected_bounds_mm)
-            if any(
-                abs(expected_value - float(observed_value)) > 1e-6
-                for expected_value, observed_value in zip(
-                    expected_bounds_m, observed_bounds_m
+            try:
+                expected_bounds_mm = tuple(
+                    float(value)
+                    for value in expected.get("outgoing_bounds_base_link_mm", ())
                 )
-            ):
-                mismatches.append(f"runtime bounds differ for {object_id}")
+                observed_bounds_m = tuple(
+                    float(value) for value in observed.get("bounds_base_link_m", ())
+                )
+            except (OverflowError, TypeError, ValueError):
+                mismatches.append(
+                    f"invalid comparable base-link bounds for {object_id}; "
+                    "expected six finite ordered mm values and observed six "
+                    "finite ordered m values"
+                )
+            else:
+                bounds_are_valid = (
+                    len(expected_bounds_mm) == 6
+                    and len(observed_bounds_m) == 6
+                    and all(isfinite(value) for value in expected_bounds_mm)
+                    and all(isfinite(value) for value in observed_bounds_m)
+                    and all(
+                        bounds[axis] <= bounds[axis + 1]
+                        for bounds in (expected_bounds_mm, observed_bounds_m)
+                        for axis in (0, 2, 4)
+                    )
+                )
+                if not bounds_are_valid:
+                    mismatches.append(
+                        f"invalid comparable base-link bounds for {object_id}; "
+                        "expected six finite ordered mm values and observed six "
+                        "finite ordered m values"
+                    )
+                else:
+                    expected_bounds_m = tuple(
+                        value * 0.001 for value in expected_bounds_mm
+                    )
+                    bounds_delta_m = tuple(
+                        observed_value - expected_value
+                        for expected_value, observed_value in zip(
+                            expected_bounds_m, observed_bounds_m
+                        )
+                    )
+                    if any(abs(delta) > 1e-6 for delta in bounds_delta_m):
+                        maximum_abs_delta_mm = max(
+                            abs(delta) for delta in bounds_delta_m
+                        ) * 1000.0
+                        mismatches.append(
+                            f"runtime bounds differ for {object_id}: expected "
+                            f"base_link bounds={expected_bounds_mm!r} mm; observed "
+                            f"base_link bounds={observed_bounds_m!r} m; "
+                            f"max_abs_delta={maximum_abs_delta_mm:.6f} mm"
+                        )
             if int(observed.get("shape_count", 0)) < 1:
                 mismatches.append(f"runtime object {object_id} has no shape")
         observed_policy_fingerprint = str(

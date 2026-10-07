@@ -1,5 +1,48 @@
 # DENTOBOT Development Plan
 
+## 1 October 2026 — operator workflow recovery contract (latest supersession)
+
+The operator challenges completion of the requested6.1/6.2 GUI reconfiguration after failed/confusing manual testing. S6-LIVE-01 remainsP0: **setup/workbench UX completion OPEN**, not merely a final user verdict on an established usable workflow. Earlier469hostchecks and later339checks/nativeguardbuild retain their actual scope and do not establish GUI recovery. Follow the latest recovery contract in [the existing renovation plan](diagnostics/STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md).
+
+Next action is one **read-only actual-versus-required workflow diagnosis**, then end with one first causal blocker, smallest proposed correction and bounded verification sequence. No source/runtime in that diagnostic checkpoint. Subsequent edits use existing owners and scoped twoLunaMax routing; no broad campaign, planner-success objective, performance/DentoCase integration or parameter tuning. Runtime remains separately gated by the current no-autonomous-runtime boundary. Every turn reports exact operator action, observable result and stop condition. Existing screenshots/tests are scoped evidence, not completion of the requested UX. Backlog remains the sole pending queue.
+
+
+## 1 October 2026 — maturity-based priorities and acceptance sequencing
+
+Tarun authorized priority reassignment and a compact pending queue. The
+[backlog](backlog.md) is the scheduling authority; the
+[TASKS priority amendment](TASKS.md) records changed contract priorities.
+P0 is the active Step 6 source/host handoff. P1 combines current
+correctness/reliability closure with ready visual verdicts. P2 covers conclusive
+workflow acceptance, useful missing controls and verification learning. P3 is
+dependency-blocked roadmap/platform/representative physical work; P4 is explicit
+holds, experiments, fallback and later hardware boundaries. Within a priority,
+honour dependencies and the current approved scope.
+
+Review implemented corrections without rebuilding them. Keep source gaps and
+unproved runtime/anatomical/physical behavior distinct; a failed review stays
+with its existing owner. A complete independently guarded route remains a
+prerequisite for positive preview/interruption/Return Home/repeat evidence.
+Source/host closure followed by Tarun's engineering trials remains the approved
+scope; priority reassignment does not restart the autonomous campaign.
+
+Demotion of DCP/Studio to P3 is sequencing, not cancellation. S6-LIVE-05 acceptance
+still precedes DCP-00, and the current per-step production-path/headless evidence
+inventory and backend handoff still precede Studio. Reuse promoted case/session
+foundations. Accepted-5.10 performance integration still requires Step 6
+completion and approval; Slicer 5.12 stays indefinitely held at P4.
+
+## 1 October 2026 — implementation closure and engineer handoff (operator-approved supersession)
+
+The operator stopped the autonomous successful-planner/whole-run goal and approved **source/host checks followed by Tarun's engineering trials**. This supersedes earlier automatic campaign sequencing, not the guard policy or outstanding runtime acceptance. Do not launch a new Slicer/ROS/MoveIt/planner/preview trial for this pass. A no-solution planner result is a valid diagnostic outcome only when sufficient exact evidence is retained and state remains safe; it is not proof of infeasibility.
+
+Existing owners remain S6-LIVE-01, S6-WORKSPACE-PURPOSE, S6-LIVE-03/04, S6-REUSABLE-CASE-SETUP and S6-P2-03. Close concrete source gaps: non-finite diagnostic metrics, explicit failed-pose read-only FK/static inspection, diagnostic display cleanup, existing-layout clipping and actionable disabled-state explanations. Reuse five-joint state/guard, Base/Home, historical recording/persistence and preview owners; no new robotics framework or parameter tuning. Implementation closure is source/host verified: 469 combined checks passed on 1 October; Python compilation and git diff --check passed. Failed-pose inspection, finite metrics, diagnostic ownership/cleanup, layout wrapping and blocked-action guidance are corrected at this boundary. Rendered GUI and native robotics acceptance remain pending; exact commands and evidence are in the handoff index and dated logbook.
+
+Reuse bounded r22 TCP, r26 uncertainty/reconciliation, r29 offline-to-connected setup and r30 fresh-reopen evidence at their actual scopes. R31 ended 16 PASS / 1 FAIL / 12 NOT_RUN: all14 PreEntry searches reached iteration_limit, exact target/failed-pose evidence retained; P1/complete-plan/preview NotRun, inferior exit1 with signal null, partial video preserved. Earlier campaign verdicts are unchanged. Native positive full-chain/preview/interruption/Return Home/repeat, final post-campaign save/reopen, normal-window responsiveness and Tarun's robotics/usability verdict remain **PENDING**. The conditional ±20mm in-plane Base note awaits reviewed plane basis and budget; performance integration remains deferred.
+
+Feature/evidence handoff: [STEP6_IMPLEMENTATION_HANDOFF_2026-10-01.md](diagnostics/STEP6_IMPLEMENTATION_HANDOFF_2026-10-01.md). Backlog remains the sole pending queue; this amendment creates no task IDs or parallel implementation plan.
+
+
 Last reconciled: 2026-09-28.
 
 The [Step 6 five-DOF detailed acceptance checklist](diagnostics/STEP6_FIVE_DOF_DETAILED_ACCEPTANCE_CHECKLIST_2026-09-28.md)
@@ -1605,3 +1648,27 @@ implementation detail belongs in the logbook and changelog, not in a second
 ## 2026-09-30 — Bounded current-workflow space recovery
 
 Under UI-P3-01, Tarun advances default Workflow Focus independently of the deferred broad Studio redesign. Acceptance requires reachable secondary actions, narrow-width usability, preserved workflow state and gates, exact chrome restoration across enter/exit/reload and Legacy/New transitions, and before/after screenshots targeting twice the visible active-task height at the supplied window size. Agent runtime stays serialized with the active Step 6.3 final-fix campaign; host verification cannot establish visual acceptance.
+
+
+## 1 October 2026 — DCP-09..10 staged foundation acceptance
+
+Approved DentoCase delivery is staged: isolated catalog/lineage host verification first; complete projection ownership audit and offline reconstruction next; schema/browser/persistence integration only after shared-file handoff; transactional full/partial round trips and Tarun's continuation verdict for whole-project acceptance. Current priorities remain those in the dated queue amendment. Foundation host passes establish metadata/selection behavior only, never geometry restore, ROS/scene/guard/preview authority or planner feasibility. Step6's source/host closure and its pending native/operator verdict are preserved. Operator holds integration until the affected implementation and required verification are complete. See TASKS.md and diagnostics/PROJECT_DENTOCASE_IMPLEMENTATION_2026-10-01.md; backlog.md owns live pending state.
+
+
+**Foundation checkpoint evidence:** DCP-09..10 catalog/lineage host gate passed36 combined checks, new-file compilation/whitespace, CLI demonstration and source preservation on 1 October. This accepts the independently invoked metadata foundation only. Integration/geometry/round-trip/continuation gates remain open in backlog.md; production case writer, schema and startup are unchanged.
+
+
+### DentoCase integration authorization — supersedes foundation hold
+
+Operator: “no other active implementation is running, we can proceed and complete this integration now/. Use Luna max workers”; then explicitly permits up to four. DCP-09..10/S6-REUSABLE-CASE-SETUP/S6-P2-01 integration proceeds in existing checkout/branch, three available Luna Max lanes, disjoint schema/browser/projection ownership. Coordinator owns mapping, persistence activation, source review and acceptance. Snapshot/contract: diagnostics/PROJECT_DENTOCASE_IMPLEMENTATION_2026-10-01.md. No main merge, publication, robot action or inferred operator acceptance. Foundation36pass evidence preserved; integrated round trips remain required.
+
+
+## 2026-10-01 — integrated manual trial: responsiveness remains open
+
+Operator reports the 5.10 performance fixes have been integrated into the Step6 renovation checkout and manual testing still produced several Not Responding dialogs. This explicit update supersedes older statements that performance integration is awaiting Step6 completion; it does not accept universal responsiveness. Active performance work now uses DentoBot-step6-renovation; PLAT-U-06 remains indefinitely held.
+
+Read-only review of the newest paired UI/resource session (2026-09-30 21:46–22:19 UTC) found 14 recovered heartbeat gaps >=5 s. The largest were 22.735/49.144/31.626 s at 22:02–22:03 UTC (03:32–03:33 IST, 1 October), with the last recorded label “Refreshing connected workflow”; that label was retained for minutes and cannot identify the action causing those gaps. Explicit TCP-workspace phases recorded 8.070 s in IK, 8.651 s in static-state checking, and 11.330 s under connectivity. Guarded PreEntry route checking recorded 8.665 and 11.778 s. Progress exists but does not bound each blocking operation.
+
+Across 398 Slicer-present resource samples: peak Slicer RSS 2941.8 MiB, threads 92, FDs 57; minimum host available memory 2.469 GiB, minimum free swap 2.847 GiB; no sampled zombies or alerts, no cgroup OOM/kill or CPU quota throttling. Significant concurrent host pressure is real: at 22:03:12 UTC I/O some avg10=68.97%, memory some avg10=4.66%; at 22:02:02 memory some avg10=12.69%. Absence of an alert does not exclude this pressure. Logs do not identify its originating host process, prove a leak, supply current blocking stacks, or establish the exact installed source revision. SESSION_END and external SLICER_EXIT_OBSERVED are present; wrapper HANDOFF_EXIT status0 is not independent proof of native Slicer exit0.
+
+Disposition: S6-P2-03 remains OPEN, coordinated with S6-LIVE-01 and S6-U-01. Retain prior scoped improvements and reopen integrated ordinary-session responsiveness acceptance. Next bounded action is read-only tracing of existing workspace/static-check/route-call boundaries and their duration/checkpoint coverage, plus correlation with available launcher/action logs for the ambiguous long gaps. Propose one supported shared-path correction before implementation. No additional runtime, scheduled traceback dump, worker-thread MRML, planner-policy change or 5.12 work is authorized by this review.

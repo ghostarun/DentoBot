@@ -11,3 +11,5 @@ These are preserved historical analyses and proposals, **not** the current work 
 The base-pose feasibility plan was restored to [active diagnostics](../../DENTOBOT_Base_Pose_Feasibility_Explorer_Diagnostic_Plan_2026-09-25.md) on 25 September. Its shared diagnostic metrics are current Step 6 work; automated sweeps and robot-design comparisons remain later work.
 
 Historical literal paths, manifests and hashes inside these records are retained as provenance, not active links. The [GUI automation SOP](../../STEP6_GUI_AUTOMATION_SOP_2026-09-23.md) stays in place because it still governs future diagnostic runtime.
+
+The [backlog narrative through 1 October 2026](BACKLOG_NARRATIVE_HISTORY_TO_2026-10-01.md) preserves the former chronological evidence verbatim. It contains no active pending table; all dated scheduling and runtime instructions in it are superseded by the current backlog and later task-specific decisions.

@@ -392,40 +392,40 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
                 parameterNode.step6BasePlacementRevision = max(
                     0, int(parameterNode.step6BasePlacementRevision)
                 ) + 1
+            if state_changed:
+                self.invalidateStep6TaskConfirmation(
+                    parameterNode,
+                    _("Robot base lock state changed."),
+                )
+            if self.isRobotBaseTransformNode(base_transform):
+                existing_authority = str(
+                    base_transform.GetAttribute(
+                        self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE
+                    )
+                    or ""
+                )
+                if locked:
+                    base_transform.SetAttribute(
+                        self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+                        self.ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY,
+                    )
+                    base_transform.SetAttribute(
+                        "DENTOBOT.CaseFoundationFingerprint",
+                        foundation["planning_pose_fingerprint"],
+                    )
+                    base_transform.SetAttribute(
+                        "DENTOBOT.RobotProfileFingerprint",
+                        self.robotProfileFingerprint(),
+                    )
+                elif existing_authority != self.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY:
+                    base_transform.SetAttribute(
+                        self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+                        self.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
+                    )
+                    base_transform.SetAttribute("DENTOBOT.PlacementWarning", None)
+            self._applyRobotBaseMountInteractionState(parameterNode, locked)
         finally:
             parameterNode.EndModify(was_modifying)
-        if state_changed:
-            self.invalidateStep6TaskConfirmation(
-                parameterNode,
-                _("Robot base lock state changed."),
-            )
-        if self.isRobotBaseTransformNode(base_transform):
-            existing_authority = str(
-                base_transform.GetAttribute(
-                    self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE
-                )
-                or ""
-            )
-            if locked:
-                base_transform.SetAttribute(
-                    self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
-                    self.ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY,
-                )
-                base_transform.SetAttribute(
-                    "DENTOBOT.CaseFoundationFingerprint",
-                    foundation["planning_pose_fingerprint"],
-                )
-                base_transform.SetAttribute(
-                    "DENTOBOT.RobotProfileFingerprint",
-                    self.robotProfileFingerprint(),
-                )
-            elif existing_authority != self.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY:
-                base_transform.SetAttribute(
-                    self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
-                    self.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY,
-                )
-                base_transform.SetAttribute("DENTOBOT.PlacementWarning", None)
-        self._applyRobotBaseMountInteractionState(parameterNode, locked)
 
     def robotProfileFingerprint(self) -> str:
         return str(self.caseBundleRobotProfile().get("identitySha256") or "")
@@ -747,20 +747,27 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotPlacementLogicMixin):
         payload = str(parameterNode.step6TaskHomeJson or "").strip()
         return parse_task_home(payload) if payload else None
 
-    def saveCurrentTaskHome(self, parameterNode, *, runtime_validation=None):
+    def saveCurrentTaskHome(
+        self, parameterNode, *, runtime_validation=None, joint_positions_si=None
+    ):
         base_issues = self.step6BasePlacementFreshnessIssues(parameterNode)
         if base_issues:
             raise ValueError(" ".join(base_issues))
         previous = self.taskHomeRecord(parameterNode)
         evidence = dict(runtime_validation or {})
-        record = build_task_home(
-            joint_positions_si_from_display(
+        positions = (
+            joint_positions_si
+            if joint_positions_si is not None
+            else joint_positions_si_from_display(
                 parameterNode.robotJoint1Deg,
                 parameterNode.robotJoint2Mm,
                 parameterNode.robotJoint3Deg,
                 parameterNode.robotJoint4Mm,
                 parameterNode.robotJoint5Deg,
-            ),
+            )
+        )
+        record = build_task_home(
+            positions,
             base_fingerprint=self.robotBaseFingerprint(parameterNode),
             robot_profile_fingerprint=self.robotProfileFingerprint(),
             revision=(previous.revision + 1 if previous else 1),
