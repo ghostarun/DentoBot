@@ -162,19 +162,22 @@ and model presets are project policy. See the dated sources in
 `docs/DECISIONS.md` (2026-09-09 verification economy). This update does not
 change model defaults or authorize runtime execution.
 
-## Model selection and delegation — 2026-09-23 (GPT-6)
+## Model selection and delegation — 2026-10-08
 
-The operator supersedes the 2026-09-09 Sol 5.6 policy and the 2026-09-21
-`S6-LIVE-01` Terra override. **Use `gpt-6-sol` at `low` ("Sol light") as the
-default orchestrator** for development, diagnosis, planning, integration,
-controlled records and acceptance recommendations. A more intensive effort
-requires a concrete unresolved reasoning need and operator direction; a failed
-test alone is not a model-escalation reason. Do not route current work to Terra.
+No model name is fixed in this file (operator direction, 8 October 2026). The
+operator chooses the agent (Codex or Claude), model and effort for each thread.
+For an A↔B handoff the initiating agent presents those options, plus the
+subagent policy, and gets Tarun's confirmation before dispatch (see
+`docs/DECISIONS.md`, `PLAT-U-07` Goal 2). The selected model is the
+orchestrator for development, diagnosis, planning, integration, controlled
+records and acceptance recommendations. A more intensive effort requires a
+concrete unresolved reasoning need and operator direction; a failed test alone
+is not a model-escalation reason.
 
-**`gpt-6-luna` at `xhigh` is the optional bounded implementation auxiliary**
-for a settled, fully specified code/test task. The Sol orchestrator may instead
-do local implementation directly when the work is small or inseparable. No
-mandatory worker, reviewer, or multi-model pipeline is created. Default to
+**An optional bounded implementation auxiliary**, on an operator-confirmed
+model, may take a settled, fully specified code/test task. The orchestrator may
+instead do local implementation directly when the work is small or inseparable.
+No mandatory worker, reviewer, or multi-model pipeline is created. Default to
 solo; honor an explicit no-subagents request. One auxiliary is the normal
 maximum. More than one needs an explicit operator request or approved
 verification plan within the protocol's worker ceiling. Workers must not
@@ -185,8 +188,8 @@ Before optional delegation, state the benefit, exact model/effort, worker count,
 owned files, interfaces, invariants, forbidden changes and smallest acceptance
 check. Tell the worker to preserve other worktree edits. Keep verification
 workers read-only and runtime resources serialized. Inspect the actual diff
-and evidence before acceptance. If either preset is unavailable, report it;
-do not silently substitute an older model. Markdown cannot switch a running
+and evidence before acceptance. If the selected model is unavailable, report it;
+do not silently substitute another model. Markdown cannot switch a running
 task's model. Historical model decisions remain dated evidence, not active
 routing instructions.
 
