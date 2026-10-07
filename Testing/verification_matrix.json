@@ -80,6 +80,12 @@
       "pure.step6_implementation_handoff",
       "runtime.dentocase_offline_persistence",
       "manual.dentocase_continuation"
+    ],
+    "step6-frame-sync": [
+      "static.git_diff_check",
+      "static.step6_pycompile",
+      "pure.frame_sync",
+      "runtime.step6_frame_sync"
     ]
   },
   "checks": [
@@ -1131,6 +1137,43 @@
       "entrypoint": "Testing/run_dentobot_step6_headed_review.py",
       "command_template": "From the reviewed integration checkout set DENTOBOT_HEADED_PROVENANCE_MODE=integration, DENTOBOT_HEADED_FULL_CHAIN=1, DENTOBOT_HEADED_ALLOW_JOG=1, DENTOBOT_HEADED_ALLOW_BASE_HOME_ACCEPT=1 and DENTOBOT_HEADED_BASE_OFFSET_RAS_MM='dx,dy,dz' (world RAS mm, norm <= 42.5, i.e. +-30 mm per forehead-plane axis, from Testing/step6_preentry_reachability_analysis.py). No output case. Supply exact Git/native/case provenance; serialize one Xvfb-headed Slicer/ROS simulation under Testing/record_slicer_screen.py with fresh evidence and owned-process cleanup.",
       "pass_condition": "Requested translated Base staged through production stageManualBaseReview and accepted via the production Accept Base owner with rotation unchanged; scene re-acknowledged; Task Home re-accepted; workspace, PreEntry and full chain items each PASS/FAIL with named stage and collision evidence; modal dialogs fail fast via the watchdog; source case unchanged; no hardware."
+    },
+    {
+      "id": "pure.frame_sync",
+      "execution_kind": "container_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "container_pure",
+      "entrypoint": "Testing/test_frame_sync_guard.py",
+      "command_template": "docker exec dentobot-slicerros2 bash -lc 'cd /workspace/ros2_ws/src/DentoBot && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_frame_sync_guard.py Testing/test_step6_frame_sync_export.py Testing/test_step6_scene_mesh_compare.py Testing/test_jaw_frame.py Testing/test_frame_sync_known_answers.py Testing/test_frame_sync_kinematics.py Testing/test_frame_sync_collision.py Testing/test_step6_frame_audit.py Testing/test_step6_audit_d_compare.py Testing/test_verification_matrix.py'",
+      "pass_condition": "exit_code_zero; full parent world access and raw-read guard, known jaw/inverse Base answers, independent all-object mesh count/shape/pose fidelity, three-way FK residual/error paths and exact same-state collision/ACM agreement classes pass. Synthetic/fake checks only; no Slicer/ROS/MoveIt launch, motion or runtime acceptance. Configure run-local TMPDIR and durable command/results before execution."
+    },
+    {
+      "id": "runtime.step6_frame_sync",
+      "execution_kind": "slicer_ros_moveit_headed",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "static.step6_pycompile",
+        "static.git_diff_check",
+        "pure.frame_sync",
+        "build.slicer_ros2_if_changed"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "simulation_runtime_headed",
+      "entrypoint": "Testing/step6_frame_sync_export.py",
+      "command_template": "Only under a separately approved, serialized simulation session, choose a de-identified source case copy and fresh data/dentobot-runs/YYYY-MM-DD/S6-FRAME-SYNC-01-<UTC-start>/ directory. First invoke test_DENTOWorkflowFrameSyncKnownTransforms in a separate offline Slicer fixture session with DENTOBOT_FRAME_SYNC_FIXTURE and DENTOBOT_FRAME_SYNC_EVIDENCE_DIR configured; it loads an isolated scene, never the operator's live scene. Then use production owners to establish the reviewed upper and lower targets at at least two distinct openings each, a Base translation/yaw, branch switch and save/reopen. Do not automate acceptance or motion. In each unchanged acknowledged case state: export_scene(namespace, case_dir/'slicer-export'); read-only python3 Testing/moveit_scene_dump.py --out <fresh case_dir/native-dump> in the sourced domain-73 container; analyse_scene(native_dump, slicer_export); kinematics_rows(namespace, states) with explicit SI states preentry, entry, drilling_end; collision_agreement({...namespace, 'acm': captured acm.json, 'scene_snapshot': captured scene-dump.json, 'phase': state_name}, joints, source_bodies(namespace)) per state. Save full returned JSON, explicit joint vectors, case/branch/target/opening/Base identity, source/code/native hashes and matched-state visuals under that case_dir. Bodies must include template, lip slab, cheek walls, selected target and neighbours, with exact audit IDs. Capture identities before/after and refuse changed scene inputs. No launch or command in this entry is authorized by matrix selection alone. Stop at every GUI result for Tarun's verdict and at the first unresolved layer disagreement; no automatic retries or geometry/policy changes. No hardware.",
+      "pass_condition": "L3 offline known-transform fixture regression passes; captured coverage proves upper and lower targets, >=2 openings EACH, translated/yawed Base, branch switch and save/reopen. In EVERY case L2 matches EVERY native world object ID, vertex/triangle counts and sampled two-way exact surface Hausdorff <=0.05 mm; no missing, unsupported or skipped object. L4 all preentry/entry/drilling_end rows PASS at existing 0.01 mm / 0.01 degree tolerances. L5 every required link/body pair has complete authoritative same-state validity, current zero padding/unit scale and matching URDF identity, effective ACM and no disagreement, missing/truncated or unexamined contacts; intended terminal burr/target contact explicitly labelled. Retained identities must be stable and matched-state visuals/operator verdict recorded. Otherwise the case is NOT accepted. Agreement is not collision-free motion proof. Native production mesh gate remains deferred phase2."
     }
   ]
 }

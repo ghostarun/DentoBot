@@ -1,3 +1,17 @@
+## 7 October — Step B layered frame-sync source checkpoint
+
+`S6-FRAME-SYNC-01` L1–L6 are implemented at source/pure level in separate
+commits: shared world geometry, independent all-object mesh export/compare,
+known transforms, three-way FK, exact collision/ACM agreement and matrix entries.
+New pure.frame_sync95 and structure5 checks pass; required suites retain only
+the two documented shell baseline failures. This does not accept runtime cases
+or replace the production bounds gate (native mesh gate remains deferred phase2).
+The serialized, explicitly approved campaign must cover upper/lower targets at
+two openings each, Base offsets, branch switch and save/reopen, with all layers
+agreeing and Tarun's verdict. Prepared fixture/session entrypoints and evidence
+are in the P0 handoff and today's logbook. Backlog owns remaining acceptance;
+Step C remains the existing following implementation item. No runtime was run.
+
 # DENTOBOT Development Plan
 
 ## 7 October — S6-LIVE-01 Auto Task Home acceptance delta

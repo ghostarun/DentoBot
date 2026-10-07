@@ -10,9 +10,9 @@ agreement; L6 matrix. Separate commits in that order. Native digest / production
 mesh gate phase 2 remains deferred; no native build or runtime execution.
 Preserve exact J1–J5, collision/barrier/corridor policy, registry 3.0 and source
 geometry. Existing pure/container approval covers focused/matrix checks only.
-Coordinator owns interfaces/source integration/docs/acceptance. One optional
-Luna xhigh implementation auxiliary owns only scoped L1 tests; no recursive
-workers/runtime/docs/acceptance. Pending runtime/representative verdict stays
+Coordinator owns interfaces/source integration/docs/acceptance. One reused optional
+Luna xhigh auxiliary owns only explicitly assigned code/test files per layer
+(recorded in logbook); no recursive workers/runtime/docs/acceptance. Pending runtime/representative verdict stays
 in backlog under this existing P0 owner. L1 source/pure complete: 38 focused
 checks pass; eight required suites retain only two known shell baseline failures.
 Evidence: S6-FRAME-SYNC-01-L1-20261007T145157Z (7 Oct run archive).
@@ -30,6 +30,12 @@ L5 source/pure ready: 59 focused pass; reusable 3-link exact collision/ACM
 agreement. Complete authoritative contacts/current snapshot required; unsigned
 surface separation is not penetration depth or motion acceptance. Evidence:
 S6-FRAME-SYNC-01-L5-20261007T152500Z. Runtime NOT RUN.
+
+L6 source/pure ready: pure.frame_sync95 pass, structure5 pass; JSON/loader
+valid, headed runtime exclusive and approval-gated. Eight required suites retain
+baseline failures only. Evidence: S6-FRAME-SYNC-01-L6-20261007T152958Z.
+All six Step B layers source/pure complete; runtime/case/operator acceptance
+stays pending in backlog, production native mesh gate deferred phase2.
 
 ## 7 October — `S6-LIVE-01`: Auto Task Home draft
 
