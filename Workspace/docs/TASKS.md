@@ -2,6 +2,30 @@
 
 ## 8 October — `PLAT-U-07` bounded A/B handoff closeout
 
+**Execution result:** published checkpoint `cc494f9` synchronized to both
+original checkouts;14installed helper files hash-identical. All8runtime lock
+categories and both desktop/source/backend/data preflights PASS. Existing
+helpers prepared clean, stable, remotely verified A→B and B→A worktrees; both
+destination preflights PASS. Current B-hosted thread executed its read-only
+destination continuation without accessing A. Both command configurations now
+point to the corresponding selected worktrees, including remote source paths.
+The separate launcher-only check PASS, unchanged container identity, stopped
+container and host/container process counts0. No new Slicer/case/MoveIt run.
+
+The handoff worktrees are:
+- B: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot-handoff-20261007T213102Z-3952c66c74094b8596877959a6adc048`
+- A: `/home/tarun/dentobot/ros2_ws/src/DentoBot-handoff-20261007T213258Z-ebf146c5fa0944a3a2603b51114c4652`
+
+B project registered in T3 as **DentoBot B — handoff closeout**. Operator
+correctly notes this existing thread already runs on B; its local continuation
+is demonstrated. A-local return commands were invoked over SSH, not in an
+A-hosted T3 thread. A has a packaged `t3code` Electron app but no `t3` CLI,
+so `dentobot open`/CLI project registration is unavailable there; use A's
+Add Project UI for the selected return path. Separate T3-thread roundtrip and
+actual A-offline observation remain unverified; no application-auth bypass or
+conversation/process migration is claimed. Evidence:
+`data/dentobot-runs/2026-10-07/PLAT-U-07-handoff-closeout-20261007T212502Z/closeout-summary.json`.
+
 Operator asks whether the thread has entered a rabbit hole, then directs:
 “yes make the plan for next steps as per recommendation, and use luna max
 workers for further grunt work”. The immediate outcome is an easy, verified

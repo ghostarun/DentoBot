@@ -1,5 +1,25 @@
 # DENTOBOT Windows and Linux Workstation Setup
 
+## 8 October — selected A/B handoff runtime
+
+Both hosts use the versioned workstation command package under
+`~/.local/share/dentobot-handoff`, selected paths in
+`~/.config/dentobot/commands.json`. `dentobot path` prints the authoritative
+local selection; both local and remote repo settings now point to their
+selected handoff worktrees. Existing original/older checkouts are retained.
+The common locked image/native/installedROS/model/case assets and both desktop
+preflights passed atcc494f9; private host CPU/CUDA/display paths remain local.
+Source/desktop preflight and pinned launcher-only check are separate from
+the accepted63551f8 representative offline Slicer load/save/reopen evidence.
+
+On B, T3's `t3 project add` registered DentoBot B — handoff closeout. A's
+installed fork exposes packaged Electron `t3code`, without a discovered `t3`
+project CLI; add the path from `dentobot path` through A's T3 Add Project UI.
+The helper `dentobot open` requires `t3 app` and currently works only where
+that CLI exists. Neither Git checkpoint transfer nor SSH commands migrate a
+T3 conversation or live Slicer process. See TASKS bounded PLAT-U-07 closeout
+for exact returned paths, passed checks and remaining UI/offline gate.
+
 ## Destination source update — 3 October 2026
 
 **Subsequent launcher verification:** `./launch-dentobot --check-only` passed

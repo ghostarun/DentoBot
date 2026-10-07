@@ -2,6 +2,13 @@
 
 ## 2026-10-08 — finish the original T3/Git handoff before expanding runtime work
 
+Execution clarification: existing B-hosted thread is sufficient for the bounded
+B-local continuation check; shell commands do not require creating a new
+conversation. Git roundtrip and both destination preflights PASS, launcher-only
+check PASS. A-hosted T3 continuation remains a UI gate because A's packaged
+Electron app has no discovered `t3 project add` CLI. Preserve that distinction;
+do not add a server, change authentication or conflate SSH with T3 hosting.
+
 Operator flags the prolonged thread and reaffirms shared A/B workspace with
 easy inbuilt-T3/Git handoffs, then requests the recommended next-step plan and
 Luna Max grunt workers. Keep ownership under `PLAT-U-07`: align the published

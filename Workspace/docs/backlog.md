@@ -17,6 +17,16 @@ unfinished pinned-launcher check is separate and does not delay proving
 source/thread handoff. Full S6/MoveIt acceptance and oversized Drive uploads
 retain their separate existing gates. See the [bounded closeout contract](TASKS.md#8-october--plat-u-07-bounded-ab-handoff-closeout).
 
+**8 October closeout execution:** source/helper synchronization, both8-category
+runtime parity checks, both desktop preflights, clean A→B→A Git worktree
+preparation and both destination checks PASS. Existing B-hosted thread continued
+locally without A access. Launcher-only check PASS with unchanged/stopped
+container and zero runtime owners. Remaining handoff acceptance: add selected
+return project through A's packaged T3 UI (no `t3` CLI), demonstrate A-hosted
+continuation and optional real A-offline observation; separate full S6 and
+Drive gates unchanged. Source-only `dentobot open` works with B's CLI, not A's
+packaged app; do not repeat launcher or case campaigns for this UI limitation.
+
 **Current4October live-resolution supersession (`S6-LIVE-01`, P0):** The explicitly approved domain74 copy repeated the geometry-verified OMPL-fraction0.0005 request with a30s budget. It returned error99999/zero points after30.003s; the copied/original34-object geometry, ACM, padding, scale and transform matched, the0.286936408mm burr/template canary matched, and the original scene hashes remained unchanged. The5s budget alone is not a sufficient explanation; neitherA/B, global disconnection nor a physical minimum is certified. No motion/GUIplan/route authority/deployment. Evidence planner-resolution-20261004T071413Z; prior109/121/124 ceiling retained; Tarun verdict PENDING. Later planner-resolution-20261004T080424Z artifacts exceed the recorded30s approval and remain unaccepted pending operator disposition; do not use their Base/geometry counterfactuals to change policy. No further planner/geometry trial is authorized by this checkpoint.
 
 ## Priority and completion rules
