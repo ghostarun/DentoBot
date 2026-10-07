@@ -1,5 +1,22 @@
 # Dentobot Technical Decisions
 
+## 2026-10-07 — Auto Task Home uses opened incisor biting-edge midpoint
+
+`S6-LIVE-01`: operator explicitly selects biting-edge midpoint and modular depth
+for later experimentation, superseding the proposed gum-line connector midpoint.
+Reuse mouth-portal `cusp_tip` on central-incisor surfaces 11/21/31/41, applying
+the existing lower-jaw opening world adapter. Average the two upper and two
+lower edge points, then their midpoint; no missing-tooth fallback. Foundation
+freshness remains gated through `defaultTaskSpaceRoi`, but its centroid-derived
+AUTO gap line is not used as the biting-edge position. Agent implementation convention:
+0 mm default; positive depth toward selected Entry, separately parameterized.
+Use selected Entry→Target drill axis with the existing five-DOF IK/static guard
+and independent MoveIt FK residual check using existing 0.25 mm / 0.5° tolerances.
+Stage only a J1–J5 draft through existing controls; retain explicit review,
+plan/apply and acceptance. No second ROS/IK implementation or automatic motion.
+No claim that this experimental midpoint is reachable or collision-free for
+all cases; source/pure evidence precedes runtime/operator acceptance.
+
 ## 2026-10-04 — Recover Task Home review after definitive rejection
 
 **Operator statement:** “saved a new dentocase in oct4 folder. Problem seems

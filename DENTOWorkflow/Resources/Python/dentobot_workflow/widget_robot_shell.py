@@ -64,6 +64,7 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 "accept_task_home_review": self._onStep6AcceptManualTaskHomeReview,
                 "reconcile_task_home": self._onStep6ReconcileManualTaskHomeAcceptance,
                 "apply_home": self._onStep6ApplyTaskHome,
+                "auto_task_home": self._onStep6AutoTaskHome,
                 "roi_from_incisors": self._onStep6UseCurrentIncisorMidpoint,
                 "roi_edited": self._onStep6TaskSpaceRoiEdited,
                 "revalidate_workspace": self._onStep6RevalidateWorkspace,

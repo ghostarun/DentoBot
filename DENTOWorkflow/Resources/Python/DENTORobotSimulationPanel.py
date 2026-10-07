@@ -48,6 +48,7 @@ class DENTORobotSimulationPanel:
         "accept_task_home_review": (2, 3),
         "reconcile_task_home": (2, 3),
         "apply_home": 2,
+        "auto_task_home": 2,
         "roi_from_incisors": 3,
         "revalidate_workspace": 3,
         "review_limits": 3,
@@ -513,6 +514,11 @@ class DENTORobotSimulationPanel:
         self.taskHomeReviewStatusLabel.wordWrap = True
         self.taskHomeReviewStatusLabel.setProperty("dentobotRole", "status")
         home_layout.addWidget(self.taskHomeReviewStatusLabel)
+        self.autoTaskHomeButton = qt.QPushButton("Auto Task Home Draft", self.homeGroup)
+        self.autoTaskHomeButton.objectName = "DENTOBOTAutoTaskHomeButton"
+        self.autoTaskHomeButton.enabled = False
+        self.autoTaskHomeButton.toolTip = "Connect the simulation runtime with IK available first."
+        home_layout.addWidget(self.autoTaskHomeButton)
         home_secondary_actions = qt.QHBoxLayout()
         self.taskHomeDetailsButton = qt.QPushButton("Home Details…", self.homeGroup)
         self.taskHomeDetailsButton.objectName = "DENTOBOTTaskHomeDetailsButton"
@@ -1889,6 +1895,9 @@ class DENTORobotSimulationPanel:
         self.reconcileTaskHomeButton.clicked.connect(
             lambda checked=False: self._invoke("reconcile_task_home")
         )
+        self.autoTaskHomeButton.clicked.connect(
+            lambda checked=False: self._invoke("auto_task_home")
+        )
         self.applyTaskHomeButton.clicked.connect(
             lambda checked=False: self._invoke("apply_home")
         )
@@ -2433,6 +2442,14 @@ class DENTORobotSimulationPanel:
         self.tcpDragEnabledCheckBox.enabled = active and connected
         self.tcpKeyboardEnabledCheckBox.enabled = allowed
         self.solveIkButton.enabled = bool(self._tcpIkAvailable and allowed)
+        auto_allowed = bool(self._activeSubstep == 2 and connected and self._tcpIkAvailable)
+        self.autoTaskHomeButton.enabled = auto_allowed
+        self.autoTaskHomeButton.toolTip = (
+            "Generate a draft at the current opened incisor biting-edge midpoint, "
+            "facing Entry→Target. Review / Plan + Apply / Accept remain explicit."
+            if auto_allowed else
+            "Auto Task Home requires Step 6.2, connected simulation runtime and IK availability."
+        )
         for button in self.tcpCartesianNudgeButtons.values():
             button.enabled = allowed
         self.tcpTranslationStepMm.enabled = allowed

@@ -537,6 +537,27 @@ class RobotManualWidgetMixin:
             panel.setManualJogRequestComplete()
             self._updateStep6PlanningUi()
 
+    def _onStep6AutoTaskHome(self) -> None:
+        panel = self._robotSimulationPanel
+        facade = self._robotWorkflowFacade
+        if panel is None or facade is None:
+            return
+        try:
+            result = facade.proposeAutoTaskHome()
+            staged = result.success is True and panel.stageTcpIkSolution(result.payload)
+            message = str(result.message)
+            if result.success is True and not staged:
+                message = "Auto Task Home was not staged: " + str(
+                    getattr(panel, "_tcpIkStageFailureText", "draft controls rejected the solution")
+                )
+        except Exception as exc:
+            staged = False
+            message = "Auto Task Home was not staged: " + str(exc)
+        panel.taskHomeReviewStatusLabel.text = message
+        panel.taskHomeReviewStatusLabel.setProperty("dentobotState", "ok" if staged else "blocked")
+        panel.setManualJogDraftDisplayResult(bool(staged), message)
+        panel.setManualJogStatus("draft" if staged else "blocked", message)
+
     def _onShellSolveIk(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:
             return

@@ -2988,6 +2988,7 @@ def test_tcp_native_ik_controls_require_connected_setup_mode():
     panel.tcpKeyboardEnabledCheckBox = _Control()
     panel.tcpKeyboardEnabledCheckBox.checked = True
     panel.solveIkButton = _Control()
+    panel.autoTaskHomeButton = _Control()
     panel.tcpCartesianNudgeButtons = {"x": _Control()}
     panel.tcpTranslationStepMm = _Control()
     panel.tcpRotationStepDeg = _Control()
@@ -4214,6 +4215,7 @@ def test_tcp_drag_toggle_and_substep_exit_disable_native_drag_once():
     panel.tcpDragEnabledCheckBox = CheckBox(True)
     panel.tcpKeyboardEnabledCheckBox = CheckBox(False)
     panel.solveIkButton = _Control()
+    panel.autoTaskHomeButton = _Control()
     panel._tcpIkAvailable = True
     panel.tcpCartesianNudgeButtons = {"x": _Control()}
     panel.tcpTranslationStepMm = _Control()
@@ -4257,6 +4259,7 @@ def test_tcp_drag_toggle_and_substep_exit_disable_native_drag_once():
     failed.tcpTranslationStepMm = _Control()
     failed.tcpRotationStepDeg = _Control()
     failed.solveIkButton = _Control()
+    failed.autoTaskHomeButton = _Control()
     failed._tcpIkAvailable = True
     failed._tcpKeyboardShortcuts = [_Control()]
     failed.runtimeStatusLabel = _Control()
@@ -4299,6 +4302,7 @@ def test_solve_ik_stays_disabled_until_drag_ack_and_capability_refresh_respects_
     panel.tcpDragEnabledCheckBox = SimpleNamespace(checked=False, enabled=False)
     panel.tcpKeyboardEnabledCheckBox = SimpleNamespace(checked=False, enabled=False)
     panel.solveIkButton = _Control()
+    panel.autoTaskHomeButton = _Control()
     panel.tcpCartesianNudgeButtons = {"x": _Control()}
     panel.tcpTranslationStepMm = _Control()
     panel.tcpRotationStepDeg = _Control()

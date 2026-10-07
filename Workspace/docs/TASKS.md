@@ -1,5 +1,35 @@
 # DENTOBOT Tasks
 
+## 7 October — `S6-LIVE-01`: Auto Task Home draft
+
+Operator requests immediate modular implementation. Latest explicit correction:
+use the incisor biting-edge midpoint, with depth adjustable later through
+experimentation (supersedes the initial gum-line midpoint idea). Reuse
+mouth-portal biting-point extraction on central incisors 11/21/31/41
+in current opened world geometry, not edited workspace ROI or tooth centroids.
+Depth defaults to 0 mm; positive offset follows midpoint toward selected Entry.
+Drill axis follows selected Entry→Target, solved with existing five-joint IK.
+The 6.2 action stages a draft only, then uses existing Review / Plan + Apply /
+Accept owners. Preserve collision, scene, Base, branch and identity gates;
+no automatic motion, acceptance, saved Home change or safety-policy changes.
+Owned code: modular `auto_task_home.py`, facade adapter, Home panel and existing
+manual/shell callback owners; focused fake/geometry tests and CMake registration.
+Source/pure checks only under existing P0 approval; no GUI/ROS launch or motion.
+Runtime reachability, experimental depth and operator verdict stay pending in
+backlog under S6-LIVE-01. Stop the runtime path at the existing verdict gate.
+
+Implementation/source verification: the 6.2 Auto Task Home Draft button reuses
+mouth-portal cusp-tip extraction on all four central incisors, current opened
+world geometry, existing connected Home-review identity, guarded IK and MoveIt
+FK. Missing teeth refuse explicitly; no centroid/canine fallback. Separate
+`depth_mm` argument defaults to 0; positive offset is toward selected Entry.
+33 new focused checks, 5 structure checks and 81 existing manual UI checks pass;
+combined planning/bridge/UI suite: 541 passed, 2 pre-existing application-shell
+failures. Compilation/diff checks pass. Evidence:
+`data/dentobot-runs/2026-10-07/S6-LIVE-01-AUTO-HOME-20261007T143746Z`.
+No GUI/runtime acceptance; experimental reachability and depth remain pending.
+Graph refresh exited 1 (`graphify` not on PATH), no graph success claimed.
+
 ## 7 October — `S6-MULTI-JAW-STALE-01` Step A: load-only ROS auto-connect
 
 Contract: [P0 handoff, Step A](handoffs/2026-10-07-P0-pass.md). Operator directs

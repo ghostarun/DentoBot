@@ -86,6 +86,7 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/offline_placement_status.py
   Resources/Python/dentobot_workflow/ui_scroll_support.py
   Resources/Python/dentobot_workflow/base_placement_search.py
+  Resources/Python/dentobot_workflow/auto_task_home.py
   Resources/Python/dentobot_workflow/mouth_portal.py
   Resources/Python/dentobot_workflow/path_clearance.py
   Resources/Python/dentobot_workflow/task_home_gate.py

@@ -1,5 +1,18 @@
 # DENTOBOT Development Plan
 
+## 7 October — S6-LIVE-01 Auto Task Home acceptance delta
+
+Operator adds immediate Auto Task Home draft implementation: current opened
+incisor biting-edge midpoint, default depth 0 mm with separable offset toward
+selected Entry, and Entry→Target drill axis. Pure acceptance: geometry known
+answers, invalid/missing input refusal, guarded existing IK, FK residual and
+stale-identity rejection, draft-only UI routing. Runtime acceptance remains
+under the existing S6-LIVE-01 simulation/verdict contract: upper/lower targets,
+opened anatomy, representative reachability and explicit Review / Plan + Apply /
+Accept. No new runtime or hardware authorization is granted. Source/pure evidence: 33
+new checks and 5 structure checks passed; combined suite 541 passed with the
+2 documented application-shell baseline failures. Runtime verdict remains pending.
+
 ## 7 October — P0 Step A source checkpoint
 
 `S6-MULTI-JAW-STALE-01` load-only auto-connect is implemented and unit verified

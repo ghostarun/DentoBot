@@ -7934,6 +7934,14 @@ class DENTORobotWorkflowFacade:
             payload=goal_node,
         )
 
+    def proposeAutoTaskHome(self, *, depth_mm: float = 0.0) -> RobotActionResult:
+        """Propose a biting-edge midpoint Home; caller may stage the draft only."""
+        from dentobot_workflow.auto_task_home import propose_auto_task_home
+
+        return propose_auto_task_home(
+            self, RobotActionResult, _default_bridge, depth_mm=depth_mm
+        )
+
     def solveIk(self) -> RobotActionResult:
         try:
             ok, message, positions = self._bridge.solve_moveit_tcp_goal()
