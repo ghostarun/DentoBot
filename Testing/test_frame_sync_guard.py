@@ -217,6 +217,8 @@ def _raw_read_violations(source: str, filename: str):
 def _diagnostic_sources():
     candidates = set(TESTING_ROOT.glob("step6_*audit*.py"))
     candidates.update(TESTING_ROOT.glob("step6_feasibility_advisor_runner.py"))
+    candidates.update(TESTING_ROOT.glob("step6_frame_sync*.py"))
+    candidates.update(TESTING_ROOT.glob("step6_scene_mesh_compare.py"))
     candidates.update(TESTING_ROOT.glob("*frame_sync*audit*.py"))
     candidates.update(TESTING_ROOT.glob("*audit*frame_sync*.py"))
     candidates.update(PROJECT_ROOT.rglob("base_diagnosis.py"))

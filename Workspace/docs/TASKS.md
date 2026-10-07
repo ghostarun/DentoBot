@@ -16,6 +16,9 @@ workers/runtime/docs/acceptance. Pending runtime/representative verdict stays
 in backlog under this existing P0 owner. L1 source/pure complete: 38 focused
 checks pass; eight required suites retain only two known shell baseline failures.
 Evidence: S6-FRAME-SYNC-01-L1-20261007T145157Z (7 Oct run archive).
+L2 ready: independent source exporter + all-object sampled mesh comparator;
+55 focused pass; matrix baseline failures only. Runtime scripts not executed,
+production mesh gate phase2 deferred. Evidence: S6-FRAME-SYNC-01-L2-20261007T145647Z.
 
 ## 7 October — `S6-LIVE-01`: Auto Task Home draft
 

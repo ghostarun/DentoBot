@@ -66,6 +66,12 @@ def classify(acm_verdict: dict, as_placed: dict, closed_jaw: dict | None, separa
     return {"finding": "consistent", "detail": "MoveIt reports the intersection"}
 
 
+def analyse_scene(dump_dir: Path, slicer_export_dir: Path) -> dict:
+    """All-object scene comparison; the historical single-pair analyse is retained."""
+    from step6_scene_mesh_compare import analyse_scene as compare_scene
+    return compare_scene(dump_dir, slicer_export_dir)
+
+
 def analyse(dump_dir: Path, slicer_dir: Path, tag: str) -> dict:
     import vtk
 
