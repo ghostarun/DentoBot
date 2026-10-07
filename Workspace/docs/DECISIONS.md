@@ -6,12 +6,18 @@ Execution correction (fresh-thread closeout): native authenticated T3
 orchestration supports project/thread creation and turn start. Parent created
 fresh B thread `30241a1d-091b-44ac-a744-a7cc4bff5caa`; it captured a clean
 local `45f072b` proof before A access. A's packaged server CLI supports
-short-lived session issuance despite no `t3` launcher on PATH. Native A thread
-`a6060eac-a37b-4ef4-8ad7-6c1e9f9a4dcc` then completed a bounded Luna Max local proof
-at the selected A worktree/same HEAD. The original source/thread handoff subgate
-is complete. Keep physical offline, process migration, full S6/operator,
-pinned-mode reload and Drive acceptance separate; no robot-stack rerun.
-`dentobot open` remains CLI-dependent, while A's return project is registered.
+short-lived session issuance despite no `t3` launcher on PATH. Initial native A
+proof established hosting, but the operator then corrected
+project routing: “you are creating new threads in new projects, while I already
+have fixed projects for T3 on both PCs, named dentobot commonly.” Use those
+existing projects with per-thread worktreePath; preserve their roots/settings.
+Corrected B thread `a8815b54-033f-4480-9aa1-343da412036b` and A thread
+`93766301-bcc4-4aa8-b6fd-beebaf953076` both proved clean selectedc9ea7bf.
+No additional projects created for the correction; no supported typed move
+command, so earlier project/thread history is retained, not DB-reparented.
+Source/thread subgate is complete under this fixed-project contract. Physical
+offline, full S6/operator, pinned-mode reload and Drive remain separate.
+`dentobot open` remains CLI-dependent; use the fixed project in the selector.
 
 Operator flags the prolonged thread and reaffirms shared A/B workspace with
 easy inbuilt-T3/Git handoffs, then requests the recommended next-step plan and
@@ -20,9 +26,9 @@ checkpoint/helper package, verify existing runtime/case parity, demonstrate
 explicit B-hosted then A-hosted T3 continuations, and record the roundtrip.
 Reuse the accepted representative offline restore/save-reopen evidence.
 
-The unfinished pinned launcher is separate from source/thread handoff; its
-latest actual check failed before container start on an unexpected keyword
-argument. No fresh case/MoveIt campaign, runtime rebuild, new replication
+The historical pinned-launcher blocker was separate from source/thread handoff;
+its import correction and actual cc494f9 launcher-only check subsequently PASS.
+A new pinned-mode production-menu reload campaign remains separate. No fresh case/MoveIt campaign, runtime rebuild, new replication
 service or broader feature work is required by this planning instruction.
 Load balancing stays off for deterministic acceptance; GitHub sharing and
 Device Hub do not establish repository or Linux-desktop replication. Two

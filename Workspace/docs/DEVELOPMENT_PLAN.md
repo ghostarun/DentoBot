@@ -1,7 +1,8 @@
 ## 8 October — PLAT-U-07 original T3/Git handoff subgate complete
 
 Clean Git A→B→A preparation and actual fresh B/A native T3 continuations are
-recorded at `45f072b` in TASKS and today's logbook. Reuse passed shared runtime,
+recorded at `c9ea7bf` in the existing fixed `dentobot` projects, with per-thread
+selected worktreePaths and unchanged project roots, in TASKS and today's logbook. Reuse passed shared runtime,
 case/save-reopen and cleanup evidence; no runtime rerun. This closes only the
 source/thread handoff subgate. The sole backlog retains broader operator/cutover,
 optional physical A-offline observation, separate pinned-mode reload and Drive

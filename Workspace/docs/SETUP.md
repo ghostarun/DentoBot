@@ -12,9 +12,15 @@ preflights passed atcc494f9; private host CPU/CUDA/display paths remain local.
 Source/desktop preflight and pinned launcher-only check are separate from
 the accepted63551f8 representative offline Slicer load/save/reopen evidence.
 
-B project **DentoBot B — handoff closeout** and A project **DentoBot A —
-handoff return** are registered at the selected worktrees. Fresh native B/A
-threads completed hostname/pwd/HEAD/clean-status proofs at `45f072b`.
+Use each host's existing fixed T3 project **dentobot**. B project ID
+`772e40ab-42c5-454b-bd5e-660c32d62e6a` has root `/home/light-tarun/dentobot`;
+A project ID `4ccd124e-ce14-4318-b6f9-0310fa437544` has root `/home/tarun/dentobot`.
+Do not create a project for a handoff worktree or change these project roots.
+Native thread `worktreePath` selects the returned Git worktree inside that
+fixed project. Corrected B thread `a8815b54-033f-4480-9aa1-343da412036b`
+and A thread `93766301-bcc4-4aa8-b6fd-beebaf953076` both passed their local
+hostname/pwd/HEAD/clean-status proof at `c9ea7bf`. Initial extra projects are
+historical evidence only, superseded by the operator's fixed-project direction.
 A's packaged personal T3 v0.0.4503 includes a server CLI despite no `t3`
 launcher on PATH. The observed native entrypoint is:
 
@@ -28,9 +34,9 @@ ELECTRON_RUN_AS_NODE=1 \
 That installed version exposes `auth session issue` and `project add`.
 Authenticated `/api/orchestration/dispatch` accepts native `project.create`,
 `thread.create` and `thread.turn.start`; short-lived tokens stay in memory.
-Use the registered A project in the T3 environment/project selector for future
-returns. `dentobot open` still expects `t3 app`; its packaged-app fallback is
-not implemented. Do not install a second server or edit app/auth databases.
+Use the intended host and existing `dentobot` project in the T3 selector for
+future returns, with explicit thread worktreePath. `dentobot open` still expects
+`t3 app`; its packaged-app fallback is not implemented. Do not install a second server or edit app/auth databases.
 Neither Git nor fresh-thread creation migrates a live process or conversation.
 Both hosts must be online for destination preparation; after selection B has
 its own source/runtime/data. Real physical A-offline operation is unobserved.

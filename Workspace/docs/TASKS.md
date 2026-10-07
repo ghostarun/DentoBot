@@ -6,21 +6,31 @@
 8-category runtime parity, desktop preflight, clean Git worktree preparation
 and both destination checks PASS at application checkpoint `cc494f9`.
 The final incoming docs checkpoint was
-`45f072b4694cebf31a5e7cf95325e597a09460bc`; both fresh destination-hosted
-threads proved that exact HEAD and clean status. No runtime tests were repeated.
+`45f072b4694cebf31a5e7cf95325e597a09460bc`; both initial fresh destination-hosted
+threads proved that exact HEAD and clean status. The fixed-project
+proofs below supersede their project routing. No runtime tests were repeated.
 
 The selected worktrees remain:
 
 - B: `/home/light-tarun/dentobot/ros2_ws/src/DentoBot-handoff-20261007T213102Z-3952c66c74094b8596877959a6adc048`
 - A: `/home/tarun/dentobot/ros2_ws/src/DentoBot-handoff-20261007T213258Z-ebf146c5fa0944a3a2603b51114c4652`
 
-Fresh B T3 thread `30241a1d-091b-44ac-a744-a7cc4bff5caa`, project
-`9f73c26e-01fd-44a4-91e6-a74fc66225c6`, captured local hostname/pwd/HEAD/clean
-status before accessing A. The parent released execution ownership. Native A
-return thread `a6060eac-a37b-4ef4-8ad7-6c1e9f9a4dcc`, project `23121e64-c2be-4aa7-a11d-8202bdbf14a1`
-(**DentoBot A — handoff return**), then completed its sole read-only command
-on `tarun-Legion` using `gpt-6-luna` / `max`; no B access or file/runtime work.
-Coordinator retains closeout ownership; the A proof worker has finished.
+**Authoritative T3 routing (operator correction):** use the existing fixed
+projects named `dentobot`, not a new project for each Git handoff.
+
+- B project `772e40ab-42c5-454b-bd5e-660c32d62e6a`, root `/home/light-tarun/dentobot`;
+  continuation thread `a8815b54-033f-4480-9aa1-343da412036b`.
+- A project `4ccd124e-ce14-4318-b6f9-0310fa437544`, root `/home/tarun/dentobot`;
+  continuation thread `93766301-bcc4-4aa8-b6fd-beebaf953076`.
+
+Both native Luna Max continuations completed with their `worktreePath` set to
+the selected Git worktree above, correct host/path, clean status and
+`c9ea7bf262381f4ab4aeb947d8b222c8046b9c0b`. Project roots were not changed.
+Initial fresh B thread30241a1d proved local45f072b before any A access, but
+its extra-project routing and initial A proof threada6060eac are superseded.
+The typed API has no thread-move/reparent command; historical threads/projects
+are retained without database edits or deletion. Both proof workers finished;
+B coordinator retains closeout ownership.
 
 **Capability correction:** native authenticated `project.create`,
 `thread.create` and `thread.turn.start` work. The parent used them to create
@@ -28,11 +38,12 @@ this fresh B thread; this coordinator used A's packaged server CLI to mint a
 short-lived bearer and dispatch the native A return. No database/auth bypass
 or second server. A lacks a `t3` launcher on PATH, but its packaged server CLI
 is callable with `ELECTRON_RUN_AS_NODE=1`; the blanket unavailable claim was
-false. `dentobot open` still requires `t3 app`; select the registered A project
-in T3. Thread creation is not conversation/process migration.
+false. `dentobot open` still requires `t3 app`; select the existing `dentobot` project
+on the intended T3 host. Thread creation is not conversation/process migration.
 
 Evidence: `data/dentobot-runs/2026-10-07/PLAT-U-07-thread-finalize-20261007T214331Z/B-local-proof.json`,
-`A-native-dispatch-result.jsonl`, `A-return-thread-snapshot.json`;
+`fixed-project-thread-identities.json`,
+`A-fixed-project-thread-snapshot.json`, `B-fixed-project-thread-snapshot.json`;
 parent closeout evidence retains parity, both handoff manifests and launcher
 PASS. Physical A-offline observation remains unperformed (operator-controlled).
 Full S6/operator/cutover acceptance, any new pinned-mode reload campaign and
@@ -67,7 +78,7 @@ case campaign is required to establish conversation/source handoff.
    to change that session or silently waive another parity failure.
 3. Prepare A→B using the existing B-side `dentobot from-a --note ...`; select
    its returned destination worktree on B and recheck it. In T3 Connect select
-   the B environment/project and start a B-hosted thread with the returned
+   the B environment and its existing `dentobot` project and start a B-hosted thread with the returned
    `CONTINUE.md`, commit identity, evidence links and remaining task. Give it
    one harmless read-only continuation and confirm its actual B hostname,
    checkout and HEAD. A must have no active implementation owner for the
@@ -75,7 +86,8 @@ case campaign is required to establish conversation/source handoff.
    A; any real A shutdown/disconnection remains an operator action.
 4. When A is available, prepare the return from B with `dentobot to-a --note
    ...`, select the returned worktree on A, recheck its checkpoint and continue
-   in an A-hosted T3 thread. Transfer evolving cases individually with the
+   in an A-hosted T3 thread inside its existing `dentobot` project,
+   setting thread worktreePath to the returned checkout; do not add a project. Transfer evolving cases individually with the
    existing `dentobot sync-case` command only when a new save exists; the
    already transferred save/reopen fixture need not be copied again.
 5. Record the exact commands, two destination paths, T3 thread/environment
