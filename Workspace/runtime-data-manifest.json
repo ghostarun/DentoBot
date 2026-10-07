@@ -1,0 +1,242 @@
+[
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset113_ToothFairy3/nnUNetTrainer_onlyMirror01__nnUNetPlans__3d_lowres_high/dataset.json",
+    "sha256": "f47f7aff7b7690c5239a8c696a1361f521c93635865f207c41998d87aadf884c"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset113_ToothFairy3/nnUNetTrainer_onlyMirror01__nnUNetPlans__3d_lowres_high/dataset_fingerprint.json",
+    "sha256": "737093e22847089e6a56b7f2594e979a6d5276a0495aec9bcf495028bea4a877"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset113_ToothFairy3/nnUNetTrainer_onlyMirror01__nnUNetPlans__3d_lowres_high/fold_0/checkpoint_final.pth",
+    "sha256": "195ef8bb3f6de012c1200a961110ac5df525025cdbadbe09077ea35fd5424ef0"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset113_ToothFairy3/nnUNetTrainer_onlyMirror01__nnUNetPlans__3d_lowres_high/fold_0/debug.json",
+    "sha256": "f1eacb62c6447fa98bc2f6b8f73e52b9b8d76537456eb0b9110a423f35b51025"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset113_ToothFairy3/nnUNetTrainer_onlyMirror01__nnUNetPlans__3d_lowres_high/fold_0/progress.png",
+    "sha256": "6a2efd1dc13103731d376acaef6bb24cb879cf3ce84679f8d52d5ae733907c86"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset113_ToothFairy3/nnUNetTrainer_onlyMirror01__nnUNetPlans__3d_lowres_high/plans.json",
+    "sha256": "42a68b962ecf6533b14e96de96b556f213f70258a3b8a2d66f2ae7e31ba1c125"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset115_mandible/nnUNetTrainer_DASegOrd0_NoMirroring__nnUNetPlans__3d_fullres/dataset.json",
+    "sha256": "d23ce3c12647fecab96d5e8b9e3602274fab1cb91ee89f2d535591cf8e0f84f5"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset115_mandible/nnUNetTrainer_DASegOrd0_NoMirroring__nnUNetPlans__3d_fullres/dataset_fingerprint.json",
+    "sha256": "43e765c47b5ea81bfffdaeea5982f4a373ab30fd433d15b8dc84dcca13eb7a3b"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset115_mandible/nnUNetTrainer_DASegOrd0_NoMirroring__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+    "sha256": "8a65ceca091d90e4eb42ae994840e5813cb811bc8dc587c3612c05490259b44f"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset115_mandible/nnUNetTrainer_DASegOrd0_NoMirroring__nnUNetPlans__3d_fullres/fold_0/debug.json",
+    "sha256": "3bb0bdc1f54258a762107b0b860cf2641a1dd8495650066ecca376a49a6b3a46"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset115_mandible/nnUNetTrainer_DASegOrd0_NoMirroring__nnUNetPlans__3d_fullres/fold_0/progress.png",
+    "sha256": "3f8e9f58641e38659106f48e42cf6edbbe719bd17aaa68380f49b86621591cf7"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset115_mandible/nnUNetTrainer_DASegOrd0_NoMirroring__nnUNetPlans__3d_fullres/plans.json",
+    "sha256": "395d99a03f4b422ceaa40bdee121ab87c9e28e9bac312cd8fc117b3020199945"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/._.DS_Store",
+    "sha256": "e6df021ddfc97f84b7d8c30e84106c468f28116373260c014dc3f484dbea91f6"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/._.DS_Store",
+    "sha256": "8e7b3b7506e0820dd1d85d28766589706319376f6654979874f94b2aeed0c3e6"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/._dataset.json",
+    "sha256": "4fa57f69517241494e1a0e2e0c65e262cd08ce504f629910e0476bf625c38037"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/._dataset_fingerprint.json",
+    "sha256": "8d4995a29cf5088935ca441f5bb6d1552c3351317a54adb322724235fc7b38a1"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/._plans.json",
+    "sha256": "0aabf21900772ca2f3b33b4ca9eeeb80f3a6003c61049630409805354b0e4880"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/dataset.json",
+    "sha256": "09089590277fe1e62e73857145617c2392f449fe98a6c752a67aa6dc2023b1e2"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/dataset_fingerprint.json",
+    "sha256": "6a711df76da7c84bf17f237040610e8de5cc7ba86d6e63ee8df34b9345bc9c12"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/._.DS_Store",
+    "sha256": "909a83b4f5160de41e7e0631aab7c7a7b605bd2ab905745bdfdee3d56ffd6148"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/._debug.json",
+    "sha256": "0e51f5a51c9ccff23a95a9f6633474450c279b3db434c42c383b7be3ead05efa"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/._training_log_2023_5_13_11_18_49.txt",
+    "sha256": "64f76d00aff90624cbf699f5dc0d7b2efbfba8276cfca3267d353f9363acdb5e"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+    "sha256": "98c429f89fd9b3b08890fbb2b4c08c365ad4655fdcadb45efaa29380129fd890"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/debug.json",
+    "sha256": "80c629b877ccb4566ff5f78f3f1e80a6ea3f57a0977cabe689c99e5566275f85"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/progress.png",
+    "sha256": "3dfadddc6228d02b485d3261a2b5ba417e4bc0f03c568bad9cea56abb1d1487e"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset291_TotalSegmentator_part1_organs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/plans.json",
+    "sha256": "d77d815eb2bd11ec79b623161561dab4cef3def17dec0a0fe0f8d8dee3a761d5"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset292_TotalSegmentator_part2_vertebrae_1532subj/._.DS_Store",
+    "sha256": "a232d4c37ffeb8192ac6ec7d675c7e289023b759705e10986e4417af92c9b098"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset292_TotalSegmentator_part2_vertebrae_1532subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/._.DS_Store",
+    "sha256": "18e262ca15b9cd624a7e9a8e8d5829c228643d47cc8f4ff002e6ee970c37ec0c"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset292_TotalSegmentator_part2_vertebrae_1532subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/dataset.json",
+    "sha256": "5c967bfe82c846a6491473706e3c5d322f470ed4fce2eb5047a22c702ae64c79"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset292_TotalSegmentator_part2_vertebrae_1532subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/dataset_fingerprint.json",
+    "sha256": "7937cb753bcbfd131846263b45166270169c28ab1b2f4826673e9ca595a36ff3"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset292_TotalSegmentator_part2_vertebrae_1532subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+    "sha256": "7022f71829ef00aa14d790a7667bc18eb1691f2fe5b0a38c475862abc84c2457"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset292_TotalSegmentator_part2_vertebrae_1532subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/debug.json",
+    "sha256": "10f8d4364c9e395ee3bbe173c07cb97b2c6fa6059e481a3ab4f9cd563a7f909d"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset292_TotalSegmentator_part2_vertebrae_1532subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/progress.png",
+    "sha256": "e13c4076982470c035642b92461ee0fd5fb7b3d33bff9e8ac585cd38f499fcc8"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset292_TotalSegmentator_part2_vertebrae_1532subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/plans.json",
+    "sha256": "72fcde2fa59183f65b92fc86a12467acd81511d93d8d2577608550ad0c1938cd"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset293_TotalSegmentator_part3_cardiac_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/dataset.json",
+    "sha256": "ac8ee8e6d0040938a0e621b025fddd9fb82d15842b427ef1e590e84c6bb390c5"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset293_TotalSegmentator_part3_cardiac_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/dataset_fingerprint.json",
+    "sha256": "65c72df8d3d93340f2855d7fa7d5ab0c78a2db01c05f602e09ccca6fb1978959"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset293_TotalSegmentator_part3_cardiac_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+    "sha256": "189010ac67fec3f1704df7547306d0067eabaaf620e0a46a1bdd183afa0800e4"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset293_TotalSegmentator_part3_cardiac_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/debug.json",
+    "sha256": "fe054079d62c463a86b4c105758e177b770728140cf0efb7a87b0ebfe3bdb7fc"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset293_TotalSegmentator_part3_cardiac_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/progress.png",
+    "sha256": "a501c311ca5cbdfa550593f64fd261ba1ada2cf2bde63b96e06b37ad740e744a"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset293_TotalSegmentator_part3_cardiac_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/plans.json",
+    "sha256": "a048b27bfe30ca72a7a76f16cc5145ecc15f28911c6897793b93e6bea4b0e4a3"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset294_TotalSegmentator_part4_muscles_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/dataset.json",
+    "sha256": "3c0002bc06677197f1597a5143ccfebd556508563edd9282a46f057d5a0d5965"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset294_TotalSegmentator_part4_muscles_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/dataset_fingerprint.json",
+    "sha256": "fb2ec614faf486159a4bd660f50a1ba44a72eacffd5d67feb7409765d56f2e24"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset294_TotalSegmentator_part4_muscles_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+    "sha256": "655eb40de03aa3de7348b69d7569a1cc3a2dc7969a11c0d60a7331e07df11c28"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset294_TotalSegmentator_part4_muscles_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/debug.json",
+    "sha256": "2cab20a494100bd07b67b94957f3411e2e20a4f7ffe813d8f4a3138d61cd3cd2"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset294_TotalSegmentator_part4_muscles_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/progress.png",
+    "sha256": "835036e5d2a65c296764f0e90c8f307899982a930fc7442a571a3c2b9450bcc3"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset294_TotalSegmentator_part4_muscles_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/plans.json",
+    "sha256": "63c9175c2f3fdff5e67ae55ea56250fb44ba53034335f1781081da9b9bdea709"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset295_TotalSegmentator_part5_ribs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/dataset.json",
+    "sha256": "71228770dbcb9d303e6943dd1017b19346857b3fbc30e912dba30a704d1ac8f6"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset295_TotalSegmentator_part5_ribs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/dataset_fingerprint.json",
+    "sha256": "287b5d036b3145284a13fa9477e5f748648889592aee4c7330d06e40df6cdcfa"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset295_TotalSegmentator_part5_ribs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+    "sha256": "a674364c60b304fbd56feccdd95f8d0fe0c45a5bfa1ef25815516e4dde04d3fc"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset295_TotalSegmentator_part5_ribs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/debug.json",
+    "sha256": "1cb081c186f8ff92992e36392b2dc1e79a323608a5081374bd466c6d48763600"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset295_TotalSegmentator_part5_ribs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/progress.png",
+    "sha256": "f38ff0e71e72d70b443efe5e529870eab5b474cc01d3701b633da14ae3eab9ca"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset295_TotalSegmentator_part5_ribs_1559subj/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/plans.json",
+    "sha256": "241fa585e763462a7f4ab593d34e466a58cbce17c87b64d260a7ee5010416132"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset298_TotalSegmentator_total_6mm_1559subj/._.DS_Store",
+    "sha256": "2728ba6baa6dafd20fa4621f02e03ba42e9fc0eb7897d03c54850e406d23d997"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset298_TotalSegmentator_total_6mm_1559subj/nnUNetTrainer_4000epochs_NoMirroring__nnUNetPlans__3d_fullres/dataset.json",
+    "sha256": "e804e08ad8912e3a6f541741c8c78799d75acbd3f4f3f18ff5f211bbd3da961a"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset298_TotalSegmentator_total_6mm_1559subj/nnUNetTrainer_4000epochs_NoMirroring__nnUNetPlans__3d_fullres/dataset_fingerprint.json",
+    "sha256": "703afc1b58d440a031f61ac61fd90d5672027fe531ea8ce7693a2a73bd041b1c"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset298_TotalSegmentator_total_6mm_1559subj/nnUNetTrainer_4000epochs_NoMirroring__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+    "sha256": "3489323a4b759506ab46b489eb78b72142f2143aea6e6d828604d754bd7a9270"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset298_TotalSegmentator_total_6mm_1559subj/nnUNetTrainer_4000epochs_NoMirroring__nnUNetPlans__3d_fullres/fold_0/debug.json",
+    "sha256": "557737622576c6e067eead7c8499d965b1403742a6a0bd31ee37b1fec2464f58"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset298_TotalSegmentator_total_6mm_1559subj/nnUNetTrainer_4000epochs_NoMirroring__nnUNetPlans__3d_fullres/fold_0/progress.png",
+    "sha256": "6d4e0d701e0b74efe36a967d724e422d67d56e36c4fb04d5f113279f4be0006c"
+  },
+  {
+    "path": "model-cache/totalsegmentator/nnunet/results/Dataset298_TotalSegmentator_total_6mm_1559subj/nnUNetTrainer_4000epochs_NoMirroring__nnUNetPlans__3d_fullres/plans.json",
+    "sha256": "bfd9ab6cfc0e094ced3aff7d7ad23e00e4d50376110b9fdfce0fbca5564c8ca8"
+  },
+  {
+    "path": "Slicer_Saved/SampleCBCT/Oct6-multitarget/dentobot-case_5tooth-sample-final_fdi11-14-31-34-42.dentocase",
+    "sha256": "be58b2431c4829c3101a2dd732c3dcfde823013461a399b0e9f071f0f34f7e54"
+  }
+]
