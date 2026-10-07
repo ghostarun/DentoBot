@@ -1,5 +1,30 @@
 # DENTOBOT Tasks
 
+## 7 October — `S6-MULTI-JAW-STALE-01` Step A: load-only ROS auto-connect
+
+Contract: [P0 handoff, Step A](handoffs/2026-10-07-P0-pass.md). Operator directs
+implementation with up to two Luna Max workers. After a verified case load
+lands in Step 6, a compatible robot profile, selected VALID branch and saved
+configuration permit restoration followed by the existing shell Connect owner.
+Manual navigation, Import and Restore never auto-connect. Task Home is staged
+in the jog controls only; no automatic review, acceptance or motion.
+
+Implemented in the shared case loader after restore-barrier teardown and final
+profile checks, covering File and library loads. Each restore resets an explicit
+success flag; failed/partial restores cannot connect. Matching configurations
+still stage saved Home; missing controls fail closed. Case-open status uses live
+ROS state. Public signatures, registry 3.0 and safety policy are preserved.
+
+Evidence: 27 focused fake/AST checks, 5 structure checks and 80 existing P0 pure
+checks passed; compilation and diff checks exited 0. Required matrix results:
+planning 300, restore 99, dentocase 94, responsive planning 297 passed; handoff
+579, focus 32, five-DOF 525 and manual TCP 390 passed with the same two documented
+application-shell baseline failures each (exit 1, not a clean suite PASS).
+Exact commands/results: `data/dentobot-runs/2026-10-07/S6-MULTI-JAW-STALE-01-A-20261007T140720Z`;
+see [today's logbook](logbook/2026-10-07.md). Runtime/GUI/operator acceptance is
+NOT RUN and remains in backlog under this owner. Graph refresh unavailable:
+`graphify` not on PATH; no graph success claimed.
+
 ## 4 October — UI-P3-01 narrow-fit slice: whole-module width contract
 
 **Operator statements (4 Oct):** redesign the GUI so contents always autofit the

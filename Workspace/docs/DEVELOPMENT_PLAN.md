@@ -1,5 +1,17 @@
 # DENTOBOT Development Plan
 
+## 7 October — P0 Step A source checkpoint
+
+`S6-MULTI-JAW-STALE-01` load-only auto-connect is implemented and unit verified
+at the scope in [TASKS](TASKS.md), with the two unchanged application-shell
+baseline failures reported separately. This is not runtime or operator
+acceptance. The [P0 handoff](handoffs/2026-10-07-P0-pass.md) retains the campaign
+gate: real case-load/branch-switch/save-reopen checks must demonstrate automatic
+connection only after successful restoration when landing in Step 6, manual
+Import remaining disconnected, and Task Home staged without review/acceptance
+or motion. Runtime remains session-approved and serialized; backlog owns the
+pending gate and Step B dependency order.
+
 ## 4 October — bounded Task Home recovery evidence (`S6-LIVE-01`)
 
 Current operator scope authorizes the Oct4-case collision-rejection recovery

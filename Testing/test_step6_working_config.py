@@ -74,6 +74,8 @@ def test_restore_never_moves_the_robot_and_save_is_branch_scoped():
                       "_onShellConnectRobot"):
         assert forbidden not in restore, forbidden
     assert "manualJogJointControls" in restore  # Task Home is only staged
+    assert "self._step6WorkingConfigurationRestoreSucceeded = False" in restore
+    assert "self._step6WorkingConfigurationRestoreSucceeded = True" in restore
     logic = _source("dentobot_workflow/logic_case_bundle.py")
     store = logic[logic.index("def storeStep6WorkingConfiguration"):]
     store = store[:store.index("\n    def ", 10)]

@@ -780,7 +780,18 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
             inspection.workflow.get("caseIdentity", {}).get("id") or uuid.uuid4()
         )
         self._loadedCaseBundlePath = str(inspection.path)
+
+        # Reconcile the selected branch before adopting older research-store
+        # configurations. Keep this in the shared loader so every case-load
+        # route has the same branch configuration available to the Step 6 hook.
+        self.logic.syncDentoCaseTrajectoryRegistry(self._parameterNode)
+        imported = self.logic.importResearchStep6WorkingConfigurations(self._parameterNode)
+        if imported:
+            logging.info(
+                "Adopted research Step 6 working configurations for %s", ", ".join(imported)
+            )
         phase("Case loaded", can_cancel=False)
+        self._restoreBranchConfigurationOnCaseLoad()
         return inspection
 
     def onOpenCaseBundle(self, checked: bool = False) -> None:
@@ -824,11 +835,6 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
         registry = self.logic.syncDentoCaseTrajectoryRegistry(
             self._parameterNode
         )
-        imported = self.logic.importResearchStep6WorkingConfigurations(self._parameterNode)
-        if imported:
-            logging.info(
-                "Adopted research Step 6 working configurations for %s", ", ".join(imported)
-            )
         foundationOnly = bool(
             foundation["pose"]["eligible"]
             and foundation["base"]["eligible"]
@@ -840,6 +846,25 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
         jawIssues = self.logic.step6CaseJawOpeningFreshnessIssues(
             self._parameterNode
         )
+        rosConnected = bool(
+            self.logic.isRos2MotionControlActive(
+                self._parameterNode.robotBaseTransform
+            )
+        )
+        homeStaged = False
+        if getattr(
+            self, "_step6WorkingConfigurationRestoreSucceeded", False
+        ):
+            try:
+                restoredRecord = self.logic.step6WorkingConfiguration(
+                    self._parameterNode
+                )
+                homeStaged = bool(
+                    restoredRecord
+                    and restoredRecord["config"].get("task_home_si")
+                )
+            except (RuntimeError, ValueError, TypeError, KeyError):
+                homeStaged = False
         if not self._caseBundleRobotProfileCompatible:
             message = _(
                 "Loaded %1, but the installed robot description differs from the "
@@ -870,9 +895,23 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
             )
             color = "#9a6500"
         else:
-            message = _(
-                "Loaded and verified %1. ROS remains disconnected until explicit runtime activation."
-            ).replace("%1", inspection.path.name)
+            if rosConnected:
+                message = _(
+                    "Loaded and verified %1. ROS is connected."
+                ).replace("%1", inspection.path.name)
+            else:
+                message = _(
+                    "Loaded and verified %1. ROS remains disconnected until explicit runtime activation."
+                ).replace("%1", inspection.path.name)
+            if homeStaged:
+                message += _(
+                    " The saved Task Home is staged in 6.2 pending %1."
+                ).replace(
+                    "%1",
+                    _("operator review and acceptance")
+                    if rosConnected
+                    else _("connection, operator review and acceptance"),
+                )
             color = "#207227"
         message += _(
             " All Steps 1–6 remain selectable; use the stage/workspace picker "

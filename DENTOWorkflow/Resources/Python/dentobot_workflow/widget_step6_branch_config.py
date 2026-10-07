@@ -100,6 +100,7 @@ class Step6BranchConfigWidgetMixin:
         staged as the 6.2 jog draft. Nothing moves without the operator.
         """
 
+        self._step6WorkingConfigurationRestoreSucceeded = False
         del checked
         panel, facade = self._robotSimulationPanel, self._robotWorkflowFacade
         if not self._parameterNode or not self.logic or not facade or not panel:
@@ -123,64 +124,70 @@ class Step6BranchConfigWidgetMixin:
             diffs = step6_working_config.differences(
                 record, self._currentStep6WorkingConfiguration()
             )
-            if not diffs:
-                panel.showBranchConfigStatus(_("Step 6 already matches this branch's saved configuration."))
-                return steps
-            if {"mouth_opening_mm", "base_world_mm"} & set(diffs) and self.logic.isRos2MotionControlActive(
-                self._parameterNode.robotBaseTransform
-            ):
-                result = facade.disconnect()
-                if not result.success:
-                    raise ValueError(result.message)
-                steps.append("disconnect")
-            if "mouth_opening_mm" in diffs:
-                self._parameterNode.step6CaseJawTargetGapMm = float(config["mouth_opening_mm"])
-                wasUpdating = self._updatingFromParameterNode
-                self._updatingFromParameterNode = True
-                try:
-                    self.logic.createOrUpdateStep6CaseJawOpening(self._parameterNode)
-                finally:
-                    self._updatingFromParameterNode = wasUpdating
-                facade.clearTransientState()
-                self._updateStep6CaseJawOpeningControls()
-                steps.append(("opening", float(config["mouth_opening_mm"])))
-                if not self._parameterNode.step6PlanningContextImported:
-                    self.logic.importStep6PlanningContext(self._parameterNode)
-                    steps.append("import")
-            if "base_world_mm" in diffs or not self._parameterNode.robotBaseMountLocked:
-                flat = tuple(float(value) for row in config["base_world_mm"] for value in row)
-                if self._parameterNode.robotBaseMountLocked:
-                    result = facade.unlockBase()
+            if diffs:
+                if {"mouth_opening_mm", "base_world_mm"} & set(diffs) and self.logic.isRos2MotionControlActive(
+                    self._parameterNode.robotBaseTransform
+                ):
+                    result = facade.disconnect()
                     if not result.success:
                         raise ValueError(result.message)
-                result = facade.stageManualBaseReview(flat)
-                if not result.success:
-                    facade.cancelManualBaseReview()
+                    steps.append("disconnect")
+                if "mouth_opening_mm" in diffs:
+                    self._parameterNode.step6CaseJawTargetGapMm = float(config["mouth_opening_mm"])
+                    wasUpdating = self._updatingFromParameterNode
+                    self._updatingFromParameterNode = True
+                    try:
+                        self.logic.createOrUpdateStep6CaseJawOpening(self._parameterNode)
+                    finally:
+                        self._updatingFromParameterNode = wasUpdating
+                    facade.clearTransientState()
+                    self._updateStep6CaseJawOpeningControls()
+                    steps.append(("opening", float(config["mouth_opening_mm"])))
+                    if not self._parameterNode.step6PlanningContextImported:
+                        self.logic.importStep6PlanningContext(self._parameterNode)
+                        steps.append("import")
+                if "base_world_mm" in diffs or not self._parameterNode.robotBaseMountLocked:
+                    flat = tuple(float(value) for row in config["base_world_mm"] for value in row)
+                    if self._parameterNode.robotBaseMountLocked:
+                        result = facade.unlockBase()
+                        if not result.success:
+                            raise ValueError(result.message)
                     result = facade.stageManualBaseReview(flat)
-                if result.success:
-                    result = facade.acceptManualBaseReview()
-                if not result.success:
-                    raise ValueError(result.message)
-                steps.append("base")
-            policy = facade.jointPlanningPolicy()
-            plannerId = config["planner_id"] or policy["planner_id"]
-            facade.setJointPlanningPolicy(
-                plannerId, config["planning_attempts"], config["planning_time_sec"]
-            )
-            panel.setPlanningPolicy(
-                plannerId, config["planning_attempts"], config["planning_time_sec"]
-            )
-            facade.setApproachCorridorMarginSamples(config["corridor_margin_samples"])
-            if bool(self._parameterNode.step6AllowSpindleGuideContact) != config["allow_spindle_guide_contact"]:
-                self._onSetSpindleGuideContact(config["allow_spindle_guide_contact"])
-            steps.append("policy")
-            if "task_home_si" in diffs and config["task_home_si"]:
+                    if not result.success:
+                        facade.cancelManualBaseReview()
+                        result = facade.stageManualBaseReview(flat)
+                    if result.success:
+                        result = facade.acceptManualBaseReview()
+                    if not result.success:
+                        raise ValueError(result.message)
+                    steps.append("base")
+                policy = facade.jointPlanningPolicy()
+                plannerId = config["planner_id"] or policy["planner_id"]
+                facade.setJointPlanningPolicy(
+                    plannerId, config["planning_attempts"], config["planning_time_sec"]
+                )
+                panel.setPlanningPolicy(
+                    plannerId, config["planning_attempts"], config["planning_time_sec"]
+                )
+                facade.setApproachCorridorMarginSamples(config["corridor_margin_samples"])
+                if bool(self._parameterNode.step6AllowSpindleGuideContact) != config["allow_spindle_guide_contact"]:
+                    self._onSetSpindleGuideContact(config["allow_spindle_guide_contact"])
+                steps.append("policy")
+            if config["task_home_si"]:
+                controls = {
+                    joint: panel.manualJogJointControls.get(joint)
+                    for joint in config["task_home_si"]
+                }
+                missingControls = [joint for joint, control in controls.items() if control is None]
+                if missingControls:
+                    raise ValueError(
+                        _("Saved Task Home controls are unavailable for: %1")
+                        .replace("%1", ", ".join(missingControls))
+                    )
                 for joint, value in config["task_home_si"].items():
-                    control = panel.manualJogJointControls.get(joint)
-                    if control is not None:
-                        control[1].setValue(
-                            value * 1000.0 if "Slider" in joint else math.degrees(value)
-                        )
+                    controls[joint][1].setValue(
+                        value * 1000.0 if "Slider" in joint else math.degrees(value)
+                    )
                 steps.append("home_staged")
         except (RuntimeError, ValueError) as exc:
             panel.showBranchConfigStatus(
@@ -191,14 +198,89 @@ class Step6BranchConfigWidgetMixin:
         self._updateRobotPlacement()
         self._updateStep6PlanningUi()
         panel.showBranchConfigStatus(
-            _("Restored: ") + self._step6WorkingConfigurationSummary(record)
+            (
+                _("Step 6 already matches this branch's saved configuration: ")
+                if not diffs else _("Restored: ")
+            ) + self._step6WorkingConfigurationSummary(record)
             + (
-                _(" Saved Task Home is staged in 6.2 — Connect, then Review and Accept it.")
+                _(" Saved Task Home is staged in 6.2 pending operator review and acceptance.")
                 if "home_staged" in steps
                 else ""
             )
         )
+        self._step6WorkingConfigurationRestoreSucceeded = True
         return steps
+
+    def _restoreBranchConfigurationOnCaseLoad(self) -> bool:
+        """Restore a saved branch configuration only when case load lands in Step 6."""
+
+        self._step6WorkingConfigurationRestoreSucceeded = False
+        ui = getattr(self, "ui", None)
+        stageCombo = getattr(ui, "workflowStageComboBox", None)
+        entries = self._workflowStageEntries() if stageCombo is not None else []
+        if (
+            stageCombo is None
+            or not entries
+            or int(stageCombo.currentIndex) != len(entries) - 1
+            or getattr(self, "_caseBundleRobotProfileCompatible", None) is not True
+        ):
+            return False
+
+        node = getattr(self, "_parameterNode", None)
+        logic = getattr(self, "logic", None)
+        facade = getattr(self, "_robotWorkflowFacade", None)
+        panel = getattr(self, "_robotSimulationPanel", None)
+        if not node or not logic or not facade or not panel:
+            return False
+
+        try:
+            record = logic.step6WorkingConfiguration(node)
+            if not record:
+                return False
+            eligibility = logic.evaluatePreparedBranchEligibility(node)
+            if eligibility.get("reason") != "VALID":
+                panel.showBranchConfigStatus(
+                    _("Saved Step 6 configuration was not restored because the selected branch is not valid: %1")
+                    .replace("%1", str(eligibility.get("message") or "")),
+                    "warning",
+                )
+                return False
+            if getattr(self, "_workflowActionBusy", False):
+                panel.showBranchConfigStatus(
+                    _("Saved Step 6 configuration was not restored because a Step 6 action is already in progress."),
+                    "warning",
+                )
+                return False
+            if not node.step6PlanningContextImported:
+                report = logic.importStep6PlanningContext(node)
+                try:
+                    self._applyTaskJointLimitsToJointSpinboxes()
+                except ValueError:
+                    pass
+                self._applyStep6RecommendedView()
+                self.onFrameStep6CaseScene()
+                self._updateStep6PlanningUi(report.message)
+        except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+            panel.showBranchConfigStatus(
+                _("Case-load Step 6 restore stopped: ") + str(exc), "error"
+            )
+            self._updateStep6PlanningUi(str(exc), error=True)
+            slicer.util.errorDisplay(str(exc))
+            return False
+
+        try:
+            self.onRestoreStep6WorkingConfiguration()
+        except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+            panel.showBranchConfigStatus(
+                _("Case-load Step 6 restore stopped: ") + str(exc), "error"
+            )
+            self._updateStep6PlanningUi(str(exc), error=True)
+            slicer.util.errorDisplay(str(exc))
+            return False
+        if not getattr(self, "_step6WorkingConfigurationRestoreSucceeded", False):
+            return False
+        self._onShellConnectRobot()
+        return True
 
     def _offerStep6WorkingConfigurationRestore(self) -> None:
         """After activating a branch, offer its saved Step 6 configuration (never silent)."""

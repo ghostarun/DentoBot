@@ -7528,3 +7528,17 @@ change still invalidates Step 6 runtime state (task confirmation, Base, workspac
 when provably recorded at the current opening; Step 5C verification is carried over only if it matched under the
 old rules — never re-verified or relaxed silently. Each branch also stores its own Step 6 working configuration
 (opening, Base, Task Home, policy) in the dentocase; restoring stages Task Home only (no motion).
+
+### 7 October — Step A implementation staffing (current operator scope)
+
+Operator: "start with A, use upto 2 luna max subagents as required". For this
+bounded auto-connect follow-up, two `gpt-6-luna` / `max` workers may own disjoint
+production and pure-test files. This supersedes optional-one/xhigh staffing only
+for this assignment; coordinator retains integration, controlled records and
+acceptance. Workers do not delegate or run GUI/ROS/build resources. The current
+coordinator session remains GPT-6.1-Sol / medium; no model switch is claimed.
+Step A implements the previously recorded load-into-Step-6 auto-connect decision
+through the shell Connect owner after a successful branch-config restore. Manual
+Import/restore remains connect-free and Task Home is staged only. Pure/static
+verification follows the handoff; no Slicer/ROS/MoveIt session is authorized by
+this instruction.
