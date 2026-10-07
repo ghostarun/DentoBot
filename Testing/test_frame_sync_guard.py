@@ -219,6 +219,7 @@ def _diagnostic_sources():
     candidates.update(TESTING_ROOT.glob("step6_feasibility_advisor_runner.py"))
     candidates.update(TESTING_ROOT.glob("step6_frame_sync*.py"))
     candidates.update(TESTING_ROOT.glob("step6_scene_mesh_compare.py"))
+    candidates.update(TESTING_ROOT.glob("step6_frame_sync_known_answers.py"))
     candidates.update(TESTING_ROOT.glob("*frame_sync*audit*.py"))
     candidates.update(TESTING_ROOT.glob("*audit*frame_sync*.py"))
     candidates.update(PROJECT_ROOT.rglob("base_diagnosis.py"))

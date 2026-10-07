@@ -5715,6 +5715,21 @@ class DENTOWorkflowTestMixin:
         self.assertEqual(retainedMetrics["occupiedVolumeRegionCount"], 2)
         self.assertEqual(int(np.count_nonzero(retainedMask)), 104)
 
+    def test_DENTOWorkflowFrameSyncKnownTransforms(self) -> None:
+        """Explicit fixture regression, invoked only by the approved frame campaign."""
+        fixture = os.environ.get("DENTOBOT_FRAME_SYNC_FIXTURE", "")
+        evidence = os.environ.get("DENTOBOT_FRAME_SYNC_EVIDENCE_DIR", "")
+        if not fixture or not evidence:
+            self.skipTest("Frame-sync requires explicit de-identified fixture and run-local evidence directory.")
+        testing = Path(__file__).resolve().parents[4] / "Testing"
+        if str(testing) not in sys.path:
+            sys.path.insert(0, str(testing))
+        from step6_frame_sync_known_answers import run_known_answers
+
+        rows = run_known_answers(fixture, Path(evidence) / "known-transforms", DENTOWorkflowLogic)
+        self.assertEqual(len(rows), 6)
+        self.assertTrue(all(row["status"] == "PASS" for row in rows))
+
     def test_DENTOWorkflowVisibleTemplateSupportSurface(self) -> None:
         """Select crown-like patches from separate full-tooth surfaces in RAS."""
 
