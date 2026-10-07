@@ -1,5 +1,17 @@
 # Dentobot Technical Decisions
 
+## 2026-10-08 — no fixed model names in AGENTS.md; A↔B rules promoted to AGENTS.md
+
+Operator direction (Tarun, 8 October): "remove model name in agents.md". The
+B-hosted Claude thread applied this in `4fb1251`. `AGENTS.md` no longer fixes
+`gpt-6-sol`, `gpt-6-luna`, Sol or Terra. The agent, model and effort are chosen
+per thread and, for A↔B handoffs, confirmed by the operator before dispatch.
+The 2026-09-23 GPT-6 routing remains dated history, not an active instruction.
+Operator-approved follow-up: the A↔B handoff/testing decisions (entry below)
+and the operator's "Thread handoff" procedure are now hard rules in
+`AGENTS.md`, without model names, because `DECISIONS.md` is not loaded at
+thread start.
+
 ## 2026-10-08 — A-orchestrated B testing: completion notice, explicit agent choice, script-only B (`PLAT-U-07` Goal 2)
 
 Operator decisions (Tarun, about 05:00 IST, relayed by the B-hosted Claude

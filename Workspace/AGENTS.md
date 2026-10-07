@@ -268,3 +268,36 @@ run-start date. Configure existing output overrides before execution, keep all
 run evidence/session files together, and archive completed verification scratch
 there. Do not create flat root run folders, overwrite runs, or move live writers.
 The canonical verification protocol retains execution/acceptance authority.
+
+## Thread handoff
+
+When the operator says `handoff` (or context is heavy and a fresh thread is
+needed), stop at a safe point, start no new work, and add a dated section to
+`HANDOFF.md` at the operator workspace root (`/home/tarun/dentobot/HANDOFF.md`),
+keeping earlier sections. Include: what is done (file paths, commit hashes), what
+is next in order, decisions already made, gotchas, open questions, and commands
+to verify the state. Then reply with one fenced `text` block (under 80 words) to
+paste into the new thread: the one job, "read HANDOFF.md first", and the first
+next step. Do not run verification or runtime tasks as part of the handoff.
+
+## A↔B handoff and B testing — operator decisions 2026-10-08 (`PLAT-U-07`)
+
+- Single docs writer: the A-hosted orchestrator alone edits controlled docs.
+- Before any thread handoff, run `handoff-thread.py --list` on the target host,
+  present the agent (Codex or Claude), model, effort and subagent policy
+  (`none` default / `one-readonly-verifier` / `one-implementation-worker`),
+  and get the operator's confirmation. Dispatch only with explicit
+  `--agent/--model/--subagents`; the new thread restates the selection and
+  confirms before runtime work.
+- Routine B tests are script-only (no B agent): run the B request as a
+  background job on A and keep working; collect the evidence on exit, or later
+  via B's done marker. Open a read-only B diagnosis thread only for a failure
+  A cannot explain from the evidence.
+- B tests only origin-pushed SHAs (work in progress: a throwaway `test/…`
+  branch), never A's working tree. Label results "verified at <sha>"; before
+  reusing one at a later HEAD, run `git diff <sha>..HEAD` on the covered files
+  and rerun if they changed.
+- B produces evidence, not code; any B code change uses a `b/…` branch that A
+  merges deliberately.
+- Every B GUI result still stops for the operator's manual verdict
+  (`S6-LIVE-01` gate). Reasons: `docs/DECISIONS.md` 2026-10-08.
