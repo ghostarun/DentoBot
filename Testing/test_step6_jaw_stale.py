@@ -304,3 +304,35 @@ def test_eligibility_binds_to_the_opening_independent_foundation_identity():
     assert 'verification.get("branchFoundationFingerprint")' in eligibility
     assert 'foundation["planning_pose_fingerprint"]' not in eligibility
     assert 'verification.get("planningPoseFingerprint")' not in eligibility
+
+
+def test_case_registry_audit_preserves_legacy_and_requires_matching_migration():
+    path = LOGIC / "logic_case_validation.py"
+    tree = ast.parse(path.read_text())
+    method = next(n for cls in tree.body if isinstance(cls, ast.ClassDef)
+                  for n in cls.body if isinstance(n, ast.FunctionDef)
+                  and n.name == "_caseBundleRegistryForAudit")
+    namespace = {"REGISTRY_PROVENANCE_FRAME_KEY": state.REGISTRY_PROVENANCE_FRAME_KEY,
+                 "canonical_json": state.canonical_json,
+                 "parse_trajectory_registry": state.parse_trajectory_registry,
+                 "CaseBundleError": ValueError}
+    module = ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[]))
+    exec(compile(module, str(path), "exec"), namespace)
+    audit = namespace["_caseBundleRegistryForAudit"]
+    legacy = state.empty_trajectory_registry()
+    legacy.pop(state.REGISTRY_PROVENANCE_FRAME_KEY)
+    migrated = state.empty_trajectory_registry()
+    logic = SimpleNamespace()
+    assert audit(logic, legacy, postHydration=False) == (legacy, True)
+    with pytest.raises(ValueError, match="No validated registry migration"):
+        audit(logic, legacy, postHydration=True)
+    logic._caseBundleRegistryMigrationAudit = (state.canonical_json(legacy), state.canonical_json(migrated))
+    assert audit(logic, legacy, postHydration=True) == (migrated, False)
+    changed = dict(legacy, selected_branch_id="different")
+    with pytest.raises(ValueError, match="No validated registry migration"):
+        audit(logic, changed, postHydration=True)
+    assert audit(logic, migrated, postHydration=True) == (migrated, False)
+    # The migration proof is frozen, not a reference to a mutable live registry.
+    returned, _ = audit(logic, legacy, postHydration=True)
+    returned["selected_branch_id"] = "changed-after-hydration"
+    assert audit(logic, legacy, postHydration=True) == (migrated, False)

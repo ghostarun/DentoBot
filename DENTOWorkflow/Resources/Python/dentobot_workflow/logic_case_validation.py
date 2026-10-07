@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 
 from .runtime import *
+from DENTOStep6State import REGISTRY_PROVENANCE_FRAME_KEY
 
 
 class CaseValidationLogicMixin:
@@ -140,11 +141,11 @@ class CaseValidationLogicMixin:
             )
         return record
 
-    def caseBundleWorkflowSummary(self, parameterNode) -> dict[str, object]:
+    def caseBundleWorkflowSummary(self, parameterNode, *, legacyProvenance=False) -> dict[str, object]:
         """Describe persistent case state without duplicating its geometry."""
 
         foundation = self.evaluateCaseFoundationEligibility(parameterNode)
-        registry = self.syncDentoCaseTrajectoryRegistry(parameterNode)
+        registry = self.syncDentoCaseTrajectoryRegistry(parameterNode, legacyProvenance=legacyProvenance)
         reviewedTargets = []
         segmentation = parameterNode.teethSegmentation
         if segmentation is not None and self.getSegmentationReviewState(segmentation) == "Reviewed":
@@ -441,6 +442,16 @@ class CaseValidationLogicMixin:
         )
         return currentFingerprint == expectedFingerprint
 
+    def _caseBundleRegistryForAudit(self, expectedRegistry, *, postHydration):
+        """Compare legacy bytes before migration, then its validated frozen result."""
+        legacy = isinstance(expectedRegistry, dict) and REGISTRY_PROVENANCE_FRAME_KEY not in expectedRegistry
+        if not legacy or not postHydration:
+            return expectedRegistry, legacy
+        migration = getattr(self, "_caseBundleRegistryMigrationAudit", None)
+        if migration is None or migration[0] != canonical_json(expectedRegistry):
+            raise CaseBundleError("No validated registry migration matches this package.")
+        return parse_trajectory_registry(migration[1]), False
+
     def validateLoadedCaseBundleWorkflow(
         self,
         parameterNode,
@@ -513,13 +524,21 @@ class CaseValidationLogicMixin:
         expectedStep6 = expected.get("step6")
         if not isinstance(expectedStep6, dict):
             raise CaseBundleError(_("The Step 6 package-lineage record is invalid."))
-        currentStep6 = self.caseBundleWorkflowSummary(parameterNode)["step6"]
+        registryForAudit, legacyProvenance = self._caseBundleRegistryForAudit(
+            expectedStep6.get("trajectoryRegistry"),
+            postHydration=allowDerivedEnvironmentMismatch,
+        )
+        currentStep6 = self.caseBundleWorkflowSummary(
+            parameterNode, legacyProvenance=legacyProvenance
+        )["step6"]
         # Step 6 lineage extensions are optional for schema-V1 compatibility.
         # Compare every field that the package actually records, without making
         # old bundles invent the new placement/home/task records. Historical
         # readiness evidence is not persistent state: current software may add
         # prerequisites, so it is re-evaluated after integrity validation.
         expectedComparableStep6 = copy.deepcopy(expectedStep6)
+        if "trajectoryRegistry" in expectedComparableStep6:
+            expectedComparableStep6["trajectoryRegistry"] = registryForAudit
         expectedComparableStep6.pop("freshnessIssuesAtSave", None)
         # Hydration intentionally clears this transient runtime marker before
         # the post-bind audit; it is not package identity or lineage.

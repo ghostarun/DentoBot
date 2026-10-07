@@ -911,6 +911,8 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
     def hydrateDentoCaseStateAfterLoad(
         self, parameterNode, packageSchemaVersion: str
     ) -> None:
+        # A failed/new restore cannot reuse another case's migration proof.
+        self._caseBundleRegistryMigrationAudit = None
         savedEnvironment = None
         savedRegistry = None
         environmentPayload = str(parameterNode.step6EnvironmentJson or "").strip()
@@ -1091,6 +1093,13 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
                 parameterNode.step6BasePlacementSource = MANUAL_SIMULATION_BASE_SOURCE
         # Package load never restores an active Step 6 branch or live runtime.
         parameterNode.step6PlanningContextImported = False
+        if legacySavedRegistry:
+            # Freeze the output only after strict legacy equality and all
+            # hydration checks succeed. The post-event audit compares against
+            # this snapshot; it must not simply accept a freshly rebuilt registry.
+            self._caseBundleRegistryMigrationAudit = (
+                canonical_json(savedRegistry), canonical_json(rebuiltRegistry)
+            )
 
     def activateDentoCasePreparedBranch(
         self,
