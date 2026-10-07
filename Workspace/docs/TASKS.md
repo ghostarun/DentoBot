@@ -2569,5 +2569,9 @@ script on both PCs, with backups. The personal check now flags pre-change or
 custom T3 Codex backends instead of passing solely from config on disk. Focused
 checks: installer 5 passed, personal checker 6 passed; fresh ephemeral Codex
 requests on both PCs returned ROUTING_OK via proxy WebSockets on distinct
-accounts. Existing T3 backend migration awaits a safe ThinkStation restart;
-representative quota fallback remains unaccepted under the same backlog ID.
+accounts. Operator authorized ThinkStation restart and continued the Legion rollout.
+Both T3 backends restarted; proxy environment verified on ThinkStation PID
+553776 and Legion PID 193475. The resumed ThinkStation Codex app-servers
+inherit the proxy, and actual response completions appear in Switcher logs.
+Personal-tools-check from Legion exits 0. Representative quota fallback
+remains unaccepted under the same backlog ID.

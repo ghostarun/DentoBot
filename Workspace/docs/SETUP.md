@@ -2129,3 +2129,7 @@ installer script at ~/.local/share/t3code-personal/install.py; prior scripts
 are retained as install.py.before-switcher-routing-20261008. Installed app
 version stays 0.0.4503. Safe T3 restart/resume is required for old native Codex
 backends to inherit the restored proxy route. See PERSONAL_TWO_PC_TOOLS.md.
+
+2026-10-08 activation verified: both T3 Personal 0.0.4503 backends restarted
+and inherit OPENAI_BASE_URL=http://127.0.0.1:18080/v1. Legion also inherits its
+personal Switcher launcher. The paired compatibility check exits 0.
