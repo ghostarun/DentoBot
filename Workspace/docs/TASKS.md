@@ -23,6 +23,9 @@ production mesh gate phase2 deferred. Evidence: S6-FRAME-SYNC-01-L2-20261007T145
 L3 source/pure ready: 49 focused pass; explicit fixture Slicer regression
 prepared but NOT RUN. Evidence: S6-FRAME-SYNC-01-L3-20261007T150834Z.
 
+L4 source/pure ready: 43 focused pass; three-way reusable FK rows, unchanged
+tolerances. Evidence: S6-FRAME-SYNC-01-L4-20261007T151409Z. Runtime NOT RUN.
+
 ## 7 October — `S6-LIVE-01`: Auto Task Home draft
 
 Operator requests immediate modular implementation. Latest explicit correction:

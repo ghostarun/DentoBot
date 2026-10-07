@@ -326,6 +326,60 @@ def moveit_pairs(reason) -> list:
 
 
 # ---------------------------------------------------------------- runtime
+def kinematics_rows(namespace, states):
+    """Independent URDF, Slicer KDL and MoveIt TCP poses in world RAS mm.
+
+    No motion, planning or native context creation; bridge FK remains read-only.
+    Raw poses and measured small orientation differences are retained per state.
+    """
+    from step6_frame_sync_export import matrix_world
+    bridge = namespace.get("bridge")
+    if bridge is None:
+        import DENTOROS2Bridge as bridge
+    logic, parameter = namespace["logic"], namespace["parameter_node"]
+    base = matrix_world(parameter.robotBaseTransform)
+    urdf, _package = logic.robotDescriptionPaths()
+    fk = UrdfFk(Path(urdf).read_text(encoding="utf-8"))
+    tcp = bridge.ROS2_TOOL_TCP_LINK
+    rows = []
+    for name, joints in states.items():
+        row = {"state":str(name), "status":"FAIL", "tcp_link":tcp,
+               "posesWorldRasMm":{}, "issues":[]}
+        poses = {}
+        try:
+            poses["urdf"] = to_ras_mm(base, fk.link_pose_m(tcp,joints))
+            for label, compute in (("kdl",bridge.compute_tcp_pose_world_ras_mm),
+                                   ("moveit",bridge.compute_moveit_tcp_pose_world_ras_mm)):
+                ok, message, pose = compute(joints,base_transform=parameter.robotBaseTransform)
+                if ok is not True or pose is None:
+                    row["issues"].append(f"{label} FK unavailable: {message}")
+                else:
+                    poses[label] = np.asarray(pose,float)
+            for label, pose in tuple(poses.items()):
+                if (pose.shape != (4,4) or not np.isfinite(pose).all()
+                        or np.any(np.linalg.norm(pose[:3,:3],axis=0)<=1e-12)):
+                    row["issues"].append(f"{label} FK returned an invalid pose.")
+                    del poses[label]
+                else:
+                    row["posesWorldRasMm"][label] = pose.tolist()
+            for first, second in (("urdf","kdl"),("urdf","moveit"),("kdl","moveit")):
+                prefix=f"{first}_vs_{second}"
+                if first not in poses or second not in poses:
+                    row[prefix]="unavailable"
+                    continue
+                mm=float(np.linalg.norm(poses[first][:3,3]-poses[second][:3,3]))
+                angle=float(max(axis_angles_deg(poses[first],poses[second])))
+                row[prefix+"_mm"]=mm;row[prefix+"_axis_deg"]=angle
+                if mm>TOL_FK_MM or angle>TOL_AXIS_DEG:
+                    row["issues"].append(f"{prefix} residual {mm:.6g} mm / {angle:.6g} deg exceeds existing tolerance.")
+            if len(poses)==3 and not row["issues"]:
+                row["status"]="PASS"
+        except Exception as exc:
+            row["issues"].append(str(exc))
+        rows.append(row)
+    return rows
+
+
 def run_frame_audit(namespace: dict, out_dir, label: str, *, extrapolate_steps: int = 12) -> dict:
     import slicer
     import vtk
@@ -422,36 +476,10 @@ def run_frame_audit(namespace: dict, out_dir, label: str, *, extrapolate_steps: 
     p3 = list((stages.get("P3") or {}).get("path") or [])
 
     # ---- B. kinematics + C. task ---------------------------------------
-    _logic, _robot, _goal, _err = B._dentobot_native_motion_context(initialize_goal=False, require_goal=False)
-    motion = slicer.mrmlScene.GetNodeByID(_logic.getParameterNode().motionControlNodeID)
     tcp = B.ROS2_TOOL_TCP_LINK
-
-    def three_fk(q):
-        urdf = to_ras_mm(base, fk.link_pose_m(tcp, q))
-        ok_k, _m, kdl = B.compute_tcp_pose_world_ras_mm(q, base_transform=node.robotBaseTransform)
-        mv = motion.ComputeMoveItForwardKinematics(B.ROS2_PLANNING_GROUP, list(B.ROS2_JOINT_SI_ORDER),
-                                                   B.joint_si_vector(q), tcp, 2.0)
-        moveit_world = None
-        if mv is not None:
-            moveit_world = base @ np.array([[mv.GetElement(r, c) for c in range(4)] for r in range(4)])
-        return urdf, (np.array(kdl) if ok_k else None), moveit_world
-
-    fk_rows = []
-    poses = {}
-    for name, q in states.items():
-        urdf, kdl, mv = three_fk(q)
-        poses[name] = urdf
-        row = {"state": name}
-        for other_name, other in (("kdl", kdl), ("moveit", mv)):
-            if other is None:
-                row[f"urdf_vs_{other_name}"] = "unavailable"
-                continue
-            row[f"urdf_vs_{other_name}_mm"] = round(float(np.linalg.norm(urdf[:3, 3] - other[:3, 3])), 6)
-            row[f"urdf_vs_{other_name}_axis_deg"] = round(max(axis_angles_deg(urdf, other)), 6)
-        row["status"] = "PASS" if all(
-            row.get(f"urdf_vs_{n}_mm", 1e9) <= TOL_FK_MM and row.get(f"urdf_vs_{n}_axis_deg", 1e9) <= TOL_AXIS_DEG
-            for n in ("kdl", "moveit")) else "FAIL"
-        fk_rows.append(row)
+    fk_rows = kinematics_rows(namespace, states)
+    poses = {row["state"]:np.asarray(row["posesWorldRasMm"]["urdf"],float)
+             for row in fk_rows if "urdf" in row["posesWorldRasMm"]}
     report["checks"]["B_kinematics"] = {"tcp_link": tcp, "rows": fk_rows,
                                         "status": "PASS" if fk_rows and all(r["status"] == "PASS" for r in fk_rows) else "FAIL"}
 
