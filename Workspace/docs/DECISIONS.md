@@ -1,5 +1,24 @@
 # Dentobot Technical Decisions
 
+## 2026-10-08 — finish the original T3/Git handoff before expanding runtime work
+
+Operator flags the prolonged thread and reaffirms shared A/B workspace with
+easy inbuilt-T3/Git handoffs, then requests the recommended next-step plan and
+Luna Max grunt workers. Keep ownership under `PLAT-U-07`: align the published
+checkpoint/helper package, verify existing runtime/case parity, demonstrate
+explicit B-hosted then A-hosted T3 continuations, and record the roundtrip.
+Reuse the accepted representative offline restore/save-reopen evidence.
+
+The unfinished pinned launcher is separate from source/thread handoff; its
+latest actual check failed before container start on an unexpected keyword
+argument. No fresh case/MoveIt campaign, runtime rebuild, new replication
+service or broader feature work is required by this planning instruction.
+Load balancing stays off for deterministic acceptance; GitHub sharing and
+Device Hub do not establish repository or Linux-desktop replication. Two
+`gpt-6-luna` / `max` read-only lanes collect state/command facts; coordinator
+retains controlled records and acceptance. The [task contract](TASKS.md#8-october--plat-u-07-bounded-ab-handoff-closeout)
+defines sequence, stopping conditions and evidence without adding a new queue.
+
 ## 2026-10-07 — Auto Task Home uses opened incisor biting-edge midpoint
 
 `S6-LIVE-01`: operator explicitly selects biting-edge midpoint and modular depth

@@ -114,9 +114,10 @@ if [[ ${use_installed_runtime} == true ]]; then
     python3 - "${repository_root}" <<'PY_RUNTIME_OWNERS'
 import json, os, sys
 from pathlib import Path
+repo = Path(sys.argv[1])
+sys.path.insert(0, str(repo / "Workspace/scripts/workstation"))
 import smoke_runtime
 from runtime_preflight import parse_env_file, effective_config
-repo = Path(sys.argv[1])
 workspace = repo.parents[2]
 lock = json.loads((repo / "Workspace/runtime-lock.json").read_text())
 values, errors = parse_env_file(Path(os.environ.get("DENTOBOT_WORKSPACE_CONFIG", workspace / ".dentobot.env")))

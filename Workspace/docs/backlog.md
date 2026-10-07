@@ -9,6 +9,14 @@ synonyms and overlaps before planning. [TASKS.md](TASKS.md) holds contracts;
 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) holds acceptance design;
 [DECISIONS.md](DECISIONS.md) and [logbook](logbook/2026-10-01.md) hold decisions/evidence.
 
+**8 October operator scope supersession — `PLAT-U-07`:** finish the original
+T3 Connect/Git A→B→A handoff using existing commands and accepted case evidence.
+The immediate subgate is equal published source/helper packages, both read-only
+parity checks and demonstrated destination-hosted T3 continuations. The
+unfinished pinned-launcher check is separate and does not delay proving
+source/thread handoff. Full S6/MoveIt acceptance and oversized Drive uploads
+retain their separate existing gates. See the [bounded closeout contract](TASKS.md#8-october--plat-u-07-bounded-ab-handoff-closeout).
+
 **Current4October live-resolution supersession (`S6-LIVE-01`, P0):** The explicitly approved domain74 copy repeated the geometry-verified OMPL-fraction0.0005 request with a30s budget. It returned error99999/zero points after30.003s; the copied/original34-object geometry, ACM, padding, scale and transform matched, the0.286936408mm burr/template canary matched, and the original scene hashes remained unchanged. The5s budget alone is not a sufficient explanation; neitherA/B, global disconnection nor a physical minimum is certified. No motion/GUIplan/route authority/deployment. Evidence planner-resolution-20261004T071413Z; prior109/121/124 ceiling retained; Tarun verdict PENDING. Later planner-resolution-20261004T080424Z artifacts exceed the recorded30s approval and remain unaccepted pending operator disposition; do not use their Base/geometry counterfactuals to change policy. No further planner/geometry trial is authorized by this checkpoint.
 
 ## Priority and completion rules

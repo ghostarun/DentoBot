@@ -1,5 +1,91 @@
 # DENTOBOT Tasks
 
+## 8 October — `PLAT-U-07` bounded A/B handoff closeout
+
+Operator asks whether the thread has entered a rabbit hole, then directs:
+“yes make the plan for next steps as per recommendation, and use luna max
+workers for further grunt work”. The immediate outcome is an easy, verified
+T3 Connect + Git A→B→A handoff. This supersedes the preceding suggestion to
+complete launcher/reload work before demonstrating the handoff. The existing
+`PLAT-U-07` backlog row remains the sole pending-work entry.
+
+**Accepted evidence reused:** common container/native/installed ROS resources,
+models and original approved fixture were synchronized; the specifically
+approved `63551f8` B offline six-stage test passed actual load/save/reopen and
+owned cleanup. Its new saved bundle was checksum-transferred to A. No repeat
+case campaign is required to establish conversation/source handoff.
+
+**Sequential closeout contract:**
+
+1. Inspect current A/B selected checkouts and origin; preserve every dirty or
+   divergent checkout. Publish only intended reviewed commits, fast-forward A
+   to the agreed published checkpoint, and install that checkpoint's existing
+   workstation helper package on both machines. Refresh each explicit source
+   pin with `dentobot use "$(dentobot path)"`. Acceptance: clean selected
+   trees, equal branch/HEAD/live origin and matching installed helper hashes.
+2. Run the existing read-only `dentobot parity` and `dentobot check` on both
+   hosts with each host's desktop authentication where needed. Acceptance:
+   common image/native/installed ROS/model/fixture identities match; expected
+   CPU/CUDA, username, display and OS differences remain explicitly local.
+   A missing desktop session is a recorded display limitation, not permission
+   to change that session or silently waive another parity failure.
+3. Prepare A→B using the existing B-side `dentobot from-a --note ...`; select
+   its returned destination worktree on B and recheck it. In T3 Connect select
+   the B environment/project and start a B-hosted thread with the returned
+   `CONTINUE.md`, commit identity, evidence links and remaining task. Give it
+   one harmless read-only continuation and confirm its actual B hostname,
+   checkout and HEAD. A must have no active implementation owner for the
+   handed-off scope. Demonstrate that the B thread completes without accessing
+   A; any real A shutdown/disconnection remains an operator action.
+4. When A is available, prepare the return from B with `dentobot to-a --note
+   ...`, select the returned worktree on A, recheck its checkpoint and continue
+   in an A-hosted T3 thread. Transfer evolving cases individually with the
+   existing `dentobot sync-case` command only when a new save exists; the
+   already transferred save/reopen fixture need not be copied again.
+5. Record the exact commands, two destination paths, T3 thread/environment
+   identities, checkpoint and evidence in this task's logbook. Acceptance:
+   both thread continuations used the intended machine/checkpoint, required
+   assets passed parity, and no unpublished edit or case was lost. Close only
+   the A/B handoff subgate; unrelated `PLAT-U-07` obligations remain open.
+
+**T3 settings:** use explicit environment selection while proving the flow;
+leave load balancing off for the acceptance exercise. T3 Connect provides
+remote environment/thread access. GitHub sharing concerns provider access and
+is not required for Git synchronization; automatic pull does not replace the
+explicit checkpoint checks on this development branch. The exposed Device Hub
+tools support iOS/Android devices, not proven Linux Slicer desktop takeover.
+The existing B-local private-Xvfb harness provides isolated GUI verification
+without taking over A's desktop. Cross-PC interactive desktop control is a
+separate optional capability, not a handoff acceptance condition.
+
+**Separate unfinished launcher item:** the `b2dfda6` actual B
+`dentobot launch --check-only` failed before container start with
+`TypeError: validate_container() got an unexpected keyword argument
+'allow_idle_running'`. A read-only stdin import reproduced caller-CWD
+shadowing: the helper-workspace module lacks that keyword, while explicitly
+putting the selected workstation directory first imports the correct signature.
+Give one Luna worker only the minimal explicit selected-import-path fix.
+Use relevant host/shell checks first, then propose one bounded launcher-only
+check. `--check-only` may start the verified idle container despite opening no
+Slicer. Stop at the first new causal failure; do not expand into case/MoveIt
+testing. The entrypoint stays unverified until actual evidence passes.
+
+**Staffing and execution boundary:** two `gpt-6-luna` / `max` read-only workers
+collect current state and exact existing command semantics; no recursive
+delegation, controlled-doc edits or GUI/ROS/runtime ownership. The coordinator
+owns the plan, integration and acceptance. This turn prepares the plan and
+inspects evidence; it does not start a new runtime campaign. Future bounded
+implementation work is assigned with explicit file ownership; runtime remains
+serialized under the verification protocol. No new synchronizer, scheduler,
+container rebuild, full S6 campaign or Drive upload is part of this closeout.
+
+**Planning-time state:** B was clean at `b2dfda6` before these controlled-doc
+edits, with all14installed helper files matching its selected package and its
+container stopped. A's SSH endpoint responded but PAM refused login during
+boot; its current source/helper state is unverified. Repeat only the A snapshot
+once login is available, before any transfer. B's cached origin ref matches;
+live-origin equality must still be checked during closeout.
+
 ## 7 October — `S6-FRAME-SYNC-01` Step B implementation contract
 
 **B isolated fixture runtime (latest):** A online, clean published a0733d2
