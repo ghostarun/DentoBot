@@ -26,6 +26,11 @@ prepared but NOT RUN. Evidence: S6-FRAME-SYNC-01-L3-20261007T150834Z.
 L4 source/pure ready: 43 focused pass; three-way reusable FK rows, unchanged
 tolerances. Evidence: S6-FRAME-SYNC-01-L4-20261007T151409Z. Runtime NOT RUN.
 
+L5 source/pure ready: 59 focused pass; reusable 3-link exact collision/ACM
+agreement. Complete authoritative contacts/current snapshot required; unsigned
+surface separation is not penetration depth or motion acceptance. Evidence:
+S6-FRAME-SYNC-01-L5-20261007T152500Z. Runtime NOT RUN.
+
 ## 7 October — `S6-LIVE-01`: Auto Task Home draft
 
 Operator requests immediate modular implementation. Latest explicit correction:

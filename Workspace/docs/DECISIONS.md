@@ -7559,3 +7559,18 @@ through the shell Connect owner after a successful branch-config restore. Manual
 Import/restore remains connect-free and Task Home is staged only. Pure/static
 verification follows the handoff; no Slicer/ROS/MoveIt session is authorized by
 this instruction.
+
+### 7 October — Step B phase-1 evidence interfaces (implementation)
+
+Coordinator implements the approved handoff layers without changing production
+Diagnose/Plan's bounds gate. L2 compares independent source exports to every
+native world object using two directed exact point-to-triangle queries at
+vertices and triangle centroids (explicitly a sampled metric), counts and hashes.
+Native digest/production mesh gate is deferred phase2. L4 exposes three-way FK
+with unchanged 0.01 mm / 0.01 degree tolerances and retains measured small
+residuals. L5 retains exact IDs, effective ACM and same-state validity; zero/one
+padding/scale and robot identity must be evidenced by a current dump. Its
+unsigned surface separation is not penetration depth, and agreement PASS is
+not collision-free or motion acceptance. Missing/truncated/unexamined native
+contacts fail explicitly. Terminal burr/target contact is labelled under the
+existing guard policy only; no policy relaxation. Runtime remains NOT RUN.
