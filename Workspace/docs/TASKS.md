@@ -2356,6 +2356,15 @@ acceptance still requires a complete zero-exit whole-run recording. See the
 
 ### `PLAT-U-07` — Multi-workstation Git and saved-case exchange
 
+- **2026-10-07 installed-command result:** selected B checkout checkpoint
+  `515879a`; 27 helper checks and 13 affected host checks PASS. Installed
+  `dentobot smoke --run` executes one fresh private-Xvfb no-case run: loaded
+  source identity, all five reloads, actual Slicer0/launcher0, video checksum
+  and decode, clean source and owned cleanup all PASS. Runtime Verified only
+  for this synthetic contract; no case/performance/operator or A/B parity claim.
+  [Evidence](/home/light-tarun/dentobot/data/dentobot-runs/2026-10-07/PLAT-U-07-smoke-20261007T173507Z-8aac2b8dd7bc/diagnostics.md).
+  Commands are available on B while A is offline; transfers require A online.
+
 - **2026-10-07 command/verification continuation:** operator explicitly requests
   B-hosted handoff and runtime verification while A is offline. Install the
   selected-checkout commands, checkpoint the seven owned harness/controlled
