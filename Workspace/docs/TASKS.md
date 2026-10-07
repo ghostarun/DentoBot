@@ -2515,3 +2515,47 @@ S6-P2-03 native source publication checkpoint (2October): reviewed5.10 async mot
 - **S6-TRUNCATION-WARNING contract:** when `drillingTruncation` is present, Plan Approach and Drill status use warning state, start with "WARNING: drilling shortened", and give reached/requested/remaining depth and blocking pair; the remainder stays highlighted and labelled in the viewport.
 - **Invariants:** no change to Plan Approach gate, policy 2b, guard, MoveIt scene, mouth barrier, joint limits or tolerances; no route or preview authority from diagnostics; simulation only.
 - **Acceptance:** host tests for check order, stop-at-first-failure, verdict mapping and warning state; headed run screenshots of the diagnosis table and warning/remainder; Tarun verdict.
+
+## PER-TOOLS-01 — personal two-PC development tooling (2026-10-07)
+
+Priority: **Unprioritized**. Scope is explicitly personal development between
+ThinkStation P3 (`100.104.44.67`) and Linux Legion (`100.95.7.78`). No applicable
+personal-tools backlog contract existed before this task.
+
+Outcome: Switcher displays both PCs' selected defaults, actual connections and
+last completed account use in the GUI and `codex_switcher active`; new unbound
+threads prefer a different usable account from the peer. The operator corrected
+fixed machine priority: active work on **either** PC keeps its account.
+ThinkStation primary is only an idle/simultaneous-start tiebreak. Existing
+affinity and streams are preserved; sharing remains a quota-exhaustion fallback,
+and partitions fail open. Maximum pairing is one peer.
+
+Owned DentoBot files: `Workspace/scripts/personal-tools-check.py`, its pure
+unittest and `Testing/verification_matrix.json` registration,
+`Workspace/docs/PERSONAL_TWO_PC_TOOLS.md` and controlled task records.
+Switcher source is separately owned at `~/src/codex-switcher-personal`, branch
+`feature/two-pc-activity`. No robot, Slicer, ROS, planner, clinical or
+engineer-owned artifacts are within scope.
+
+Source evidence: 223 Rust tests passed, 3 ignored; six pairing-specific tests
+cover both incumbent directions, deterministic ties, stale peers, third-PC
+authentication and sharing fallback. Frontend build passed. DentoBot pure checks
+cover unavailable peers, version drift, old running processes and unknown latest
+versions. This is source evidence, not paired live acceptance.
+
+Acceptance contract: matching supported installed/running builds and protocol 1;
+authenticated fresh peer activity on both PCs; existing account A work preserved
+on Legion while a new ThinkStation thread selects B, then reverse the PCs;
+sharing permitted only when no usable alternative remains. No existing thread
+is terminated just to enforce separation. The sole pending queue is backlog.md.
+
+PER-TOOLS-01 deployment evidence (2026-10-08): Switcher 0.7.16 / protocol 1
+is installed/running on both PCs; executable checksums match each installation's
+metadata. T3 Personal installed/running versions match at 0.0.4503.
+`personal-tools-check --latest` exits 0 with fresh authenticated pairing; CLI
+shows different selected accounts. Both activity listeners reject unauthenticated
+requests (401) and accept the approved peer with the secret. Restored new-thread
+Codex proxy routing with backups following explicit operator confirmation.
+Representative concurrent-thread/operator acceptance remains in backlog.md;
+these passes establish deployment/interoperability, not observation of live
+user sessions in both incumbent directions.

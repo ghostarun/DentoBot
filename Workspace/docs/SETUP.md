@@ -2098,3 +2098,22 @@ Operator: "yes rebuild the main install and push everything".
 - **New libraries:** MRML `.so` `68843dda22254b859a9f8106b1b8d6ff3b84464f2c815cbf7c1ce316221c8df0`; Logic `.so` `91fbaa35dc72711ff12ba6b8066abd2f66a9f80f6053939e1693d02fb2578b3f`.
 - **Size:** MRML 17.3 MB vs 283.5 MB before. The previous install carried debug symbols; the main build directory is configured Release, so gdb stacks from normal launches are less detailed. Rebuild with RelWithDebInfo if symbols are needed.
 - **Rebuild 2 (S6-U-01 teardown, native `ece3c42`):** as `ubuntu` from `/workspace/ros2_ws`: `colcon build --packages-select slicer_ros2_module --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DSlicer_DIR=/opt/slicer/Slicer-SuperBuild/Slicer-build -DSLICER_ROS2_INSTALL_SCRIPTED_TESTS=OFF`; log `/tmp/dentobot-main-install-r26-build.log`; 1 min 20 s, rc 0. `ROS2Tests.py`/`.pyc` removed afterwards (as the launcher does). Loadable-module libraries: MRML `aea8f33d419520afd2c928c55391788bf02777eae0512f1e476fa8dcc72366b1`, Logic `2582d5ca2ec922957ee870e74a5571c608b4316475c748b032410a6c2873c95e`. r26 on this install: transaction PASS, exit 0.
+
+## Personal development tool check — ThinkStation / Legion only
+
+See [PERSONAL_TWO_PC_TOOLS.md](PERSONAL_TWO_PC_TOOLS.md) for PER-TOOLS-01. From
+this active checkout run `python3 Workspace/scripts/personal-tools-check.py
+--latest`; use `--json` for sanitized installed/running state and
+`codex_switcher active` for paired account activity. The check is read-only and
+uses the existing SSH aliases `dentobot-a` / `dentobot-b` with fixed approved
+Tailscale destination IPs. Switcher 0.7.16 / protocol 1 and T3 Personal 0.0.4503
+are the feature baseline. Never infer installed versions from source alone.
+Install/restart only after safe handoff; unknown or offline states are unverified.
+These commands are personal-development checks, not lab/robot compatibility gates.
+
+2026-10-08 rollout: `personal-tools-check --latest` is installed in each user's
+`~/.local/bin` and can run from any directory. Both apps run Switcher 0.7.16
+with a private shared secret and Tailscale-only activity listener. Both Codex
+configs now route new threads through `http://127.0.0.1:18080/v1`; original
+configs and binaries have dated backups. Legion's feature source lives in a
+separate `~/src/codex-switcher-personal` checkout at `6cf5bec`.

@@ -7138,3 +7138,29 @@ Operator: "can depth peeling be an GUI option before starting planning alongside
    - The URDF mesh-load coordinate warning is hidden only during the load (`6f332a8`).
    - Expected housekeeping is logged as info, and the runner no longer uses the deprecated `lookFromViewAxis` (`1d30251`).
 4. **Boundary.** DentoBot step failures stay errors. MoveIt's per-candidate "MoveGroupInterface::plan() failed or timeout reached" and its octomap configuration messages remain in the log file as Info text. Diagnostic probes that rebuild trees on raw meshes may still log their own warning.
+
+## 2026-10-07 — personal two-PC Switcher policy (PER-TOOLS-01)
+
+Operator paired ThinkStation P3 and Linux Legion and requested personal T3 /
+Switcher version checks in DentoBot. Operator subsequently rejected a fixed
+machine preference: Legion active on A must retain A when ThinkStation starts a
+thread, and vice versa. Adopt incumbent-first account preference in both
+directions, preserving existing session affinity and streams. ThinkStation's
+primary flag resolves only idle or simultaneous ties; it does not outrank active
+Legion work. Share when usable alternatives are exhausted; peer partitions fail
+open rather than blocking development. Read-only activity uses a single
+authenticated Tailscale peer, never credentials or prompts. Pairing does not
+replace the existing single OAuth token authority for copied grants.
+
+The DentoBot check is restricted to these two Linux Tailscale identities and
+personal forks. Unknown versions, inaccessible SSH, stale or unauthenticated
+activity are unverified, never PASS. This policy changes no robotics acceptance
+or safety boundary. Operator paused while Legion was offline, then resumed
+after reporting it online. Restart readiness must be established before replacing
+a running proxy.
+
+2026-10-08 PER-TOOLS-01 operator supersession: explicitly restore Switcher
+routing for new Codex threads on both PCs, superseding the temporary T3
+model-list-test bypass. Explicitly restart Legion T3 after installation to
+activate the personal launcher. Existing directly connected threads are not
+migrated by the config change. No robotics or model-selection policy change.

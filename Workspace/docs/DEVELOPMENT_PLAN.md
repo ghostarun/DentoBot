@@ -1739,3 +1739,20 @@ Native Ubuntu NVIDIA profile now implemented on the integration checkout. Explic
 Verification: pure.ubuntu_graphics_profiles,13host/mock tests passed in0.08s exit0; shell syntax, owned Python syntax, scoped whitespace and frame-probe --self-check passed. Tests cover MesaCPU/CUDA, NVIDIACPU/CUDA, WSL baseline selection, missing command/driver/runtime, container visibility, invalid mode, DRM reset/capabilities and source routing. Evidence /tmp/dentobot-verification/perf-increment3-20261001/{host.log,frame-selfcheck.log,summary.json,launcher-port.diff}. No actual GPU/Docker/container/Slicer/ROS runtime, image/native rebuild, case save or hardware action. Operator explicitly excludes GPU verification on this workstation; >=60FPS and renderer verification remain deferred to approved NVIDIA hardware.
 
 All three finite increments now have source implementations. Item1 paired watchdog overhead/identity evidence and item2 representative long-wait/cancel/normal-window responsiveness remain open under existing S6-P2-03; item3 hardware acceptance deferred. Backend MoveIt cleanup-11 remains S6-U-01. No new increment, no5.12 restart, no main merge/push/commit.
+
+## Personal development tools acceptance — PER-TOOLS-01 (2026-10-07)
+
+Source implementation is separate from two-PC runtime acceptance. The personal
+check requires Switcher >=0.7.16 / protocol 1 and T3 Personal >=0.0.4503, matching
+versions and fresh authenticated pair activity. Verify incumbent work is retained
+in both directions, new unbound threads prefer another usable account, and
+exhausted alternatives allow sharing without terminating existing threads.
+Offline/unknown peers remain explicitly unverified. This does not advance any
+robotics milestone or authorize Slicer/ROS/MoveIt/hardware execution. Pending
+deployment and operator acceptance are tracked only under PER-TOOLS-01 in backlog.
+
+PER-TOOLS-01 rollout completed 2026-10-08: both installed/running Switcher builds
+and T3 versions match; fresh paired authentication and the personal compatibility
+check pass. Default accounts currently differ. Concurrent user-thread behavior
+remains representative acceptance under the same backlog ID; the six isolated
+pairing tests cover both incumbent directions and fallback.
