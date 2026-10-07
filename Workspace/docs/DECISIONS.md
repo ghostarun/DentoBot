@@ -7616,3 +7616,11 @@ retain actual Slicer1 separately from launcher0. Stop the runtime path at its
 first unresolved failure and saved GUI result; inspect protected production
 restore/bind versus raw fixture loading and saved references without inferring
 a cause, acceptance or automatic retry. Evidence: 7 October logbook.
+
+## 2026-10-08 — match A's working runtime and fail on handoff drift
+
+Operator requests fixing the case-test issue, all required testing/source/push/pull/save-restore synchronization and an essentially identical SlicerROS2 container. A's latest working native/source/image is the reference; do not roll it back to B's older release. Stream exact images, publish native0db5a2c non-force, fast-forward source only whileclean, preserve prior checkouts/images/installsets, and use a common recording-capable image. Shared installed description/MoveIt resources must be pinned too; old B source symlinks are insufficient.
+
+Separate immutable approved test assets from evolving saved development cases. Verify common source/native/image/model/case identities with a versioned runtime lock; transfer individual savedcases explicitly with checksum/source-stability checks and retain backups for requested replacements. Host CUDA/CPU and device/user/display settings remain hardware-specific. No rawdata, credentials or engineer-owned records are mirrored. GitHub sharing/load balancing/Device Hub do not provide this file/runtime replication.
+
+Restore investigation: use the actual protected application barrier and case writer in the known-transform harness. Preserve the public workflow-summary signature; use a private legacy-summary path for strict validation before migration. Freeze a successfully validated migration result for the post-event audit rather than exempting registry integrity. Pure checks pass, but three Slicer executions still fail the fixture's initial restore before any known-transform/save-reopen stage. Runtime remains unaccepted; the protocol retry ceiling applies. Offline reconstruction exactly matches the original FDI11 branch revision; no corruption is established. A prepared instrumented run awaits operator direction to inspect live node IDs and registry revisions; do not rewrite the source fixture or relax identity guards.

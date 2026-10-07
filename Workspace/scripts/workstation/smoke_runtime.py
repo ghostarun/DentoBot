@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -319,6 +320,18 @@ def evidence_checks(plan, launcher_code, log_text, cleanup_ok, host_after, conta
             "runtime_verified": all(checks.values()), "operator_verified": False, "a_image_parity_verified": False}
 
 
+def await_owned_exit():
+    """Allow xvfb-run's exit trap to reap its server before asserting cleanup."""
+    deadline = time.monotonic() + 3.0
+    while True:
+        try:
+            return assert_no_owners(container=True)
+        except SmokeError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.1)
+
+
 def execute(plan):
     result = {"run_path": plan["run_path"], "runtime_verified": False,
               "operator_verified": False, "a_image_parity_verified": False, "launcher_exit_code": None}
@@ -362,7 +375,7 @@ def execute(plan):
             except subprocess.TimeoutExpired:
                 result["timed_out"] = True
                 raise SmokeError(f"Slicer runtime exceeded the {timeout_sec} second timeout")
-        container_after = assert_no_owners(container=True)
+        container_after = await_owned_exit()
         log_text = (Path(plan["run_path"]) / "slicer.log").read_text(errors="replace")
         video = Path(plan["run_path"]) / "video/smoke.mkv"
         result["process_counts"] = {"host_before": host_before, "container_before": container_before,

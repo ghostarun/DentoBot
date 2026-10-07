@@ -141,7 +141,10 @@ class CaseValidationLogicMixin:
             )
         return record
 
-    def caseBundleWorkflowSummary(self, parameterNode, *, legacyProvenance=False) -> dict[str, object]:
+    def caseBundleWorkflowSummary(self, parameterNode) -> dict[str, object]:
+        return self._caseBundleWorkflowSummary(parameterNode)
+
+    def _caseBundleWorkflowSummary(self, parameterNode, *, legacyProvenance=False) -> dict[str, object]:
         """Describe persistent case state without duplicating its geometry."""
 
         foundation = self.evaluateCaseFoundationEligibility(parameterNode)
@@ -528,7 +531,7 @@ class CaseValidationLogicMixin:
             expectedStep6.get("trajectoryRegistry"),
             postHydration=allowDerivedEnvironmentMismatch,
         )
-        currentStep6 = self.caseBundleWorkflowSummary(
+        currentStep6 = self._caseBundleWorkflowSummary(
             parameterNode, legacyProvenance=legacyProvenance
         )["step6"]
         # Step 6 lineage extensions are optional for schema-V1 compatibility.

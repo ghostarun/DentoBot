@@ -2193,3 +2193,13 @@ Copied only the recorded five-tooth SampleCBCT case into the dated B fixture
 run's `input/source.dentocase`; SHA256 matches A before/after transfer. No mirror,
 image replacement or cross-host native parity claim. Fixture runtime result is
 recorded in the 7 October logbook under S6-FRAME-SYNC-01.
+
+## 8 October — shared A/B Ubuntu development runtime (`PLAT-U-07`)
+
+Selected A `/home/tarun/dentobot/ros2_ws/src/DentoBot`; selected B `/home/light-tarun/dentobot/ros2_ws/src/DentoBot-runtime-20261007T160641Z-2313be5a`. Both now use `p0/jaw-frame-sync-2026-10-07` with normal tracking to origin; old B runtime/legacy checkouts remain preserved. Native source0db5a2c tracks the published personal fork on both.
+
+Common image `dentobot/slicerros2:ubuntu-ab-runtime-20261007`, exact ID `sha256:33a9e1e3fe82971473b36c98be4b37066787de73ac61713b96e6ebdc3d323ce6`, derives from A c297544a with FFmpeg/x11-utils added. A image lacked these recorder dependencies; a failed recorder preflight launched no Slicer. B oldimage544c5b75 and both oldcontainers retained; old native/description/config installs backed up in dated run artifacts. A free root capacity6GB prevents staging whole imagearchives; image transfers streamed directly.
+
+`Workspace/runtime-lock.json` pins native source,22 installed native runtime files,77 installed robot/MoveIt files,59 model files and one approved five-tooth SampleCBCT bundle. Both installed-resource sets materialized at the same `/workspace/ros2_ws/install` container paths; this avoids B's obsolete checkout symlinks and A's host-unresolvable container-absolute hooks. CPU/local B and CUDA/local A retain separately verified inference pins, graphics/user/display paths and model-cache hostID/prediction counters. Common models and approvedcase match SHA256; no raw/private/engineer-owned folder mirror.
+
+Same Git-versioned command package `Workspace/scripts/workstation` installed under each host's `~/.local/share/dentobot-handoff`; entrypoint scripts require executable mode0755. `dentobot parity` checks common artifacts without startingcontainers; `dentobot check`, `smoke`, and B handoff shortcuts include this gate. `sync-case <data-relative.dentocase> --to A|B` performs one explicit checksum/stability-verified transfer; optional `--replace` retains an oldfile backup. [Command guide](../scripts/workstation/COMMANDS.md). Source pin refresh is explicit `dentobot use "$(dentobot path)"` after reviewed checkpoints. T3 settings alone do not replicate casefiles or running sessions.

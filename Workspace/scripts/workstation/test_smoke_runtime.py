@@ -184,3 +184,18 @@ class SmokeRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_owned_exit_waits_for_reaping_but_retains_a_leak_error():
+    from unittest.mock import patch
+    import pytest
+    import smoke_runtime as smoke
+    clean = {name: 0 for name in smoke.PROCESS_NAMES}
+    with patch.object(smoke, "assert_no_owners", side_effect=[smoke.SmokeError("Xvfb alive"), clean]), \
+         patch.object(smoke.time, "sleep"):
+        assert smoke.await_owned_exit() == clean
+    with patch.object(smoke, "assert_no_owners", side_effect=smoke.SmokeError("leaked Xvfb")), \
+         patch.object(smoke.time, "monotonic", side_effect=[0, 4]), \
+         patch.object(smoke.time, "sleep"):
+        with pytest.raises(smoke.SmokeError, match="leaked Xvfb"):
+            smoke.await_owned_exit()
