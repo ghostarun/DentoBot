@@ -1,5 +1,22 @@
 # DENTOBOT Tasks
 
+## 7 October — `S6-FRAME-SYNC-01` Step B implementation contract
+
+Operator requests continuation with Step B and Claude handoff logs. Scope is
+[authoritative handoff §4](handoffs/2026-10-07-P0-pass.md): L1 shared world model /
+segment accessor + AST guard; L2 independent all-object mesh export/compare;
+L3 known transforms/runtime regression; L4 three-way FK API; L5 collision/ACM
+agreement; L6 matrix. Separate commits in that order. Native digest / production
+mesh gate phase 2 remains deferred; no native build or runtime execution.
+Preserve exact J1–J5, collision/barrier/corridor policy, registry 3.0 and source
+geometry. Existing pure/container approval covers focused/matrix checks only.
+Coordinator owns interfaces/source integration/docs/acceptance. One optional
+Luna xhigh implementation auxiliary owns only scoped L1 tests; no recursive
+workers/runtime/docs/acceptance. Pending runtime/representative verdict stays
+in backlog under this existing P0 owner. L1 source/pure complete: 38 focused
+checks pass; eight required suites retain only two known shell baseline failures.
+Evidence: S6-FRAME-SYNC-01-L1-20261007T145157Z (7 Oct run archive).
+
 ## 7 October — `S6-LIVE-01`: Auto Task Home draft
 
 Operator requests immediate modular implementation. Latest explicit correction:

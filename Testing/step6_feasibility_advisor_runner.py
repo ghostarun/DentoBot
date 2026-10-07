@@ -387,6 +387,7 @@ class OrderedAdvisorRunner:
         return str(loaded)
 
     def _template_poly_jaw_local(self):
+        # Intentional jaw-local provenance oracle: map full world pose back to closed jaw.
         import vtk
 
         node = self._ctx()[4]

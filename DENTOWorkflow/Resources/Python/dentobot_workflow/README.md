@@ -23,6 +23,7 @@ compatibility contract.
 | Support selection and visible support surface | `widget_guide_support_setup.py`, `widget_guide_support.py`, `logic_guide_support.py` |
 | Patient shell and unified template build | `widget_template_build.py`, `widget_template_assembly.py`, `logic_patient_shell.py`, `logic_guide.py` |
 | Template finalization and verification | `widget_template_finalization.py`, `logic_finalization.py` |
+| World geometry for Step 6 independent audits | `frame_sync.py` |
 | Auto Task Home draft geometry and orchestration | `auto_task_home.py` (existing facade/bridge gates) |
 | Step 6 shell actions | `widget_robot_shell.py`, `widget_robot_manual.py`, `widget_robot.py` |
 | Case Foundation and offline robot placement | `logic_case_foundation.py`, `widget_robot_scene.py`, `widget_robot_placement.py`, `logic_robot_placement.py` |

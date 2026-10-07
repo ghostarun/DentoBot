@@ -245,24 +245,12 @@ def exact_mesh_separation(vertices_a, triangles_a, vertices_b, triangles_b, *, s
     return best
 
 
-def model_world_polydata(model):
-    """A model's polydata in world RAS: every parent transform applied (never the raw node data)."""
-    import vtk
-
-    poly = vtk.vtkPolyData()
-    poly.DeepCopy(model.GetPolyData())
-    parent = model.GetParentTransformNode()
-    if parent is None:
-        return poly
-    transform = vtk.vtkGeneralTransform()
-    parent.GetTransformToWorld(transform)
-    hardened = vtk.vtkTransformPolyDataFilter()
-    hardened.SetInputData(poly)
-    hardened.SetTransform(transform)
-    hardened.Update()
-    out = vtk.vtkPolyData()
-    out.DeepCopy(hardened.GetOutput())
-    return out
+# Thin re-export preserves the historical Testing import seam.
+import sys
+_HELPERS = Path(__file__).resolve().parents[1] / "DENTOWorkflow/Resources/Python"
+if str(_HELPERS) not in sys.path:
+    sys.path.insert(0, str(_HELPERS))
+from dentobot_workflow.frame_sync import model_world_polydata, segment_world_polydata
 
 
 def polydata_mesh(poly) -> tuple:
@@ -376,30 +364,15 @@ def run_frame_audit(namespace: dict, out_dir, label: str, *, extrapolate_steps: 
         route = ""
         if source.startswith("vtkMRMLModelNode"):
             model = slicer.mrmlScene.GetNodeByID(source)
-            poly = vtk.vtkPolyData()
-            poly.DeepCopy(model.GetPolyData())
-            if model.GetParentTransformNode() is not None:
-                t = vtk.vtkGeneralTransform()
-                model.GetParentTransformNode().GetTransformToWorld(t)
-                f = vtk.vtkTransformPolyDataFilter()
-                f.SetInputData(poly)
-                f.SetTransform(t)
-                f.Update()
-                poly = f.GetOutput()
+            poly = model_world_polydata(model)
             points = np.array([poly.GetPoint(i) for i in range(poly.GetNumberOfPoints())])
             route = "model node -> world"
         elif ":anatomy:" in source or ":target:" in source:
             segment_id = source.split(":", 2)[2]
             seg = slicer.mrmlScene.GetNodeByID(source.split(":", 1)[0])
             if seg is not None:
-                seg.CreateClosedSurfaceRepresentation()
-            poly = vtk.vtkPolyData()
-            if seg is not None and seg.GetClosedSurfaceInternalRepresentation(segment_id) is not None:
-                poly.DeepCopy(seg.GetClosedSurfaceInternalRepresentation(segment_id))
-                t = vtk.vtkGeneralTransform()
-                if seg.GetParentTransformNode() is not None:
-                    seg.GetParentTransformNode().GetTransformToWorld(t)
-                points = np.array([t.TransformPoint(poly.GetPoint(i)) for i in range(poly.GetNumberOfPoints())])
+                poly = segment_world_polydata(seg, segment_id)
+                points = np.array([poly.GetPoint(i) for i in range(poly.GetNumberOfPoints())])
                 route = "segment closed surface -> world"
                 if int(record.get("jaw_transform_application_count") or 0) > 0 and jaw_m is not None:
                     h = np.c_[points, np.ones(len(points))]

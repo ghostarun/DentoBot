@@ -572,27 +572,16 @@ class RobotSceneSyncLogicMixin:
         """Combine explicit segmentation surfaces in world-RAS coordinates."""
         if segmentation_node is None or not segment_ids:
             return None
-        segmentation_node.CreateClosedSurfaceRepresentation()
-        parent_to_world = vtk.vtkGeneralTransform()
-        slicer.vtkMRMLTransformNode.GetTransformBetweenNodes(
-            segmentation_node.GetParentTransformNode(),
-            None,
-            parent_to_world,
-        )
+        from .frame_sync import segment_world_polydata
+
         append = vtk.vtkAppendPolyData()
         surface_count = 0
         for segment_id in sorted(str(value) for value in segment_ids if value):
             try:
-                surface = self._getClosedSurfaceCopy(segmentation_node, segment_id)
+                surface = segment_world_polydata(segmentation_node, segment_id)
             except (RuntimeError, ValueError):
                 continue
-            if surface is None or surface.GetNumberOfPoints() == 0:
-                continue
-            surface_filter = vtk.vtkTransformPolyDataFilter()
-            surface_filter.SetInputData(surface)
-            surface_filter.SetTransform(parent_to_world)
-            surface_filter.Update()
-            append.AddInputData(surface_filter.GetOutput())
+            append.AddInputData(surface)
             surface_count += 1
         if surface_count == 0:
             return None
