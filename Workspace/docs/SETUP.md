@@ -2117,3 +2117,9 @@ with a private shared secret and Tailscale-only activity listener. Both Codex
 configs now route new threads through `http://127.0.0.1:18080/v1`; original
 configs and binaries have dated backups. Legion's feature source lives in a
 separate `~/src/codex-switcher-personal` checkout at `6cf5bec`.
+
+2026-10-08 Claude display extension: both PCs now run Switcher **0.7.17**,
+source checkpoint `4dcb714`, protocol 1. Claude usage/quota is below Codex
+accounts on Dashboard and Accounts and uses each PC's existing local Claude
+Code login. T3 remains 0.0.4503; both personal compatibility checks pass. The
+0.7.16 baseline above remains the minimum pairing-compatible build.
