@@ -2,6 +2,12 @@
 
 ## 7 October — `S6-FRAME-SYNC-01` Step B implementation contract
 
+**B continuation:** latest published A branch confirmed at a0733d2; B's frame
+production/tests match exactly. `pure.frame_sync` **95PASS** on B (4.77s),
+owned container stopped/count0. Isolated known-transform runtime awaits the
+explicit approved runtime-free multi-branch fixture path; full case/runtime/operator
+gate remains pending. [Evidence](/home/light-tarun/dentobot/data/dentobot-runs/2026-10-07/S6-FRAME-SYNC-01-B-20261007T175644Z/diagnostics.md).
+
 Operator requests continuation with Step B and Claude handoff logs. Scope is
 [authoritative handoff §4](handoffs/2026-10-07-P0-pass.md): L1 shared world model /
 segment accessor + AST guard; L2 independent all-object mesh export/compare;
