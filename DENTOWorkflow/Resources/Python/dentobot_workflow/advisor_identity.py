@@ -31,7 +31,12 @@ class AdvisorIdentityMixin:
     def _unchanged_scene_sources(scene, step):
         rows = []
         for row in (scene or {}).get("objects") or ():
-            if step == "apply_barrier" and row.get("source_role") == "mouth-barrier":
+            if step in ("apply_barrier", "apply_opening") and row.get("source_role") == "mouth-barrier":
+                continue
+            if step == "apply_opening":
+                # Prepared/outgoing geometry moves at the requested opening; its original geometry does not.
+                rows.append({k: row.get(k) for k in ("source_name", "source_role", "classification", "source_fingerprint",
+                                                   "source_point_count", "source_cell_count")})
                 continue
             rows.append({k: v for k, v in row.items() if step != "apply_base" or k not in (
                 "outgoing_fingerprint", "outgoing_bounds_base_link_mm")})
@@ -55,9 +60,15 @@ class AdvisorIdentityMixin:
             after["source_environment"].pop("jaw_configuration_fingerprint", None)
         changed = sorted(k for k in set(before) | set(after)
                          if k not in allowed and before.get(k) != after.get(k))
-        if step in ("apply_base", "apply_barrier") and self._unchanged_scene_sources(
+        if step in ("apply_base", "apply_barrier", "apply_opening") and self._unchanged_scene_sources(
                 before.get("audited_scene_sources"), step) != self._unchanged_scene_sources(after.get("audited_scene_sources"), step):
             changed.append("unrelated audited scene sources")
+        scene_before, scene_after = before.get("audited_scene_sources") or {}, after.get("audited_scene_sources") or {}
+        for field in ("jaw_preparation_fingerprint", "world_to_base_fingerprint"):
+            permitted = (step == "apply_base" and field == "world_to_base_fingerprint"
+                         or step == "apply_opening" and field == "jaw_preparation_fingerprint")
+            if not permitted and scene_before.get(field) != scene_after.get(field):
+                changed.append("audited scene " + field)
         if changed:
             raise home_mod.HomeRevalidationRefused("immutable input identity changed during " + step + ": " + ", ".join(changed))
         self._trial_identity = current
