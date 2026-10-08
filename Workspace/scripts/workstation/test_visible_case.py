@@ -102,7 +102,10 @@ def make_worktree(root, name="DentoBot-visible-aaaaaaaaaaaa"):
     return worktree
 
 
-def write_slicer_outputs(run_dir, shots=3, distinct=True):
+PRODUCTION = {"method": "onFramePlanningTarget", "status": "production", "reason": "planning target bounds available"}
+
+
+def write_slicer_outputs(run_dir, shots=3, distinct=True, four_up=PRODUCTION, one_up=PRODUCTION):
     """What the visible bootstrap leaves behind, so smoke_runtime's checks can read it."""
     run_dir = Path(run_dir)
     (run_dir / "screenshots").mkdir(parents=True, exist_ok=True)
@@ -112,7 +115,8 @@ def write_slicer_outputs(run_dir, shots=3, distinct=True):
         (run_dir / "screenshots" / name).write_bytes(f"shot-{index}".encode() if distinct else b"same")
         names.append(name)
     write_json(run_dir / "case-result.json", {"case_loaded": True, "screenshots": names,
-                                              "dropped_duplicates": [], "framing": None})
+                                              "dropped_duplicates": [], "framing": four_up,
+                                              "framing_3d_only": one_up})
     write_json(run_dir / "reload-result.json", {"requested_exit_code": 0})
     write_json(run_dir / "loaded-code.json", {"matched": True, "files": {
         relative: {"matched": True} for relative in vc.COMMON_FILES}})
@@ -121,14 +125,14 @@ def write_slicer_outputs(run_dir, shots=3, distinct=True):
     return names
 
 
-def fake_execute(*, shots=3, distinct=True, marker=True, raise_exc=None, seen=None):
+def fake_execute(*, shots=3, distinct=True, marker=True, raise_exc=None, seen=None, four_up=PRODUCTION, one_up=PRODUCTION):
     def execute(plan, evidence_fn=None):
         if seen is not None:
             seen.append(plan)
         if raise_exc is not None:
             raise raise_exc
         run_dir = Path(plan["run_path"])
-        write_slicer_outputs(run_dir, shots=shots, distinct=distinct)
+        write_slicer_outputs(run_dir, shots=shots, distinct=distinct, four_up=four_up, one_up=one_up)
         log_text = LOG_OK if marker else LOG_OK.replace("DENTOBOT_VISIBLE_CASE_PASS\n", "")
         (run_dir / "slicer.log").write_text(log_text)
         checked = evidence_fn(plan, 0, log_text, True, {}, {}, 0, run_dir / "video/smoke.mkv")
@@ -425,6 +429,34 @@ class SuperviseTests(unittest.TestCase):
         self.assertEqual((done["status"], done["verified_at_sha"]), ("FAIL", None))
         self.assertFalse(done["checks"]["visible_case_marker"])
 
+    def test_fallback_or_unavailable_framing_is_never_reported_as_success(self):
+        fallback = {"method": "reset_3d_camera", "status": "fallback", "reason": "production framing reported: boom"}
+        unavailable = {"method": "reset_3d_camera", "status": "unavailable", "reason": "no planning target"}
+        for four_up, one_up in ((fallback, PRODUCTION), (PRODUCTION, unavailable)):
+            with self.subTest(four_up=four_up["status"], one_up=one_up["status"]):
+                self.supervise(execute=fake_execute(four_up=four_up, one_up=one_up))
+                done = self.done()
+                self.assertEqual((done["status"], done["verified_at_sha"]), ("FAIL", None))
+                self.assertFalse(done["checks"]["target_framing"])
+                self.assertFalse(done["framing"]["framed"])
+                self.assertIn("NOT DEMONSTRATED", (self.run_dir / "RUN_LOG.md").read_text())
+                for name in ("DONE.json",):
+                    (self.run_dir / name).unlink()  # allow the next subTest to supervise the same directory again
+
+    def test_production_framing_on_both_layouts_is_recorded_as_framed(self):
+        self.supervise()
+        done = self.done()
+        self.assertTrue(done["checks"]["target_framing"])
+        self.assertEqual((done["framing"]["four_up"]["status"], done["framing"]["one_up_3d"]["status"]),
+                         ("production", "production"))
+        self.assertIn("production target-framing action", (self.run_dir / "RUN_LOG.md").read_text())
+
+    def test_framing_summary_covers_every_status_and_missing_data(self):
+        self.assertFalse(vc.framing_summary(None)["framed"])
+        self.assertEqual(vc.framing_summary({})["four_up"]["status"], "not_run")
+        self.assertEqual(vc.framing_summary({"framing": {"status": "bogus"}})["four_up"]["status"], "not_run")
+        self.assertTrue(vc.framing_summary({"framing": PRODUCTION, "framing_3d_only": PRODUCTION})["framed"])
+
     def test_duplicate_screenshots_fail_the_distinctness_check(self):
         self.supervise(execute=fake_execute(distinct=False))
         self.assertEqual(self.done()["status"], "FAIL")
@@ -640,7 +672,10 @@ class BootstrapTests(unittest.TestCase):
     def test_framing_falls_back_without_a_planning_target_and_drops_duplicate_shots(self):
         run = self.run_bootstrap(bounds=None, shots=[b"one", b"two", b"two", b"three", b"three"])
         result = json.loads((run.out / "case-result.json").read_text())
-        self.assertEqual(result["framing"], {"method": "reset_3d_camera", "reason": "no planning target"})
+        self.assertEqual(result["framing"], {"method": "reset_3d_camera", "status": "unavailable",
+                                             "reason": "no planning target"})
+        self.assertEqual(result["framing_3d_only"]["status"], "unavailable")
+        self.assertFalse(vc.framing_summary(result)["framed"])
         self.assertEqual(result["screenshots"], ["01-startup.png", "02-case-loaded.png", "04-3d-only-target-framed.png"])
         self.assertEqual(result["dropped_duplicates"], ["03-four-up-target-framed", "05-before-exit"])
         run.widget.onFramePlanningTarget.assert_not_called()
@@ -652,8 +687,9 @@ class BootstrapTests(unittest.TestCase):
         run = self.run_bootstrap(bounds=((0, 1), (0, 1), (0, 1)), shots=[b"a", b"b", b"c", b"d", b"e"],
                                  framing_message="no trajectory")
         result = json.loads((run.out / "case-result.json").read_text())
-        self.assertEqual(result["framing"]["method"], "reset_3d_camera")
+        self.assertEqual((result["framing"]["method"], result["framing"]["status"]), ("reset_3d_camera", "fallback"))
         self.assertIn("no trajectory", result["framing"]["reason"])
+        self.assertFalse(vc.framing_summary(result)["framed"])
         run.slicer.util.errorDisplay.assert_not_called()  # the original helper is restored afterwards, never invoked
         self.assertIs(run.slicer.util.errorDisplay, run.original_error_display)
 
@@ -662,6 +698,7 @@ class BootstrapTests(unittest.TestCase):
         result = json.loads((run.out / "case-result.json").read_text())
         self.assertEqual(result["framing"]["method"], "onFramePlanningTarget")
         self.assertEqual(result["framing_3d_only"]["method"], "onFramePlanningTarget")
+        self.assertTrue(vc.framing_summary(result)["framed"])
         self.assertEqual(run.widget.onFramePlanningTarget.call_count, 2)  # four-up, then one-up 3D
         self.assertEqual(len(result["screenshots"]), 5)
         self.assertEqual(result["dropped_duplicates"], [])
@@ -696,7 +733,7 @@ class EvidenceTests(unittest.TestCase):
             self.assertNotIn(dropped, checks)
         self.assertNotIn("reload_reports", report)
         for added in ("case_opened", "visible_case_marker", "screenshots_distinct", "case_input_unchanged",
-                      "xhost_revoked", "parity_passed"):
+                      "xhost_revoked", "parity_passed", "target_framing"):
             self.assertIn(added, checks)
         self.assertTrue(report["runtime_verified"])
         self.assertIn("not visibility evidence", report["evidence_note"])
@@ -784,6 +821,32 @@ class CollectTests(unittest.TestCase):
             self.collect([self.done_answer()], transfer=self.transfer_from(self.b_run, mutate=corrupt))
         self.assertFalse(self.dest_dir().exists())
         self.assertEqual([p.name for p in self.dest_dir().parent.iterdir() if ".collecting-" in p.name], [])
+
+    def test_complete_collection_supersedes_an_earlier_incomplete_one_without_deleting_it(self):
+        other_ws, _ = make_workspace(self.root, "B-incomplete")
+        run = incomplete_run(other_ws)
+        answer = {"run_id": RUN_ID, "state": "incomplete", "done": False, "run_path": str(run)}
+        self.collect([answer], transfer=self.transfer_from(run), accept=True)
+        incomplete_copy = self.snapshot(self.dest_dir())
+        code, result = self.collect([self.done_answer()])
+        self.assertEqual((code, result["status"], result["already_collected"]), (0, "PASS", False))
+        self.assertTrue((self.dest_dir() / "DONE.json").is_file())
+        aside = Path(result["superseded_incomplete"])
+        self.assertTrue(aside.name.startswith(self.dest_dir().name + ".incomplete-"))
+        self.assertEqual(self.snapshot(aside), incomplete_copy)  # kept byte for byte
+        again = self.collect([self.done_answer()])[1]            # now idempotent on the complete copy
+        self.assertTrue(again["already_collected"])
+        self.assertNotIn("superseded_incomplete", again)
+
+    def test_incomplete_collection_never_replaces_a_complete_one(self):
+        self.collect([self.done_answer()])
+        before = self.snapshot(self.dest_dir())
+        other_ws, _ = make_workspace(self.root, "B-incomplete")
+        run = incomplete_run(other_ws)
+        answer = {"run_id": RUN_ID, "state": "incomplete", "done": False, "run_path": str(run)}
+        with self.assertRaisesRegex(vc.VisibleCaseError, "different collection"):
+            self.collect([answer], transfer=self.transfer_from(run), accept=True)
+        self.assertEqual(self.snapshot(self.dest_dir()), before)
 
     def test_incomplete_run_needs_the_flag_and_is_never_pass(self):
         other_ws, _ = make_workspace(self.root, "B-incomplete")

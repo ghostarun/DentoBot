@@ -30,23 +30,25 @@ def reason_of(exc):
     lines=str(exc).splitlines()
     return (lines[0] if lines else type(exc).__name__)[:200]
 def frame_target(widget):
+    """Frame the planning target with the production action. status: production | fallback | unavailable.
+    Only status "production" counts as framed; anything else is recorded and reported, never claimed."""
     try:
         bounds=widget._planningTargetBoundsWorld()
     except Exception as exc:
-        reset_3d_views(); return {"method":"reset_3d_camera","reason":reason_of(exc)}
+        reset_3d_views(); return {"method":"reset_3d_camera","status":"unavailable","reason":reason_of(exc)}
     if bounds is None:
-        reset_3d_views(); return {"method":"reset_3d_camera","reason":"planning target bounds are empty"}
+        reset_3d_views(); return {"method":"reset_3d_camera","status":"unavailable","reason":"planning target bounds are empty"}
     shown=[]; saved={name:getattr(slicer.util,name,None) for name in MODALS}
     for name in MODALS: setattr(slicer.util,name,lambda text="",*a,**k:shown.append(str(text)))
     try:
         widget.onFramePlanningTarget()
     except Exception as exc:
-        reset_3d_views(); return {"method":"reset_3d_camera","reason":"production framing failed: "+reason_of(exc)}
+        reset_3d_views(); return {"method":"reset_3d_camera","status":"fallback","reason":"production framing failed: "+reason_of(exc)}
     finally:
         for name,original in saved.items(): setattr(slicer.util,name,original)
     if shown:
-        reset_3d_views(); return {"method":"reset_3d_camera","reason":"production framing reported: "+shown[0][:150]}
-    return {"method":"onFramePlanningTarget","reason":"planning target bounds available"}
+        reset_3d_views(); return {"method":"reset_3d_camera","status":"fallback","reason":"production framing reported: "+shown[0][:150]}
+    return {"method":"onFramePlanningTarget","status":"production","reason":"planning target bounds available"}
 def finish(error=None):
     if FINISHED[0]: return
     FINISHED[0]=True
@@ -66,7 +68,7 @@ def finish(error=None):
 def hold_shot():
     try:
         lm=slicer.app.layoutManager(); lm.setLayout(slicer.vtkMRMLLayoutNode.SlicerLayoutOneUp3DView)
-        STATE["framing_3d_only"]=frame_target(WIDGET[0])
+        STATE["framing_3d_only"]=frame_target(WIDGET[0]); note("one-up framing: "+STATE["framing_3d_only"]["status"])
         shot("04-3d-only-target-framed")
     except Exception:
         finish(traceback.format_exc())
@@ -80,7 +82,7 @@ def open_case():
         shot("02-case-loaded")
         lm=slicer.app.layoutManager()
         lm.setLayout(slicer.vtkMRMLLayoutNode.SlicerLayoutFourUpView)
-        STATE["framing"]=frame_target(widget); note("framing: "+STATE["framing"]["method"])
+        STATE["framing"]=frame_target(widget); note("framing: "+STATE["framing"]["status"]+" via "+STATE["framing"]["method"])
         shot("03-four-up-target-framed")
         note(f"holding window visible for {PLAN['hold_s']} s")
         qt.QTimer.singleShot(int(PLAN["hold_s"]*500),hold_shot)

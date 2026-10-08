@@ -518,6 +518,26 @@ def kept_screenshots(run_dir, case_result):
     return names, kept
 
 
+FRAMING_STATUSES = ("production", "fallback", "unavailable")
+
+
+def framing_summary(case_result):
+    """Per-layout target-framing status from case-result.json.
+
+    Only "production" on BOTH layouts counts as framed; a fallback camera reset or an
+    unavailable planning target is reported as such and never as successful framing.
+    """
+    result = case_result if isinstance(case_result, dict) else {}
+    summary = {}
+    for label, key in (("four_up", "framing"), ("one_up_3d", "framing_3d_only")):
+        item = result.get(key) if isinstance(result.get(key), dict) else {}
+        status = item.get("status") if item.get("status") in FRAMING_STATUSES else "not_run"
+        summary[label] = {"status": status, "method": item.get("method"),
+                          "reason": str(item.get("reason") or "")[:200]}
+    summary["framed"] = all(summary[label]["status"] == "production" for label in ("four_up", "one_up_3d"))
+    return summary
+
+
 def _sha_if_file(path):
     return sha256_file(path) if Path(path).is_file() else None
 
@@ -543,6 +563,7 @@ def make_evidence(*, case_copy, case_sha256, parity_passed, xhost_state, base=No
         checks["screenshots_distinct"] = (len(names) >= 3 and len(kept) == len(names)
                                           and len({digest for _, digest in kept}) == len(kept))
         checks["case_input_unchanged"] = _sha_if_file(case_copy) == case_sha256
+        checks["target_framing"] = framing_summary(case_result)["framed"]
         checks["xhost_revoked"] = bool(xhost_state.get("revoked"))
         checks["parity_passed"] = bool(parity_passed)
         report["case_result"] = case_result
@@ -702,8 +723,17 @@ def _screenshot_names(run_dir):
     return [name for name in listed if isinstance(name, str)] if isinstance(listed, list) else []
 
 
+def framing_line(framing):
+    if framing["framed"]:
+        return "- Framing: production target-framing action on both layouts (still subject to the operator's visual verdict)"
+    parts = [f"{label}: {framing[label]['status']}" + (f" ({framing[label]['reason']})" if framing[label]["reason"] else "")
+             for label in ("four_up", "one_up_3d")]
+    return ("- Framing: NOT DEMONSTRATED — " + "; ".join(parts)
+            + ". A fallback camera reset or missing planning target is not target framing; operator verdict needed.")
+
+
 def run_log_text(*, run_id, requested_by, host, repo_name, sha, case_name, case_sha256, status, error,
-                 checks, shots):
+                 checks, shots, framing):
     if status == "PASS":
         verdict = f"**PASS**: verified at {sha}"
     else:
@@ -717,6 +747,7 @@ def run_log_text(*, run_id, requested_by, host, repo_name, sha, case_name, case_
         f"- Case: `{case_name}` sha256 `{(case_sha256 or 'none')[:16]}…`",
         f"- Result: {verdict}",
         f"- Checks: {checks_line}",
+        framing_line(framing),
         "- Screenshots: " + (", ".join(f"`screenshots/{name}`" for name in shots) or "none"),
         "- Session log: `session-log.json`; Slicer log: `slicer.log`",
         "- Boundary: offline case open only; no MoveIt, motion, rebuild. Video is not visibility evidence (Xwayland).",
@@ -736,22 +767,23 @@ def finalize(run_dir, *, run_id, sha, status, case_sha256=None, error=None, chec
         status = "ERROR"
         error = (error or "run directory has unexpected entries: " + ", ".join(anomalies[:5]))[:300]
     checks = dict(checks or {})
+    framing = framing_summary(read_json(run_dir / "case-result.json"))
     set_state(run_dir, "finalizing")
     write_json_atomic(run_dir / "result.json", {
-        **(result or {}), "run_id": run_id, "status": status, "error": error, "sha": sha,
+        **(result or {}), "run_id": run_id, "status": status, "error": error, "sha": sha, "framing": framing,
         "verified_at_sha": sha if status == "PASS" else None, "case_sha256": case_sha256,
         "checks": checks, "cleanup": cleanup or {}, "timed_out": bool(timed_out),
     })
     write_text_atomic(run_dir / "RUN_LOG.md", run_log_text(
         run_id=run_id, requested_by=requested_by, host=host or socket.gethostname(), repo_name=repo_name,
         sha=sha, case_name=case_name, case_sha256=case_sha256, status=status, error=error, checks=checks,
-        shots=_screenshot_names(run_dir)))
+        shots=_screenshot_names(run_dir), framing=framing))
     files, _ = list_run_files(run_dir)
     finished = utc_text()
     done = {
         "schema": SCHEMA_DONE, "run_id": run_id, "status": status, "sha": sha,
         "verified_at_sha": sha if status == "PASS" else None, "case_sha256": case_sha256,
-        "checks": checks, "error": error, "timed_out": bool(timed_out),
+        "checks": checks, "framing": framing, "error": error, "timed_out": bool(timed_out),
         "started_at_utc": started_at or finished, "finished_at_utc": finished,
         "files": [file_entry(run_dir, relative) for relative in files], "cleanup": cleanup or {},
     }
@@ -973,6 +1005,17 @@ def collected_manifest(temp, run_id, *, expect_done):
     return [file_entry(temp, relative) for relative in found], None, "INCOMPLETE", sha, None
 
 
+def _unique_aside(dest):
+    """Sibling name for retaining an earlier INCOMPLETE collection; nothing is ever deleted or overwritten."""
+    stamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
+    candidate = dest.with_name(f"{dest.name}.incomplete-{stamp}")
+    counter = 1
+    while os.path.lexists(candidate):
+        counter += 1
+        candidate = dest.with_name(f"{dest.name}.incomplete-{stamp}-{counter}")
+    return candidate
+
+
 def collect(*, run_id, remote, local_workspace, accept_incomplete=False, transfer=None, host_name=None):
     """Copy one final B run into the local data tree, verified and never overwritten."""
     run_id = validate_run_id(run_id)
@@ -1018,6 +1061,17 @@ def collect(*, run_id, remote, local_workspace, accept_incomplete=False, transfe
                 and existing.get("files") == entries):
             return code, {"run_id": run_id, "status": status_value, "label": label,
                           "local_path": str(dest), "already_collected": True}
+        if existing.get("status") == "INCOMPLETE" and status_value != "INCOMPLETE":
+            aside = _unique_aside(dest)
+            os.rename(dest, aside)
+            try:
+                os.replace(temp, dest)
+            except OSError:
+                os.rename(aside, dest)
+                raise
+            published = True
+            return code, {"run_id": run_id, "status": status_value, "label": label, "local_path": str(dest),
+                          "already_collected": False, "superseded_incomplete": str(aside)}
         raise VisibleCaseError("a different collection already exists at the destination; not replaced")
     finally:
         if not published:
@@ -1088,7 +1142,8 @@ def cmd_collect(args, *, active, machines):
                                 local_workspace=machines["A"]["repo"],
                                 accept_incomplete=args.accept_incomplete)
         return code, payload, [f"{payload['run_id']}: {payload['label']} -> {payload['local_path']}"
-                               f"{' (already collected)' if payload['already_collected'] else ''}"]
+                               f"{' (already collected)' if payload['already_collected'] else ''}"
+                               f"{' (earlier INCOMPLETE copy kept at ' + payload['superseded_incomplete'] + ')' if payload.get('superseded_incomplete') else ''}"]
     return _command(work)
 
 
