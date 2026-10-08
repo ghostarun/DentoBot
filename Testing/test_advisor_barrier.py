@@ -38,6 +38,8 @@ class _Proxy:
 
 class _Logic(_Proxy):
     def step6MouthBarrierTuning(self, node):
+        if self._w.stored_tuning_error:
+            raise ValueError(self._w.stored_tuning_error)
         return dict(self._w.tuning)
 
     def setStep6MouthBarrierTuning(self, node, lip_margin_mm, lip_slab_mm, portal_enlarge_mm):
@@ -89,6 +91,7 @@ class BarrierWorld(World):
     def __init__(self, *, tuning=None, sync_changes_geometry=True, acknowledge=True, blocking_pair=None, **kwargs):
         super().__init__(**kwargs)
         self.blocking_pair = blocking_pair or _lip_blocks_at_default_margin
+        self.stored_tuning_error = ""
         self.tuning = dict(tuning or DEFAULTS)
         self.audited_tuning = dict(self.tuning)
         self.sync_changes_geometry = sync_changes_geometry
@@ -315,3 +318,13 @@ def test_evidence_helper_reads_only_recorded_contacts_and_attributes_them():
     assert fa.lip_slab_blocker_evidence({"steps": {"preentry": {"pairs": [["burr", "FDI24"]]}}}) == []
     assert fa.lip_slab_blocker_evidence({"steps": {"diagnose": {"reason": "mentions the lip slab"}}}) == []  # text alone is not evidence
     assert fa.lip_slab_blocker_evidence(None) == [] and fa.lip_slab_blocker_evidence({}) == []
+
+
+def test_an_unapproved_stored_tuning_blocks_the_search_with_a_readable_setup_issue(tmp_path):
+    world = BarrierWorld()
+    world.stored_tuning_error = "Mouth barrier lip_slab_mm=6 is not an approved value (8 default or 4 approved variant mm)."
+    s = session(world, tmp_path)
+    issues = s.prepare()
+    blocking = [i for i in issues if i.severity == "blocking" and "not an approved value" in i.message]
+    assert blocking and blocking[0].fix_id == "goto_6_3"
+    assert s.finished and s.outcome == svc.BLOCKED and "barrier_set" not in world.calls

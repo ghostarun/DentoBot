@@ -230,6 +230,7 @@ class _Current:
     diagnosis_cursor: int = 0
     diagnosis_rows: list = field(default_factory=list)
     diagnosis_done: bool = False
+    timings: dict = field(default_factory=dict)  # seconds per uninterruptible sub-step (responsiveness evidence)
 
 
 class _HomeReviewRequired(RuntimeError):
@@ -583,6 +584,11 @@ class FeasibilityAdvisorSession:
         if branch.get("reason") != "VALID":
             issues.append(SetupIssue("The active PreparedBranch is not VALID: " + str(branch.get("message") or branch.get("reason")),
                                      fix_id="goto_6_1", fix_label="Select a valid branch / import Step 6 (6.1)"))
+        try:
+            self._live_barrier_tuning()
+        except ValueError as exc:
+            issues.append(SetupIssue("The mouth-barrier lip tuning on this case is not an approved value: " + str(exc)[:200],
+                                     fix_id="goto_6_3", fix_label="Review the 6.3 mouth barrier / Restore Branch Step 6 Config"))
         ros = self._active()
         if not ros:
             issues.append(SetupIssue("ROS/MoveIt is not connected. Use the production Connect action in 6.1 before starting the advisor.",
@@ -888,6 +894,7 @@ class FeasibilityAdvisorSession:
                     + "; ".join(immutable_issues)
                 )
         self._progress_file(f"{STEP_TITLES[name]} ({current.label})")
+        step_started = self._clock()
         try:
             if is_diagnose:
                 done, note = self._do_diagnose_step(current)
@@ -914,6 +921,10 @@ class FeasibilityAdvisorSession:
                 note = f"Diagnose stopped at {check}: check could not run"
             else:
                 current.steps[name] = {"result": fa.SETUP_ERROR, "reason": f"{name} could not run: {exc}"[:300]}
+        label = name
+        if is_diagnose and current.diagnosis_rows:
+            label = "diagnose:" + str(current.diagnosis_rows[-1].get("check") or "")
+        current.timings[label] = round(max(0.0, self._clock() - step_started), 3)
         self._refresh()
         if current.observed.get("needs_rebuild"):
             return self._needs_rebuild(current)
@@ -940,7 +951,7 @@ class FeasibilityAdvisorSession:
                                      evidence_dir=str(directory))
         record.update(result=fa.SETUP_ERROR, failed_step=failed_step, reason=reason[:500],
                       steps={**current.steps, failed_step: {"result": fa.SETUP_ERROR, "reason": reason[:500]}},
-                      sequence=current.index, operator_review_required=True)
+                      sequence=current.index, operator_review_required=True, timings_sec=dict(current.timings))
         self._current = None
         self.message = "Operator review required: " + reason[:300]
         event = self._finalize(record, directory, store=False)
@@ -1265,6 +1276,7 @@ class FeasibilityAdvisorSession:
         record = fa.candidate_record(current.stage, current.state, self.baseline, steps, identity=current.identity,
                                      evidence_dir=str(current.directory))
         record["sequence"] = current.index
+        record["timings_sec"] = dict(current.timings)
         self._current = None
         return self._finalize(record, current.directory, store=True)
 
@@ -1409,12 +1421,26 @@ class FeasibilityAdvisorSession:
             return
         notes = [f"Outcome: {self.outcome or 'running'}; {self.message}"] + [
             f"Unavailable stage {stage}: {why}" for stage, why in self.unavailable_stages.items()]
+        longest = self.longest_step()
+        if longest:
+            notes.append(f"Longest single uninterruptible step measured: {longest[0]:.1f} s (candidate {longest[1]}, "
+                         f"{longest[2]}). The dialog cannot repaint or cancel inside one step; this is measured, not accepted.")
         if self._declined_count:
             notes.append(f"{self._declined_count} candidate(s) were skipped (declined stage or skipped opening) and stay UNTESTED.")
         (self.root).mkdir(parents=True, exist_ok=True)
         (self.root / "advisor-ordered-report.md").write_text(
             fa.ordered_report_markdown(self.baseline, self.records, self.limits, notes=notes), encoding="utf-8")
         self._write(self.root, "advisor-ordered-records.json", self.records)
+
+    def longest_step(self) -> tuple | None:
+        """``(seconds, candidate sequence, step)`` of the slowest recorded sub-step, or None."""
+
+        best = None
+        for record in self.records:
+            for step, seconds in (record.get("timings_sec") or {}).items():
+                if best is None or float(seconds) > best[0]:
+                    best = (float(seconds), record.get("sequence"), step)
+        return best
 
     def export_evidence(self) -> str:
         """Rewrite the report and records; returns the evidence directory."""

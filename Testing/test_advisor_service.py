@@ -1045,3 +1045,38 @@ def test_ranked_table_rows_carry_change_class_failed_step_reason_and_evidence(tm
     assert rows and {"rank", "change_text", "result", "failed_step", "reason", "evidence_dir", "review_items"} <= set(rows[0])
     assert rows[0]["result"] == fa.PASSED and Path(rows[0]["evidence_dir"], "candidate.json").exists()
     assert [r["rank"] for r in rows] == list(range(1, len(rows) + 1))
+
+
+# --- measured, not accepted: per-step durations (S6-P2-03 responsiveness evidence) -----------------------
+class _Ticking:
+    """Deterministic clock: every reading advances by ``step`` seconds."""
+
+    def __init__(self, step=0.5):
+        self.now, self.step = 0.0, step
+
+    def __call__(self):
+        self.now += self.step
+        return self.now
+
+
+def test_every_uninterruptible_step_duration_is_recorded_and_the_longest_is_reported(tmp_path):
+    world = World()
+    s = session(world, tmp_path, clock=_Ticking(0.5))
+    s.prepare()
+    drive(s)
+    timings = s.records[0]["timings_sec"]
+    assert {"prerequisites", "stroke_reach", "preentry", "corridor"} <= set(timings)
+    assert any(key.startswith("diagnose:") for key in timings)  # one entry per Diagnose row
+    assert all(value > 0 for value in timings.values())
+    longest = s.longest_step()
+    assert longest is not None and longest[0] == max(timings.values()) and longest[1] == 1
+    report = (tmp_path / "run" / "advisor-ordered-report.md").read_text(encoding="utf-8")
+    assert "Longest single uninterruptible step measured" in report and "not accepted" in report
+    saved = json.loads((s.records[0]["evidence_dir"] and Path(s.records[0]["evidence_dir"]) / "candidate.json").read_text())
+    assert saved["timings_sec"] == timings
+
+
+def test_no_timing_means_nothing_measured_and_no_claim(tmp_path):
+    world = World()
+    s = session(world, tmp_path)
+    assert s.longest_step() is None

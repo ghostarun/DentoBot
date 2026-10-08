@@ -889,7 +889,7 @@ class RobotSceneSyncLogicMixin:
         return mode if mode in BARRIER_EDGE_MODES else BARRIER_DEFAULT_EDGE_MODE
 
     def step6MouthBarrierTuning(self, parameterNode) -> dict:
-        """Lip/barrier tuning stored on the node (defaults = production constants); ValueError outside the approved bounds."""
+        """Lip/barrier tuning stored on the node (defaults = production constants); ValueError unless every value is an approved one."""
         from dentobot_workflow.mouth_portal import validated_barrier_tuning
 
         return validated_barrier_tuning(

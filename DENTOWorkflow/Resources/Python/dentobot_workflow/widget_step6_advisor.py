@@ -94,6 +94,8 @@ class Step6AdvisorWidgetMixin:
                 "evaluated only when the baseline's own contact evidence names the lip slab and after your "
                 "explicit review; otherwise they stay UNTESTED. "
                 "Opening, barrier variants, Base yaw and a shortened drilling depth need your explicit review. "
+                "The window may stop repainting while one planning step runs (the length is not yet measured); "
+                "Cancel takes effect when that step finishes. "
                 "The search does not accept Task Home or move the robot. Use Apply & Save to branch only after "
                 "the search reports that baseline restoration completed."
             ),

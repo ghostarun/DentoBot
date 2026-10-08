@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from .runtime import *
 from . import step6_working_config
+from .mouth_portal import DEFAULT_BARRIER_TUNING
 
 
 def _barrierTuningSummary(config: dict) -> str:
     """Non-default mouth-barrier lip tuning only (the approved defaults stay silent)."""
 
     tuning = config.get("barrier_tuning") or {}
-    if all(abs(tuning.get(k, v) - v) < 1e-9 for k, v in step6_working_config.mouth_portal.DEFAULT_BARRIER_TUNING.items()):
+    if all(abs(tuning.get(k, v) - v) < 1e-9 for k, v in DEFAULT_BARRIER_TUNING.items()):
         return ""
     return (
         _(" Mouth barrier variant: lip margin %1 mm, lip slab %2 mm, portal enlargement %3 mm.")
