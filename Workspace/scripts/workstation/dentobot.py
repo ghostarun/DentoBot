@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 import handoff
+import visible_case
 
 
 CONFIG = Path.home() / ".config/dentobot/commands.json"
@@ -74,6 +75,7 @@ def parser():
     smoke.add_argument("--expected-sha")
     smoke.add_argument("--image-id")
     smoke.add_argument("--run", action="store_true")
+    visible_case.add_subcommands(commands)
     return p
 
 
@@ -86,6 +88,8 @@ def main(argv=None):
         machine = handoff.Machine(active, machines[active])
         if machine.host is not None:
             raise RuntimeError("active_machine must identify this host; use the handoff CLI for remote execution")
+        if args.command == "visible-case":
+            return visible_case.dispatch(args, active=active, machines=machines)
         selected = config["machines"][active]
         if args.command == "parity":
             import runtime_sync

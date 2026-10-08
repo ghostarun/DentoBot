@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import smoke_runtime as smoke
 
@@ -188,6 +188,37 @@ class SmokeRuntimeTests(unittest.TestCase):
         (run_path / "video/smoke.manifest.json").write_text(json.dumps(manifest))
         invalid_video = smoke.evidence_checks(plan, 0, clean_log, True, {}, {}, 0, video)
         self.assertFalse(invalid_video["checks"]["video_manifest_checksum_and_decode"])
+
+    def test_execute_uses_an_injected_evidence_function_when_given(self):
+        run_path = Path(self.temp.name) / "run"
+        run_path.mkdir()
+        image = self.image_id
+        info = {"Id": "cid", "Image": image, "Running": False, "Status": "exited",
+                "ConfigImage": "dentobot/slicerros2:test", "ConfigCmd": ["sleep", "infinity"]}
+        running = {**info, "Running": True, "Status": "running"}
+        inspections = [info, running, running, info, info]
+        proc = MagicMock()
+        proc.wait.return_value = 0
+        proc.poll.return_value = 0
+        plan = {"check": "test", "repo": str(self.repo), "workspace": str(self.workspace), "expected_sha": self.sha,
+                "image_id": image, "image_name": "dentobot/slicerros2:test", "backend_env_dir": str(self.workspace),
+                "run_path": str(run_path), "timeout_sec": 30, "argv": ["true"]}
+        injected = MagicMock(return_value={"checks": {"fake": True}, "runtime_verified": True})
+        with patch.object(smoke.shutil, "which", return_value="/usr/bin/tool"), \
+             patch.object(smoke, "acquire_locks", return_value=[]), patch.object(smoke, "release_locks"), \
+             patch.object(smoke, "assert_no_owners", return_value={}), \
+             patch.object(smoke, "await_owned_exit", return_value={}), \
+             patch.object(smoke, "inspect_container", side_effect=inspections), \
+             patch.object(smoke, "validate_container", return_value={}), \
+             patch.object(smoke, "command", return_value=(0, image + "\n", "")), \
+             patch.object(smoke, "source_is_clean", return_value=True), \
+             patch.object(smoke.subprocess, "Popen", return_value=proc), \
+             patch.object(smoke, "evidence_checks") as default_evidence:
+            result = smoke.execute(plan, evidence_fn=injected)
+        injected.assert_called_once()
+        self.assertEqual(injected.call_args.args[1], 0)
+        default_evidence.assert_not_called()
+        self.assertEqual(result["checks"], {"fake": True})
 
 
 if __name__ == "__main__":

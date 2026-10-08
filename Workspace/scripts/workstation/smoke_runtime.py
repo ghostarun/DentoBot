@@ -333,7 +333,7 @@ def await_owned_exit():
             time.sleep(0.1)
 
 
-def execute(plan):
+def execute(plan, evidence_fn=None):
     result = {"run_path": plan["run_path"], "runtime_verified": False,
               "operator_verified": False, "a_image_parity_verified": False, "launcher_exit_code": None}
     handles, started, proc, container_id = [], False, None, None
@@ -425,9 +425,9 @@ def execute(plan):
         decode_code = 127
         if video.is_file() and shutil.which("ffmpeg"):
             decode_code = command(["ffmpeg", "-v", "error", "-i", str(video), "-f", "null", "-"], timeout=60)[0]
-        checked = evidence_checks(plan, result["launcher_exit_code"], log_text, cleanup_ok,
-                                  host_after or {name: 1 for name in PROCESS_NAMES},
-                                  container_after or {name: 1 for name in PROCESS_NAMES}, decode_code, video)
+        checked = (evidence_fn or evidence_checks)(plan, result["launcher_exit_code"], log_text, cleanup_ok,
+                                                   host_after or {name: 1 for name in PROCESS_NAMES},
+                                                   container_after or {name: 1 for name in PROCESS_NAMES}, decode_code, video)
         result.update(checked)
         result["process_counts"] = {**result.get("process_counts", {}), "host_after": host_after}
         if result.get("error") or result.get("cleanup_error") or result.get("host_process_error"):
