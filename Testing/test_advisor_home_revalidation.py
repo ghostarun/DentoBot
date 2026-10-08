@@ -278,7 +278,7 @@ def test_an_unknown_acceptance_outcome_or_an_exception_stops_and_is_never_retrie
         assert world.accept_calls == 1  # one attempt only: the unknown outcome is never retried, not even by restore
         assert [e["outcome"] for e in ledger(s)] == ["refused", "refused"]
         assert "unknown" in ledger(s)[0]["message"] or "raised" in ledger(s)[0]["message"]
-        assert s.restore_issues and "already staged" in " ".join(s.restore_issues)  # the possibly-committed review is kept
+        assert s.restore_issues and "previous Task Home acceptance outcome is unknown" in " ".join(s.restore_issues)
         with pytest.raises(PermissionError):
             s.apply_and_save(acknowledged=())
 
