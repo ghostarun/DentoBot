@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 import step6_case_evidence as evidence
+from dentobot_workflow import advisor_service
 from dentobot_workflow import feasibility_advisor as fa
 from dentobot_workflow.base_placement_search import candidate_around_base
 
@@ -748,36 +749,13 @@ class OrderedAdvisorRunner:
         }
 
     def preentry(self) -> dict:
-        widget, panel, facade, logic, node = self._ctx()
-        result = facade.checkPreEntryIK()
+        # Classification is shared with the production service (advisor_service.preentry_step).
+        result = self._ctx()[2].checkPreEntryIK()
         self._ev()
-        session = getattr(result.payload, "to_dict", None)
-        session = session() if callable(session) else {}
-        seeds = []
-        for record in session.get("candidate_records") or ():
-            seeds.append({k: record.get(k) for k in (
-                "candidate_index", "seed_provenance", "route_type", "solver_success", "termination_reason",
-                "collision_check_status", "collision_pairs", "best_joint_positions_si",
-                "static_state_validity_status", "static_state_validity_message", "endpoint_check_status",
-                "endpoint_collision_clear", "failure_classification", "position_residual_mm",
-                "drilling_axis_residual_deg", "authoritative_position_residual_mm",
-                "authoritative_drilling_axis_residual_deg")})
-        raw = {"success": bool(result.success), "code": str(result.code), "message": str(result.message),
-               "details": dict(result.details or {}), "seeds": seeds,
-               "session_identity": {k: session.get(k) for k in (
-                   "session_fingerprint", "task_fingerprint", "base_fingerprint", "trajectory_fingerprint",
-                   "robot_profile_fingerprint", "collision_audit_fingerprint", "planning_parameters_fingerprint")}}
-        step = fa.classify_preentry(raw)
-        step["raw"] = raw
-        return step
+        return advisor_service.preentry_step(result)
 
     def corridor(self) -> dict:
-        result = self._ctx()[2].checkApproachCorridorClearance()
-        step = fa.classify_corridor({"success": result.success, "code": result.code, "message": result.message,
-                                     "details": result.details})
-        step["message"] = str(result.message)[:500]
-        step["identity"] = (result.details or {}).get("identity")
-        return step
+        return advisor_service.corridor_step(self._ctx()[2].checkApproachCorridorClearance(), self.limits)
 
     def diagnose(self, evidence_dir: Path, label: str) -> dict:
         widget, panel, facade, logic, node = self._ctx()
