@@ -285,6 +285,7 @@ class FeasibilityAdvisorSession:
         self._pending_gate = ""
         self._skipped_openings: set = set()
         self._lip_evidence: list | None = None  # attributed baseline lip-slab contacts, computed at the lip stage
+        self._synced_tuning: dict | None = None  # barrier tuning the audited/MoveIt scene is known to hold
         self._declined_count = 0
         self._setup_error_run = 0
         self._cancel_requested = False
@@ -670,6 +671,7 @@ class FeasibilityAdvisorSession:
         opening = float(node.step6CaseJawTargetGapMm)
         self.baseline = fa.baseline_state(opening)
         live_tuning = self._live_barrier_tuning()
+        self._synced_tuning = dict(live_tuning) if live_tuning is not None else None
         if live_tuning is not None:
             self.baseline.update(live_tuning)
             if any(abs(live_tuning[k] - fa.DEFAULT_BARRIER[k]) > 1e-9 for k in fa.LIP_VARIANT_BOUNDS):
@@ -989,6 +991,7 @@ class FeasibilityAdvisorSession:
         """
 
         before = self._barrier_geometry_fingerprint() if self._active() else ""
+        wanted = {key: float(state[key]) for key in fa.LIP_VARIANT_BOUNDS}
         self.logic.setStep6MouthBarrierTuning(
             self.node, lip_margin_mm=float(state[fa.LIP_MARGIN_MM]), lip_slab_mm=float(state[fa.LIP_SLAB_MM]),
             portal_enlarge_mm=float(state[fa.PORTAL_ENLARGE_MM]))
@@ -1000,8 +1003,11 @@ class FeasibilityAdvisorSession:
             raise RuntimeError("Planning-scene sync after the barrier change failed: " + str(result.message)[:200])
         if not bool((result.details or {}).get("runtimeAcknowledged")):
             raise RuntimeError("MoveIt did not acknowledge the changed barrier scene")
-        if before and self._barrier_geometry_fingerprint() == before:
+        # The audited geometry must differ only when the scene was really holding other values (a failed
+        # earlier sync leaves it on the previous tuning, so restoring that tuning is legitimately unchanged).
+        if before and wanted != self._synced_tuning and self._barrier_geometry_fingerprint() == before:
             raise RuntimeError("The audited barrier geometry did not change after the tuning change")
+        self._synced_tuning = wanted
         return "barrier tuning applied and the planning scene re-synchronized"
 
     def _do_apply_barrier(self, current):

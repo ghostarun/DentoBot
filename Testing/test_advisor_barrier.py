@@ -76,6 +76,8 @@ class _Facade(_Proxy):
         self._w._log("sync_scene")
         if not self._w.connected:
             return fail("ros_required", "Connect first.")
+        if self._w.sync_fails:
+            return fail("planning_scene_failed", "MoveIt scene sync refused.")
         if self._w.sync_changes_geometry:
             self._w.audited_tuning = dict(self._w.tuning)
         return ok("planning_scene_synced", details={"runtimeAcknowledged": self._w.acknowledge})
@@ -92,6 +94,7 @@ class BarrierWorld(World):
         super().__init__(**kwargs)
         self.blocking_pair = blocking_pair or _lip_blocks_at_default_margin
         self.stored_tuning_error = ""
+        self.sync_fails = False
         self.tuning = dict(tuning or DEFAULTS)
         self.audited_tuning = dict(self.tuning)
         self.sync_changes_geometry = sync_changes_geometry
@@ -328,3 +331,23 @@ def test_an_unapproved_stored_tuning_blocks_the_search_with_a_readable_setup_iss
     blocking = [i for i in issues if i.severity == "blocking" and "not an approved value" in i.message]
     assert blocking and blocking[0].fix_id == "goto_6_3"
     assert s.finished and s.outcome == svc.BLOCKED and "barrier_set" not in world.calls
+
+
+def test_a_failed_trial_sync_does_not_make_the_restore_sync_look_like_missing_evidence(tmp_path):
+    """A refused sync leaves the scene on the original barrier; restoring it is legitimately 'unchanged'."""
+
+    world = BarrierWorld()
+    world.sync_fails = True
+    s = session(world, tmp_path)
+    s.prepare()
+
+    def heal_before_restore(sess, event):
+        if sess.phase == svc.RESTORING:
+            world.sync_fails = False
+
+    drive(s, approve=("lip_variant",), on_step=heal_before_restore)
+    lip = [r for r in s.records if r["stage"] == "lip_variant"]
+    assert lip and all(r["result"] == fa.SETUP_ERROR and "sync" in json.dumps(r) for r in lip[:3])
+    assert world.tuning == DEFAULTS and world.audited_tuning == DEFAULTS
+    assert s.restore_issues == []  # not a spurious "geometry did not change" restore failure
+    assert "store" not in world.calls
