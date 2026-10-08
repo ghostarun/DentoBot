@@ -2004,6 +2004,117 @@ def _base_review(facade):
     return result
 
 
+def _discard_staged_base_if_requested(panel, logic, parameter_node, facade, report):
+    """Discard only a known-current detached Base candidate through production Cancel Review."""
+    env_name = "DENTOBOT_HEADED_DISCARD_STAGED_BASE"
+    if not _exact_env_opt_in(env_name):
+        return False
+    result = facade.manualBaseReview()
+    details = dict(result.details or {})
+    evidence = {"status": "NOT_STAGED", "requested": True,
+                "before_details": details}
+    report["staged_base_discard"] = evidence
+    if not result.success:
+        evidence.update(status="REFUSED", reason=str(result.message))
+        _write_report(report)
+        raise RuntimeError("Cannot safely inspect staged Base before Cancel Review.")
+    if details.get("staged") is not True:
+        _write_report(report)
+        return False
+    accepted = details.get("acceptedMatrixWorldRasMm")
+    candidate = details.get("candidateMatrixWorldRasMm")
+    base = getattr(parameter_node, "robotBaseTransform", None)
+    if (details.get("identityStatus") != "current"
+            or details.get("acceptanceStatus") == "unknown"
+            or details.get("acceptanceUncertainty")
+            or not _valid_matrix(accepted) or not _valid_matrix(candidate)
+            or not _same_matrix(details.get("acceptedBaselineMatrixWorldRasMm"), accepted)
+            or base is None):
+        evidence.update(status="REFUSED", reason="staged Base identity, outcome, or matrix is not known-current")
+        _write_report(report)
+        raise RuntimeError("Staged Base identity or accepted outcome is unknown; refusing Cancel Review.")
+    home = logic.taskHomeRecord(parameter_node)
+    home_before = home.to_dict() if home is not None else None
+    joints_before = _actual_joint_state(facade)
+    identity_before = {
+        "base_fingerprint": str(logic.robotBaseFingerprint(parameter_node) or ""),
+        "base_pose_fingerprint": str(logic.robotBasePoseFingerprint(base) or ""),
+        "robot_profile_fingerprint": str(logic.robotProfileFingerprint() or ""),
+    }
+    if not all(identity_before.values()):
+        evidence.update(status="REFUSED", reason="accepted Base identity fingerprints are unavailable")
+        _write_report(report)
+        raise RuntimeError("Accepted Base identity fingerprints are unavailable; refusing Cancel Review.")
+    base_flags_before = {
+        "locked": bool(parameter_node.robotBaseMountLocked),
+        "placement_status": str(parameter_node.step6BasePlacementStatus or ""),
+        "placement_revision": int(parameter_node.step6BasePlacementRevision),
+    }
+    evidence.update({
+        "accepted_matrix_before": accepted,
+        "candidate_matrix_before": candidate,
+        "accepted_identity_before": identity_before,
+        "base_flags_before": base_flags_before,
+        "home_before": home_before,
+        "joints_before": joints_before,
+    })
+    button = panel.cancelManualBaseReviewButton
+    if not button.enabled:
+        evidence.update(status="REFUSED", reason="production Cancel Review button is disabled")
+        _write_report(report)
+        raise RuntimeError("Production Cancel Review is disabled; staged Base was left untouched.")
+    evidence.update(status="CLICK_ATTEMPTED", production_cancel_clicks=1)
+    _write_report(report)
+    try:
+        button.click()
+        _process_events(0.1)
+        after_result = facade.manualBaseReview()
+        after = dict(after_result.details or {})
+        home_after = logic.taskHomeRecord(parameter_node)
+        joints_after = _actual_joint_state(facade)
+        identity_after = {
+            "base_fingerprint": str(logic.robotBaseFingerprint(parameter_node) or ""),
+            "base_pose_fingerprint": str(logic.robotBasePoseFingerprint(base) or ""),
+            "robot_profile_fingerprint": str(logic.robotProfileFingerprint() or ""),
+        }
+        base_flags_after = {
+            "locked": bool(parameter_node.robotBaseMountLocked),
+            "placement_status": str(parameter_node.step6BasePlacementStatus or ""),
+            "placement_revision": int(parameter_node.step6BasePlacementRevision),
+        }
+        evidence.update({
+            "status": "PASS" if (
+                after_result.success and after.get("staged") is False
+                and after.get("candidateMatrixWorldRasMm") is None
+                and after.get("identityStatus") == "current"
+                and after.get("acceptanceStatus") != "unknown"
+                and not after.get("acceptanceUncertainty")
+                and _valid_matrix(after.get("acceptedMatrixWorldRasMm"))
+                and tuple(float(value) for value in after["acceptedMatrixWorldRasMm"])
+                == tuple(float(value) for value in accepted)
+                and identity_after == identity_before
+                and base_flags_after == base_flags_before
+                and (home_after.to_dict() if home_after is not None else None) == home_before
+                and joints_after == joints_before
+            ) else "FAIL",
+            "after_details": after,
+            "accepted_identity_after": identity_after,
+            "base_flags_after": base_flags_after,
+            "home_after": home_after.to_dict() if home_after is not None else None,
+            "joints_after": joints_after,
+        })
+        _write_report(report)
+        if evidence["status"] != "PASS":
+            raise RuntimeError("Cancel Review did not preserve the accepted Base, Home, joints, and lock state.")
+        return True
+    except Exception as exc:
+        if evidence.get("status") == "CLICK_ATTEMPTED":
+            evidence["status"] = "UNKNOWN_AFTER_CANCEL_CLICK"
+        evidence["failure"] = f"{type(exc).__name__}: {exc}"
+        _write_report(report)
+        raise
+
+
 def _run_base_profile_rebind_prerequisite(
     widget, panel, logic, parameter_node, facade, case_path, case_hash,
     allow_base_home_accept, report, evidence_dir, run_id,
@@ -3821,6 +3932,16 @@ def run() -> int:
         active_check = "base_controls_and_accepted_status"
         widget._configureRobotSimulationShellSubstep(1)
         widget._updateStep6PlanningUi()
+        if _exact_env_opt_in("DENTOBOT_HEADED_DISCARD_STAGED_BASE"):
+            _capture(report, evidence_dir, run_id, "staged-base-before-discard")
+        base_discarded = _discard_staged_base_if_requested(
+            panel, logic, parameter_node, facade, report
+        )
+        if base_discarded:
+            report["staged_base_discard"]["screenshot_after"] = _capture(
+                report, evidence_dir, run_id, "staged-base-after-discard"
+            )
+            _write_report(report)
         base_status = _base_review(facade)
         base_details = dict(base_status.details or {})
         visible_controls = {
@@ -5341,6 +5462,15 @@ def run() -> int:
     except Exception as exc:
         outcome = "FAILED"
         message = f"{type(exc).__name__}: {exc}"
+        live_widget = locals().get("widget")
+        if live_widget is not None:
+            try:
+                _capture(report, evidence_dir, run_id, "first-failure")
+            except Exception as capture_exc:
+                report["first_failure_capture_error"] = (
+                    f"{type(capture_exc).__name__}: {capture_exc}"
+                )
+                _write_report(report)
         if report["items"][active_check]["status"] == "NOT_RUN":
             _record(report, active_check, "FAIL", reason=message)
         complete_not_run(CHECK_NAMES, f"Stopped after first failure: {message}")

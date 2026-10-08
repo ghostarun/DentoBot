@@ -1308,6 +1308,115 @@ def test_base_home_acceptance_is_exactly_opt_in_and_keeps_default_checklist():
     assert "task_home_accept_owner.click()" in acceptance_path
 
 
+def _staged_base_discard_fixture(monkeypatch):
+    matrix = (1.0, 0.0, 0.0, 5.0, 0.0, 1.0, 0.0, 6.0,
+              0.0, 0.0, 1.0, 7.0, 0.0, 0.0, 0.0, 1.0)
+    details = {
+        "staged": True, "identityStatus": "current", "acceptanceStatus": "review",
+        "candidateMatrixWorldRasMm": matrix,
+        "acceptedMatrixWorldRasMm": matrix,
+        "acceptedBaselineMatrixWorldRasMm": matrix,
+    }
+
+    class Facade:
+        joints = {"accepted_si": {name: float(i) for i, name in enumerate(JOINT_NAMES)},
+                  "monitored_si": {name: float(i) for i, name in enumerate(JOINT_NAMES)},
+                  "displayed_si": {name: float(i) for i, name in enumerate(JOINT_NAMES)}}
+
+        def manualBaseReview(self):
+            return SimpleNamespace(success=True, details=dict(details), message="")
+
+        def cancel(self):
+            details.update(staged=False, candidateMatrixWorldRasMm=None)
+
+    class Button:
+        enabled = True
+        clicks = 0
+
+        def click(self):
+            self.clicks += 1
+            facade.cancel()
+
+    facade = Facade()
+    button = Button()
+    panel = SimpleNamespace(cancelManualBaseReviewButton=button)
+    home_data = {"revision": 4, "joint_positions_si": [0, 1, 2, 3, 4]}
+    logic = SimpleNamespace(
+        taskHomeRecord=lambda _node: SimpleNamespace(to_dict=lambda: dict(home_data)),
+        robotBaseFingerprint=lambda _node: "base-fingerprint",
+        robotBasePoseFingerprint=lambda _base: "pose-fingerprint",
+        robotProfileFingerprint=lambda: "profile-fingerprint",
+    )
+    parameter_node = SimpleNamespace(
+        robotBaseTransform=object(), robotBaseMountLocked=False,
+        step6BasePlacementStatus="Stale", step6BasePlacementRevision=4,
+    )
+    valid = _extract_helper("_valid_matrix")
+    same = _extract_helper("_same_matrix", {"_valid_matrix": valid})
+    exact_opt_in = _extract_helper("_exact_env_opt_in", {"os": os})
+    discard = _extract_helper("_discard_staged_base_if_requested", {
+        "_exact_env_opt_in": exact_opt_in,
+        "_valid_matrix": valid,
+        "_same_matrix": same,
+        "_actual_joint_state": lambda current: dict(current.joints),
+        "_process_events": lambda _seconds: None,
+        "_write_report": lambda _report: None,
+    })
+    monkeypatch.setenv("DENTOBOT_HEADED_DISCARD_STAGED_BASE", "1")
+    return discard, panel, logic, parameter_node, facade, button, details, matrix
+
+
+def test_staged_base_discard_uses_one_production_cancel_and_preserves_accepted_state(monkeypatch):
+    discard, panel, logic, node, facade, button, details, matrix = _staged_base_discard_fixture(monkeypatch)
+    report = {}
+
+    assert discard(panel, logic, node, facade, report) is True
+    assert button.clicks == 1
+    assert report["staged_base_discard"]["production_cancel_clicks"] == 1
+    assert report["staged_base_discard"]["before_details"]["acceptedMatrixWorldRasMm"] == matrix
+    assert report["staged_base_discard"]["after_details"]["candidateMatrixWorldRasMm"] is None
+    assert report["staged_base_discard"]["status"] == "PASS"
+    assert node.robotBaseMountLocked is False
+
+
+def test_staged_base_discard_refuses_unknown_acceptance_without_click(monkeypatch):
+    discard, panel, logic, node, facade, button, details, _matrix = _staged_base_discard_fixture(monkeypatch)
+    details.update(acceptanceStatus="unknown", acceptanceUncertainty="commit result unclear")
+
+    with pytest.raises(RuntimeError, match="identity or accepted outcome is unknown"):
+        discard(panel, logic, node, facade, {})
+    assert button.clicks == 0
+
+
+def test_staged_base_default_off_keeps_existing_refusal(monkeypatch):
+    discard, panel, logic, node, facade, button, _details, _matrix = _staged_base_discard_fixture(monkeypatch)
+    monkeypatch.delenv("DENTOBOT_HEADED_DISCARD_STAGED_BASE")
+    assert discard(panel, logic, node, facade, {}) is False
+    assert button.clicks == 0
+    base_review = _extract_helper("_base_review", {"_valid_matrix": _extract_helper("_valid_matrix")})
+    with pytest.raises(RuntimeError, match="candidate was already staged"):
+        base_review(facade)
+
+
+def test_first_failure_capture_is_attempted_before_runner_exit():
+    run = next(node for node in TREE.body
+               if isinstance(node, ast.FunctionDef) and node.name == "run")
+    handler = next(node for node in ast.walk(run)
+                   if isinstance(node, ast.ExceptHandler)
+                   and isinstance(node.type, ast.Name) and node.type.id == "Exception"
+                   and any(isinstance(child, ast.Call)
+                           and ast.unparse(child.func) == "complete_not_run"
+                           for child in ast.walk(ast.Module(body=node.body, type_ignores=[]))))
+    capture = next(node for node in ast.walk(handler)
+                   if isinstance(node, ast.Call)
+                   and ast.unparse(node.func) == "_capture")
+    complete = next(node for node in ast.walk(handler)
+                    if isinstance(node, ast.Call)
+                    and ast.unparse(node.func) == "complete_not_run")
+    assert ast.literal_eval(capture.args[3]) == "first-failure"
+    assert capture.lineno < complete.lineno
+
+
 def test_stale_restored_base_rebind_precedes_connect_without_scene_ack():
     run = next(node for node in TREE.body
                if isinstance(node, ast.FunctionDef) and node.name == "run")
