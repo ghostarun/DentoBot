@@ -348,6 +348,33 @@ class DoneAndStatusTests(unittest.TestCase):
         self.assertIsNone(done["verified_at_sha"])
         self.assertIn("unexpected entries", done["error"])
 
+    def test_the_runs_own_ros_log_latest_symlink_is_recorded_not_an_error(self):
+        # ROS logging creates ros-log/latest -> the container path of the run's own newest log directory
+        (self.run_dir / "ros-log/2026-10-08-13-28-37-x-54").mkdir(parents=True)
+        (self.run_dir / "ros-log/2026-10-08-13-28-37-x-54/launch.log").write_text("log")
+        target = vc.own_prefix_for(RUN_ID) + "/ros-log/2026-10-08-13-28-37-x-54"
+        (self.run_dir / "ros-log/latest").symlink_to(target)
+        done = self.finalize(status="PASS")
+        self.assertEqual((done["status"], done["error"]), ("PASS", None))
+        self.assertEqual(done["symlinks_not_followed"], [{"path": "ros-log/latest", "target": target}])
+        self.assertNotIn("ros-log/latest", {entry["path"] for entry in done["files"]})
+        self.assertIn("ros-log/2026-10-08-13-28-37-x-54/launch.log", {entry["path"] for entry in done["files"]})
+
+    def test_foreign_or_escaping_symlinks_and_special_files_still_close_the_run_as_error(self):
+        for name, make in (
+                ("absolute-elsewhere", lambda p: p.symlink_to("/etc/hostname")),
+                ("other-run", lambda p: p.symlink_to("/workspace/data/dentobot-runs/2026-10-08/PLAT-U-07-B-visible-case-20200101T000000Z/x")),
+                ("parent-escape", lambda p: p.symlink_to("../../outside")),
+                ("fifo", lambda p: os.mkfifo(p))):
+            with self.subTest(name=name):
+                entry = self.run_dir / f"entry-{name}"
+                make(entry)
+                (self.run_dir / "DONE.json").unlink(missing_ok=True)
+                done = self.finalize(status="PASS")
+                self.assertEqual(done["status"], "ERROR")
+                self.assertIn(f"entry-{name}", done["error"])
+                entry.unlink()
+
     def test_status_reports_each_state_from_disk(self):
         missing = vc.status(self.ws, RUN_ID)
         self.assertEqual(missing["state"], "unknown")
@@ -765,7 +792,8 @@ class CollectTests(unittest.TestCase):
     def transfer_from(self, source, mutate=None):
         def transfer(host, run_path, dest):
             self.transfers.append((host, run_path))
-            shutil.copytree(source, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns("input"))
+            shutil.copytree(source, dest, dirs_exist_ok=True, symlinks=True,
+                            ignore=shutil.ignore_patterns("input"))  # symlinks=True like rsync -a
             if mutate:
                 mutate(Path(dest))
         return transfer
@@ -813,6 +841,24 @@ class CollectTests(unittest.TestCase):
             self.collect([{**self.done_answer(), "run_path": str(changed)}],
                          transfer=self.transfer_from(changed))
         self.assertEqual(self.snapshot(self.dest_dir()), before)
+
+    def test_collection_accepts_the_runs_own_symlink_and_refuses_a_foreign_one(self):
+        link = self.b_run / "ros-log/latest"
+        link.parent.mkdir(exist_ok=True)
+        link.symlink_to(vc.own_prefix_for(RUN_ID) + "/ros-log")
+        (self.b_run / "DONE.json").unlink()
+        vc.finalize(self.b_run, run_id=RUN_ID, sha=SHA, status="PASS", checks={"case_opened": True},
+                    case_name="a.dentocase", case_sha256="c" * 64)
+        code, result = self.collect([self.done_answer()])
+        self.assertEqual((code, result["status"]), (0, "PASS"))
+        self.assertTrue((self.dest_dir() / "ros-log/latest").is_symlink())
+        shutil.rmtree(self.dest_dir())
+        def foreign(dest):
+            (dest / "ros-log/latest").unlink()
+            (dest / "ros-log/latest").symlink_to("/etc/hostname")
+        with self.assertRaisesRegex(vc.VisibleCaseError, "unexpected entries.*ros-log/latest"):
+            self.collect([self.done_answer()], transfer=self.transfer_from(self.b_run, mutate=foreign))
+        self.assertFalse(self.dest_dir().exists())
 
     def test_corrupt_transfer_is_refused_with_no_destination(self):
         def corrupt(dest):
@@ -894,7 +940,8 @@ class RequestTests(unittest.TestCase):
         return vc.request(**options)
 
     def transfer(self, host, run_path, dest):
-        shutil.copytree(self.b_run, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns("input"))
+        shutil.copytree(self.b_run, dest, dirs_exist_ok=True, symlinks=True,
+                            ignore=shutil.ignore_patterns("input"))  # symlinks=True like rsync -a
 
     def test_refusals_happen_before_any_transport_call(self):
         cases = (
@@ -995,6 +1042,16 @@ class RequestTests(unittest.TestCase):
         remote.machine.run.side_effect = RuntimeError("B: command timed out after 60s")
         with self.assertRaisesRegex(vc.TransportError, "Tailscale SSH check link"):
             remote.call(["status", "--run-id", RUN_ID])
+
+    def test_default_progress_lines_are_flushed_for_background_jobs(self):
+        class Stream(io.StringIO):
+            flushes = 0
+            def flush(self):
+                Stream.flushes += 1
+                super().flush()
+        with contextlib.redirect_stdout(Stream()):
+            vc.flush_print("A preflight passed")
+        self.assertGreaterEqual(Stream.flushes, 1)
 
     def test_remote_must_be_a_real_host(self):
         with self.assertRaisesRegex(vc.VisibleCaseError, "remote host"):

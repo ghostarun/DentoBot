@@ -218,23 +218,57 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def list_run_files(root, exclude_names=("DONE.json", "COLLECTED.json")):
-    """Regular files under root (top-level input/ skipped) and any other entries found."""
+def own_prefix_for(run_id):
+    """Container-visible path of one run's evidence tree (what the Slicer container sees)."""
+    return f"/workspace/data/dentobot-runs/{run_id[0:4]}-{run_id[4:6]}-{run_id[6:8]}/{TASK}-{run_id}"
+
+
+def own_symlink(target, own_prefix):
+    """A link that can only point into the run's own evidence tree (ROS logging's ros-log/latest): relative
+    without .., or absolute under this run's container path. It is recorded, never followed or hashed."""
+    if not isinstance(target, str) or not target or "\\" in target or any(ord(c) < 32 for c in target):
+        return False
+    path = PurePosixPath(target)
+    if ".." in path.parts:
+        return False
+    if not path.is_absolute():
+        return True
+    return bool(own_prefix) and (path.as_posix() == own_prefix or path.as_posix().startswith(own_prefix + "/"))
+
+
+def list_run_files(root, exclude_names=("DONE.json", "COLLECTED.json"), own_prefix=None, links=None):
+    """Regular files under root (top-level input/ skipped) and any other entries found.
+
+    Symlinks that only point into the run's own tree are appended to `links` as (path, target) and are
+    not anomalies; every other non-regular entry (foreign symlink, socket, FIFO, device) is an anomaly."""
     root = Path(root)
     files, anomalies = [], []
+
+    def note_link(path, relative):
+        target = os.readlink(path)
+        if own_symlink(target, own_prefix):
+            if links is not None:
+                links.append((relative, target))
+        else:
+            anomalies.append(relative)
+
     for current, dirs, names in os.walk(root):
         here = Path(current)
         if here == root:
             dirs[:] = [name for name in dirs if name != "input"]
         for name in dirs:
             if (here / name).is_symlink():
-                anomalies.append((here / name).relative_to(root).as_posix())
+                note_link(here / name, (here / name).relative_to(root).as_posix())
         for name in names:
             path = here / name
             relative = path.relative_to(root).as_posix()
             if here == root and name in exclude_names:
                 continue
-            if not stat.S_ISREG(os.lstat(path).st_mode):
+            mode = os.lstat(path).st_mode
+            if stat.S_ISLNK(mode):
+                note_link(path, relative)
+                continue
+            if not stat.S_ISREG(mode):
                 anomalies.append(relative)
                 continue
             files.append(relative)
@@ -762,7 +796,8 @@ def finalize(run_dir, *, run_id, sha, status, case_sha256=None, error=None, chec
              repo_name=""):
     """Write result and log, build the manifest, then publish DONE.json last."""
     run_dir = Path(run_dir)
-    _, anomalies = list_run_files(run_dir)
+    own_prefix = own_prefix_for(run_id)
+    _, anomalies = list_run_files(run_dir, own_prefix=own_prefix)
     if anomalies:
         status = "ERROR"
         error = (error or "run directory has unexpected entries: " + ", ".join(anomalies[:5]))[:300]
@@ -778,12 +813,14 @@ def finalize(run_dir, *, run_id, sha, status, case_sha256=None, error=None, chec
         run_id=run_id, requested_by=requested_by, host=host or socket.gethostname(), repo_name=repo_name,
         sha=sha, case_name=case_name, case_sha256=case_sha256, status=status, error=error, checks=checks,
         shots=_screenshot_names(run_dir), framing=framing))
-    files, _ = list_run_files(run_dir)
+    links = []
+    files, _ = list_run_files(run_dir, own_prefix=own_prefix, links=links)
     finished = utc_text()
     done = {
         "schema": SCHEMA_DONE, "run_id": run_id, "status": status, "sha": sha,
         "verified_at_sha": sha if status == "PASS" else None, "case_sha256": case_sha256,
         "checks": checks, "framing": framing, "error": error, "timed_out": bool(timed_out),
+        "symlinks_not_followed": [{"path": path, "target": target} for path, target in sorted(links)],
         "started_at_utc": started_at or finished, "finished_at_utc": finished,
         "files": [file_entry(run_dir, relative) for relative in files], "cleanup": cleanup or {},
     }
@@ -859,6 +896,11 @@ def rsync_pull(host, run_path, dest):
         raise TransportError(f"transfer from B failed (rsync exit {completed.returncode})")
 
 
+def flush_print(message):
+    """Progress lines must reach a redirected output file at once (background jobs are read while they run)."""
+    print(message, flush=True)
+
+
 def collect_hint(run_id):
     return f"dentobot visible-case collect --run-id {run_id}"
 
@@ -892,7 +934,7 @@ def request(*, case, sha=None, repo=None, hold=90, no_wait=False, poll_interval=
     transfer = transfer or rsync_pull
     sleep = sleep or time.sleep
     clock = clock or time.monotonic
-    log = log or print
+    log = log or flush_print
     case_rel = validate_case_name(case)
     hold = validate_hold(hold)
     if sha is not None:
@@ -986,9 +1028,9 @@ def collected_manifest(temp, run_id, *, expect_done):
                 or not isinstance(done.get("sha"), str) or not isinstance(done.get("files"), list)):
             raise VisibleCaseError("DONE.json is not a valid visible-case marker")
         verify_manifest(temp, done["files"])
-        found, anomalies = list_run_files(temp, exclude_names=("COLLECTED.json",))
+        found, anomalies = list_run_files(temp, exclude_names=("COLLECTED.json",), own_prefix=own_prefix_for(run_id))
         if anomalies:
-            raise VisibleCaseError("transfer contains unexpected entries; refusing")
+            raise VisibleCaseError("transfer contains unexpected entries; refusing: " + ", ".join(anomalies[:5]))
         listed = {safe_relative(entry["path"]) for entry in done["files"]} | {"DONE.json"}
         if set(found) != listed:
             raise VisibleCaseError("transfer contents differ from the DONE.json manifest")
@@ -999,9 +1041,9 @@ def collected_manifest(temp, run_id, *, expect_done):
     if not request_data or request_data.get("run_id") != run_id:
         raise VisibleCaseError("transfer has no request.json for an incomplete run")
     sha = validate_sha(request_data.get("sha"))
-    found, anomalies = list_run_files(temp, exclude_names=("COLLECTED.json",))
+    found, anomalies = list_run_files(temp, exclude_names=("COLLECTED.json",), own_prefix=own_prefix_for(run_id))
     if anomalies:
-        raise VisibleCaseError("transfer contains unexpected entries; refusing")
+        raise VisibleCaseError("transfer contains unexpected entries; refusing: " + ", ".join(anomalies[:5]))
     return [file_entry(temp, relative) for relative in found], None, "INCOMPLETE", sha, None
 
 
@@ -1130,7 +1172,7 @@ def cmd_request(args, *, active, machines):
                        poll_interval=args.poll_interval, max_wait=args.max_wait,
                        remote=Remote(handoff.Machine("B", machines["B"])),
                        local_workspace=machines["A"]["repo"], cwd=Path.cwd(),
-                       requested_by=f"A:{socket.gethostname()}", log=print)
+                       requested_by=f"A:{socket.gethostname()}", log=flush_print)
     return _command(work)
 
 
