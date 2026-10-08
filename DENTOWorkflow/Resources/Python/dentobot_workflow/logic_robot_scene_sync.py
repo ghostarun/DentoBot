@@ -855,8 +855,9 @@ class RobotSceneSyncLogicMixin:
             outside_hint_mm = 2.0 * centre - np.asarray(posterior, dtype=float)
         teeth = json.loads(node.GetAttribute("DENTOBOT.MouthPortalVertexTeeth") or "{}")
         mode = self.step6MouthBarrierEdgeMode(parameterNode)
+        tuning = self.step6MouthBarrierTuning(parameterNode)
         key = (node.GetMTime(), parameterNode.teethSegmentation.GetMTime(),
-               str(parameterNode.step6CaseJawPreparationJson or ""), mode,
+               str(parameterNode.step6CaseJawPreparationJson or ""), mode, tuple(tuning.values()),
                tuple(round(float(v), 6) for v in np.asarray(outside_hint_mm, float)))
         cached = getattr(self, "_step6MouthPortalCache", None)
         if cached is not None and cached[0] == key:
@@ -866,14 +867,14 @@ class RobotSceneSyncLogicMixin:
         if anterior is None:
             raise ValueError(_("No anterior tooth surface is available to place the lip-line portal."))
         from dentobot_workflow.mouth_portal import apply_edge_mode, enlarge_portal, shift_portal_to_lip_line
-        portal = shift_portal_to_lip_line(portal, anterior)
+        portal = shift_portal_to_lip_line(portal, anterior, margin_mm=tuning["lip_margin_mm"])
         if mode == "gum_line":
             upper, lower, sources = self._step6MouthGumPointsWorld(parameterNode)
             portal = apply_edge_mode(portal, mode, upper, lower)
             portal.vertex_teeth["gum_line_sources"] = sources
         else:
             portal = apply_edge_mode(portal, mode)
-        portal = enlarge_portal(portal)
+        portal = enlarge_portal(portal, margin_mm=tuning["portal_enlarge_mm"])
         self._step6MouthPortalCache = (key, portal)
         return portal
 
@@ -886,6 +887,26 @@ class RobotSceneSyncLogicMixin:
 
         mode = str(getattr(parameterNode, "step6MouthBarrierEdgeMode", "") or BARRIER_DEFAULT_EDGE_MODE)
         return mode if mode in BARRIER_EDGE_MODES else BARRIER_DEFAULT_EDGE_MODE
+
+    def step6MouthBarrierTuning(self, parameterNode) -> dict:
+        """Lip/barrier tuning stored on the node (defaults = production constants); ValueError outside the approved bounds."""
+        from dentobot_workflow.mouth_portal import validated_barrier_tuning
+
+        return validated_barrier_tuning(
+            parameterNode.step6MouthBarrierLipMarginMm, parameterNode.step6MouthBarrierLipSlabMm,
+            parameterNode.step6MouthBarrierPortalEnlargeMm)
+
+    def setStep6MouthBarrierTuning(self, parameterNode, lip_margin_mm, lip_slab_mm, portal_enlarge_mm) -> dict:
+        """Only writer of the three tuning fields; invalidates the confirmed task like the edge-mode owner."""
+        from dentobot_workflow.mouth_portal import BARRIER_TUNING_KEYS, validated_barrier_tuning
+
+        tuning = validated_barrier_tuning(lip_margin_mm, lip_slab_mm, portal_enlarge_mm)
+        fields = ("step6MouthBarrierLipMarginMm", "step6MouthBarrierLipSlabMm", "step6MouthBarrierPortalEnlargeMm")
+        if tuple(float(getattr(parameterNode, f)) for f in fields) != tuple(tuning[k] for k in BARRIER_TUNING_KEYS):
+            for field_name, key in zip(fields, BARRIER_TUNING_KEYS):
+                setattr(parameterNode, field_name, tuning[key])
+            self.invalidateStep6TaskConfirmation(parameterNode, _("Mouth barrier lip tuning changed; re-plan."))
+        return tuning
 
     def _step6MouthGumPointsWorld(self, parameterNode):
         """Gum points of the anterior teeth (13..23 upper, 33..43 lower after mouth
@@ -961,7 +982,8 @@ class RobotSceneSyncLogicMixin:
                 teeth.append(points)
         if not teeth:
             raise ValueError(_("The mouth barrier needs segmented teeth."))
-        return build_mouth_barrier(opening, np.vstack(extent), np.vstack(teeth))
+        return build_mouth_barrier(opening, np.vstack(extent), np.vstack(teeth),
+                                   lip_thickness_mm=self.step6MouthBarrierTuning(parameterNode)["lip_slab_mm"])
 
     def step6MouthBarrierPolydataWorld(self, parameterNode) -> list:
         """[(part_name, closed vtkPolyData world RAS mm)] for MoveIt and preflight; [] when off."""

@@ -234,6 +234,10 @@ DEFAULT_POLICY = {PLANNER_ID: "RRTConnectkConfigDefault", PLANNING_ATTEMPTS: 5, 
 # 5 -> 10 and their combinations. The stem-may-touch rule needs a housing/stem
 # collision split that does not exist, so it is never generated here.
 LIP_VARIANT_BOUNDS = {LIP_MARGIN_MM: (0.0, 2.0), LIP_SLAB_MM: (4.0, 8.0), PORTAL_ENLARGE_MM: (5.0, 10.0)}
+# LIP_VARIANT_BOUNDS is only the representational hull shown by the registry. The permitted values are
+# exactly the two per lever below (production default, approved endpoint); nothing in between is approved.
+LIP_APPROVED_VALUES = {LIP_MARGIN_MM: (2.0, 0.0), LIP_SLAB_MM: (8.0, 4.0), PORTAL_ENLARGE_MM: (5.0, 10.0)}
+LIP_SLAB_OBJECT_ID = "dentobot_mouth_barrier_lip_slab"  # MoveIt id of mouth_portal's "lip_slab" part
 LIP_VARIANTS = (
     {LIP_MARGIN_MM: 0.0},
     {LIP_SLAB_MM: 4.0},
@@ -477,10 +481,11 @@ def state_violations(state: Mapping, baseline_opening_mm: float, limits: Ordered
     issues = []
     if str(state.get(BARRIER_EDGE_MODE)) != DEFAULT_BARRIER[BARRIER_EDGE_MODE]:
         issues.append(f"mouth barrier edge mode must stay {DEFAULT_BARRIER[BARRIER_EDGE_MODE]!r} (barrier never disabled)")
-    for key, (low, high) in LIP_VARIANT_BOUNDS.items():
+    for key, approved in LIP_APPROVED_VALUES.items():
         value = state.get(key)
-        if not isinstance(value, (int, float)) or not (low - 1e-9 <= float(value) <= high + 1e-9):
-            issues.append(f"{key}={value!r} outside the approved range {low}-{high}")
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not any(abs(float(value) - a) <= 1e-9 for a in approved)):
+            issues.append(f"{key}={value!r} is not an approved value {approved[0]} (default) or {approved[1]}")
     if bool(state.get(SPINDLE_TEMPLATE_ALLOWANCE)):
         issues.append("spindle-template allowance must be OFF")
     if int(state.get(CORRIDOR_MARGIN_SAMPLES, 0) or 0) != int(expected_corridor_margin_samples):
@@ -552,6 +557,38 @@ def seed_contact_pairs(seed: Mapping) -> list:
         if pair not in unique:
             unique.append(pair)
     return unique
+
+
+def lip_slab_blocker_evidence(record: Mapping | None) -> list:
+    """Attributed contact evidence in ONE candidate record that names the lip slab.
+
+    The approved lip variants run only when the current baseline's own recorded contacts
+    (PreEntry seeds, approach corridor, Diagnose rows) include the lip slab. Absent or
+    unknown evidence returns ``[]`` (the stage is then skipped, never assumed).
+    """
+
+    if not isinstance(record, Mapping):
+        return []
+    steps = record.get("steps") or {}
+    found = []
+
+    def note(step, pairs):
+        for pair in pairs or ():
+            if isinstance(pair, (list, tuple)) and LIP_SLAB_OBJECT_ID in [str(x).strip() for x in pair]:
+                entry = {"step": step, "pair": [str(x).strip() for x in pair[:2]]}
+                if entry not in found:
+                    found.append(entry)
+
+    for step in ("preentry", "corridor"):
+        note(step, (steps.get(step) or {}).get("pairs"))
+    diagnose = steps.get("diagnose") or {}
+    note("diagnose", diagnose.get("pairs"))
+    for row in ((diagnose.get("raw") or {}).get("rows") or ()):
+        if isinstance(row, Mapping):
+            note("diagnose:" + str(row.get("check")), row.get("blocking_pairs"))
+    return [{**entry, "sequence": record.get("sequence"), "state_key": record.get("state_key"),
+             "evidence_dir": record.get("evidence_dir"), "reused_from": record.get("reused_from")}
+            for entry in found]
 
 
 def classify_preentry(record: Mapping) -> dict:

@@ -234,6 +234,43 @@ BARRIER_OUTER_MARGIN_MM = 10.0
 CHEEK_WALL_GAP_MM = 2.0
 CHEEK_WALL_THICKNESS_MM = 2.0
 
+# Operator-approved lip/barrier tuning (2026-10-06 "Planner adjustment priority order" and
+# "FDI34 resumes through the existing advisor"; S6-ADVISOR-GUI-01). Each lever has exactly
+# two permitted values: the production default (the constants above) and the one recorded
+# endpoint (lip-line margin 2->0, lip slab 8->4, portal enlargement 5->10 mm). Any
+# combination of those values is permitted; intermediate values are NOT approved and are
+# rejected, never rounded or clamped. The aerotor-stem-may-touch-lip rule is NOT implemented.
+BARRIER_TUNING_KEYS = ("lip_margin_mm", "lip_slab_mm", "portal_enlarge_mm")
+DEFAULT_BARRIER_TUNING = {
+    "lip_margin_mm": LIP_LINE_MARGIN_MM,
+    "lip_slab_mm": BARRIER_LIP_THICKNESS_MM,
+    "portal_enlarge_mm": PORTAL_ENLARGE_MM,
+}
+BARRIER_APPROVED_VALUES = {  # (production default, approved endpoint)
+    "lip_margin_mm": (LIP_LINE_MARGIN_MM, 0.0),
+    "lip_slab_mm": (BARRIER_LIP_THICKNESS_MM, 4.0),
+    "portal_enlarge_mm": (PORTAL_ENLARGE_MM, 10.0),
+}
+
+
+def validated_barrier_tuning(lip_margin_mm, lip_slab_mm, portal_enlarge_mm) -> dict:
+    """The three tuning values, each an exact approved value; ``ValueError`` otherwise."""
+
+    values = {"lip_margin_mm": lip_margin_mm, "lip_slab_mm": lip_slab_mm, "portal_enlarge_mm": portal_enlarge_mm}
+    checked = {}
+    for key in BARRIER_TUNING_KEYS:
+        value = values[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(float(value)):
+            raise ValueError(f"Mouth barrier {key} must be a finite number.")
+        approved = BARRIER_APPROVED_VALUES[key]
+        match = next((a for a in approved if abs(float(value) - a) <= 1e-9), None)
+        if match is None:
+            raise ValueError(
+                f"Mouth barrier {key}={float(value):g} is not an approved value ({approved[0]:g} default or "
+                f"{approved[1]:g} approved variant mm).")
+        checked[key] = float(match)
+    return checked
+
 
 def _occlusal_axis_2d(portal: MouthPortal) -> np.ndarray:
     """Unit in-plane direction from the upper vertices (13, 23) to the lower (33, 43)."""

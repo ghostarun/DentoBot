@@ -162,6 +162,10 @@ def working_configuration_record(record: Mapping, saved_home: Mapping | None, or
         "planning_time_sec": float(state[fa.PLANNING_TIME_SEC]),
         "corridor_margin_samples": int(state.get(fa.CORRIDOR_MARGIN_SAMPLES, 0)),
         "allow_spindle_guide_contact": bool(state.get(fa.SPINDLE_TEMPLATE_ALLOWANCE, False)),
+        "barrier_tuning": {"lip_margin_mm": float(state.get(fa.LIP_MARGIN_MM, fa.DEFAULT_BARRIER[fa.LIP_MARGIN_MM])),
+                           "lip_slab_mm": float(state.get(fa.LIP_SLAB_MM, fa.DEFAULT_BARRIER[fa.LIP_SLAB_MM])),
+                           "portal_enlarge_mm": float(state.get(fa.PORTAL_ENLARGE_MM,
+                                                                fa.DEFAULT_BARRIER[fa.PORTAL_ENLARGE_MM]))},
         "status": status, "source": "feasibility advisor (operator-approved)",
         "notes": "Change vs. baseline: " + json.dumps(record.get("change") or {}, sort_keys=True)
                  + (f"; review items: {', '.join(sensitive_items(record))}" if sensitive_items(record) else ""),
@@ -249,6 +253,8 @@ class FeasibilityAdvisorSession:
         self.target_fdi = str(target_fdi)
         self.stop_after_first_pass = bool(stop_after_first_pass)
         self._opening_applier = opening_applier
+        if barrier_applier is None and callable(getattr(logic, "setStep6MouthBarrierTuning", None)):
+            barrier_applier = self._apply_barrier_tuning  # the production parameter owner; no second store
         self._barrier_applier = barrier_applier
         self._ui_refresh = ui_refresh
         # Kept as an ignored keyword for compatibility with the first GUI draft.
@@ -277,6 +283,7 @@ class FeasibilityAdvisorSession:
         self._approvals: dict = {}
         self._pending_gate = ""
         self._skipped_openings: set = set()
+        self._lip_evidence: list | None = None  # attributed baseline lip-slab contacts, computed at the lip stage
         self._declined_count = 0
         self._setup_error_run = 0
         self._cancel_requested = False
@@ -285,7 +292,7 @@ class FeasibilityAdvisorSession:
         self._restore_observed: dict = {}
         self.restore_issues: list = []
         self.unavailable_stages: dict = {}
-        if barrier_applier is None:
+        if self._barrier_applier is None:
             self.unavailable_stages["lip_variant"] = (
                 "the module has no in-module barrier-variant applier; the approved lip/barrier variants are listed "
                 "for operator review and are not evaluated")
@@ -446,6 +453,8 @@ class FeasibilityAdvisorSession:
             "confirmed_task_fingerprint": str(getattr(confirmed, "snapshot_fingerprint", "") or ""),
             "saved_base": fa.fingerprint_of([round(float(v), 9) for v in base_matrix.flatten()]),
             "saved_home": fa.fingerprint_of(home_identity),
+            "mouth_barrier": {"edge_mode": str(getattr(node, "step6MouthBarrierEdgeMode", "") or ""),
+                              "tuning": self._live_barrier_tuning()},
             "limits": fa.fingerprint_of(vars(self.limits)),
             "task_limits": str(logic.step6TaskLimitsFingerprint(node) or ""),
             "corridor_margin_samples": int(self.facade.approachCorridorMarginSamples()),
@@ -654,6 +663,13 @@ class FeasibilityAdvisorSession:
         self.branch_id = str(registry.get("selected_branch_id") or "")
         opening = float(node.step6CaseJawTargetGapMm)
         self.baseline = fa.baseline_state(opening)
+        live_tuning = self._live_barrier_tuning()
+        if live_tuning is not None:
+            self.baseline.update(live_tuning)
+            if any(abs(live_tuning[k] - fa.DEFAULT_BARRIER[k]) > 1e-9 for k in fa.LIP_VARIANT_BOUNDS):
+                self.unavailable_stages["lip_variant"] = (
+                    "this branch already carries a non-default mouth-barrier variant; the lip stage is listed for "
+                    "operator review and is not searched (the saved variant is never altered silently)")
         self.baseline[fa.CORRIDOR_MARGIN_SAMPLES] = int(facade.approachCorridorMarginSamples())
         self.baseline[fa.SPINDLE_TEMPLATE_ALLOWANCE] = bool(getattr(node, "step6AllowSpindleGuideContact", False))
         self.original = {
@@ -661,6 +677,7 @@ class FeasibilityAdvisorSession:
             fa.PLANNING_ATTEMPTS: int(policy["planning_attempts"]), fa.PLANNING_TIME_SEC: float(policy["planning_time_sec"]),
             fa.CORRIDOR_MARGIN_SAMPLES: int(facade.approachCorridorMarginSamples()),
             fa.SPINDLE_TEMPLATE_ALLOWANCE: bool(getattr(node, "step6AllowSpindleGuideContact", False)),
+            **(live_tuning or {}),
         }
         self._restore_state = {**self.baseline, **self.original}
         try:
@@ -713,7 +730,7 @@ class FeasibilityAdvisorSession:
         if self._cancel_requested and self.phase != RESTORING:
             return self._begin_restore(CANCELLED, "Cancelled by the operator.")
         if self.phase == AWAITING_APPROVAL:
-            return StepEvent("gate", fa.STAGE_PROMPTS.get(self._pending_gate, self._pending_gate), stage=self._pending_gate)
+            return StepEvent("gate", self._gate_message(self._pending_gate), stage=self._pending_gate)
         if self.phase == RESTORING:
             return self._restore_step()
         if self.phase == EVALUATING:
@@ -729,17 +746,19 @@ class FeasibilityAdvisorSession:
         if self._cancel_requested:
             return self._begin_restore(CANCELLED, "Cancelled by the operator.")
         if self.phase == AWAITING_APPROVAL:
-            return StepEvent("gate", fa.STAGE_PROMPTS.get(self._pending_gate, ""), stage=self._pending_gate)
+            return StepEvent("gate", self._gate_message(self._pending_gate), stage=self._pending_gate)
         for _ in range(len(self._candidates) + 1):  # bounded scan, never an open-ended loop
             if self._cursor >= len(self._candidates):
                 return self._begin_restore(EXHAUSTED, self._exhausted_message())
             stage, state = self._candidates[self._cursor]
+            if stage == "lip_variant" and stage not in self.unavailable_stages:
+                self._require_lip_slab_evidence()
             if stage in fa.SENSITIVE_STAGES and stage not in self.unavailable_stages:
                 answer = self._approvals.get(stage)
                 if answer is None:
                     self._pending_gate = stage
                     self.phase = AWAITING_APPROVAL
-                    return StepEvent("gate", fa.STAGE_PROMPTS.get(stage, stage), stage=stage,
+                    return StepEvent("gate", self._gate_message(stage), stage=stage,
                                      total=sum(1 for s, _ in self._candidates if s == stage))
                 if answer == "declined":
                     self._cursor += 1
@@ -747,8 +766,8 @@ class FeasibilityAdvisorSession:
                     continue
             self._cursor += 1
             if stage in self.unavailable_stages:
-                return self._record_untested(stage, state, "lip/barrier variant", "needs operator review: "
-                                             + self.unavailable_stages[stage], failed_step="apply_barrier")
+                return self._record_untested(stage, state, "lip/barrier variant", self.unavailable_stages[stage],
+                                             failed_step="apply_barrier")
             opening = float(state[fa.MOUTH_OPENING_MM])
             if opening in self._skipped_openings:
                 self._declined_count += 1
@@ -775,6 +794,25 @@ class FeasibilityAdvisorSession:
             return self._start_candidate(stage, state, identity)
         return self._begin_restore(EXHAUSTED, self._exhausted_message())
 
+    def _require_lip_slab_evidence(self) -> None:
+        """The approved lip variants run only on attributed current baseline evidence naming the lip slab."""
+
+        if self._lip_evidence is None:
+            baseline = next((r for r in self.records if r.get("stage") == "baseline"), None)
+            self._lip_evidence = fa.lip_slab_blocker_evidence(baseline)
+        if not self._lip_evidence:
+            self.unavailable_stages["lip_variant"] = (
+                f"no attributed current baseline evidence names the lip slab ({fa.LIP_SLAB_OBJECT_ID}) as a "
+                "blocker, so the approved lip variants are not evaluated; they are listed for operator review")
+
+    def _gate_message(self, stage: str) -> str:
+        text = fa.STAGE_PROMPTS.get(stage, stage)
+        if stage == "lip_variant" and self._lip_evidence:
+            first = self._lip_evidence[0]
+            text += (f" Baseline evidence: {' <-> '.join(first['pair'])} at {first['step']} "
+                     f"(candidate {first.get('sequence')}).")
+        return text
+
     def _exhausted_message(self) -> str:
         if self.best_candidate() is not None:
             return ("Search finished; the best candidate is listed for review. Its trial settings are being restored, "
@@ -795,6 +833,8 @@ class FeasibilityAdvisorSession:
             expected_corridor_margin_samples=int(self.original[fa.CORRIDOR_MARGIN_SAMPLES]),
         )
         current = _Current(index, stage, state, label, directory, {} if violations else identity, plan)
+        if stage == "lip_variant":
+            current.observed["lip_slab_evidence"] = list(self._lip_evidence or [])
         self._current = current
         self.phase = EVALUATING
         if violations:
@@ -908,8 +948,57 @@ class FeasibilityAdvisorSession:
                          index=len(self.records), total=self.total_candidates(), record=record)
 
     # ---- apply steps (production owners only; no widget, no modal handling) ------------
+    def _live_barrier_tuning(self) -> dict | None:
+        """The node's lip/barrier tuning through the production accessor (None when the owner is absent)."""
+
+        getter = getattr(self.logic, "step6MouthBarrierTuning", None)
+        if not callable(getter):
+            return None
+        tuning = getter(self.node)
+        return {fa.LIP_MARGIN_MM: float(tuning["lip_margin_mm"]), fa.LIP_SLAB_MM: float(tuning["lip_slab_mm"]),
+                fa.PORTAL_ENLARGE_MM: float(tuning["portal_enlarge_mm"])}
+
+    def _barrier_geometry_fingerprint(self) -> str:
+        """Fingerprint of the audited mouth-barrier objects (empty when no audit exists)."""
+
+        audit = self.logic.collisionSceneAuditRecord(self.node)
+        rows = [
+            [raw.get(key) for key in ("source_name", "prepared_world_fingerprint", "outgoing_fingerprint")]
+            for raw in getattr(audit, "object_records", ()) or ()
+            if isinstance(raw, Mapping) and str(raw.get("source_role") or "") == "mouth-barrier"
+        ]
+        return fa.fingerprint_of(sorted(rows)) if rows else ""
+
+    def _apply_barrier_tuning(self, state) -> str:
+        """Set the approved tuning through the production owner, then re-sync and prove the scene changed.
+
+        The MoveIt-vs-audit comparison cannot see a node-side barrier change, so the production
+        ``syncPlanningScene`` owner is called explicitly while ROS is connected; with ROS disconnected
+        the values are stored and the next production Connect publishes them.
+        """
+
+        before = self._barrier_geometry_fingerprint() if self._active() else ""
+        self.logic.setStep6MouthBarrierTuning(
+            self.node, lip_margin_mm=float(state[fa.LIP_MARGIN_MM]), lip_slab_mm=float(state[fa.LIP_SLAB_MM]),
+            portal_enlarge_mm=float(state[fa.PORTAL_ENLARGE_MM]))
+        self.facade.invalidateMotionPlan()
+        if not self._active():
+            return "barrier tuning stored; the planning scene is published by the next production Connect"
+        result = self.facade.syncPlanningScene()
+        if not result.success:
+            raise RuntimeError("Planning-scene sync after the barrier change failed: " + str(result.message)[:200])
+        if not bool((result.details or {}).get("runtimeAcknowledged")):
+            raise RuntimeError("MoveIt did not acknowledge the changed barrier scene")
+        if before and self._barrier_geometry_fingerprint() == before:
+            raise RuntimeError("The audited barrier geometry did not change after the tuning change")
+        return "barrier tuning applied and the planning scene re-synchronized"
+
     def _do_apply_barrier(self, current):
-        self._barrier_applier(current.state)
+        live = self._live_barrier_tuning()
+        wanted = {key: float(current.state[key]) for key in fa.LIP_VARIANT_BOUNDS}
+        if live is not None and all(abs(live[key] - wanted[key]) <= 1e-9 for key in wanted):
+            return "barrier unchanged"
+        return self._barrier_applier(current.state)
 
     def _do_apply_opening(self, current):
         opening = float(current.state[fa.MOUTH_OPENING_MM])
@@ -1013,7 +1102,7 @@ class FeasibilityAdvisorSession:
         issues = []
         if str(getattr(self.node, "step6MouthBarrierEdgeMode", None) or "gum_line") != state[fa.BARRIER_EDGE_MODE]:
             issues.append(f"edge mode {self.node.step6MouthBarrierEdgeMode!r} != {state[fa.BARRIER_EDGE_MODE]!r}")
-        live = {
+        live = self._live_barrier_tuning() or {
             fa.LIP_MARGIN_MM: inspect.signature(mp.shift_portal_to_lip_line).parameters["margin_mm"].default,
             fa.PORTAL_ENLARGE_MM: inspect.signature(mp.enlarge_portal).parameters["margin_mm"].default,
             fa.LIP_SLAB_MM: inspect.signature(mp.build_mouth_barrier).parameters["lip_thickness_mm"].default,

@@ -5,7 +5,8 @@ opening, robot Base, Task Home and planning policy. The configuration that made 
 branch work is stored on that branch's final-template node (saved with the
 dentocase, switched with the branch) and re-applied on activation through the
 normal Step 6 owners. Task Home is only staged as the jog draft: nothing moves
-without the operator.
+without the operator. ``barrier_tuning`` (lip margin/slab/portal enlargement, approved
+bounds only) is optional; absent means the production defaults.
 
 Pure helpers only (no Slicer imports). Simulation research configuration; not a
 clinical prescription.
@@ -17,6 +18,8 @@ import json
 import math
 from typing import Mapping
 
+from . import mouth_portal
+
 SCHEMA = "dentobot.step6.working_config.v1"
 ATTRIBUTE = "DENTOBOT.Step6WorkingConfigJson"
 # Research store used before 2026-10-07 (Testing/step6_branch_config.py).
@@ -26,6 +29,7 @@ RESEARCH_ATTRIBUTE_PREFIX = "DENTOBOT.Research.Step6Config."
 OPENING_TOLERANCE_MM = 1e-6
 BASE_TOLERANCE_MM = 1e-6
 HOME_TOLERANCE_SI = 1e-9
+BARRIER_TOLERANCE_MM = 1e-9
 
 
 def _finite(value, name: str) -> float:
@@ -54,6 +58,13 @@ def normalize(record: Mapping) -> dict:
     seconds = _finite(config.get("planning_time_sec", 5.0), "planning_time_sec")
     if attempts < 1 or seconds <= 0:
         raise ValueError("planning policy must be positive")
+    tuning_raw = config.get("barrier_tuning")
+    if tuning_raw is None:
+        tuning = dict(mouth_portal.DEFAULT_BARRIER_TUNING)
+    elif not isinstance(tuning_raw, Mapping) or set(tuning_raw) != set(mouth_portal.BARRIER_TUNING_KEYS):
+        raise ValueError("barrier_tuning must map exactly lip_margin_mm, lip_slab_mm and portal_enlarge_mm")
+    else:
+        tuning = mouth_portal.validated_barrier_tuning(**{k: tuning_raw[k] for k in mouth_portal.BARRIER_TUNING_KEYS})
     return {
         "schema": SCHEMA,
         "branch_id": str(record.get("branch_id") or ""),
@@ -67,6 +78,7 @@ def normalize(record: Mapping) -> dict:
             "planning_time_sec": seconds,
             "corridor_margin_samples": int(config.get("corridor_margin_samples", 0) or 0),
             "allow_spindle_guide_contact": bool(config.get("allow_spindle_guide_contact", False)),
+            "barrier_tuning": tuning,
         },
         "status": str(record.get("status") or ""),
         "source": str(record.get("source") or "operator"),
@@ -112,6 +124,9 @@ def differences(stored: Mapping, current: Mapping) -> list[str]:
         or max(abs(s["task_home_si"][k] - c["task_home_si"][k]) for k in s["task_home_si"]) > HOME_TOLERANCE_SI
     ):
         out.append("task_home_si")
+    if any(abs(s["barrier_tuning"][k] - c["barrier_tuning"][k]) > BARRIER_TOLERANCE_MM
+           for k in mouth_portal.BARRIER_TUNING_KEYS):
+        out.append("barrier_tuning")
     for key in ("planner_id", "planning_attempts", "planning_time_sec", "corridor_margin_samples",
                 "allow_spindle_guide_contact"):
         if key == "planner_id" and not s[key]:

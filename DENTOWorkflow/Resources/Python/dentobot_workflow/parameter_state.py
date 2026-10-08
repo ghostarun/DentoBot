@@ -143,6 +143,11 @@ class DENTOWorkflowParameterNode:
     # Advanced option (6.3): 3D mouth barrier opening edges. "gum_line" (lips
     # retracted, default), "biting_edge" (lips relaxed) or "off".
     step6MouthBarrierEdgeMode: str = "gum_line"
+    # Lip/barrier tuning (operator-approved bounds only; advisor review-gated candidates,
+    # mouth_portal.BARRIER_TUNING_BOUNDS). Defaults equal the production constants.
+    step6MouthBarrierLipMarginMm: float = 2.0
+    step6MouthBarrierLipSlabMm: float = 8.0
+    step6MouthBarrierPortalEnlargeMm: float = 5.0
     # Display toggles (6.3): mouth barrier model and the workspace reach envelope.
     step6ShowMouthBarrier: bool = True
     step6ShowMouthBarrierSurface: bool = False  # optional full lip slab + cheek walls

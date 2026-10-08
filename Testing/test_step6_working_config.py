@@ -90,3 +90,45 @@ def test_panel_wiring_and_owners():
     assert '"save_branch_config": self.onSaveStep6WorkingConfiguration' in shell
     assert '"restore_branch_config": self.onRestoreStep6WorkingConfiguration' in shell
     assert "self._offerStep6WorkingConfigurationRestore()" in _source("dentobot_workflow/widget_step6_branch_config.py")
+
+
+# --- optional approved lip/barrier tuning (S6-ADVISOR-GUI-01, contract C-LIP) ---------------------------
+VARIANT = {"lip_margin_mm": 0.0, "lip_slab_mm": 4.0, "portal_enlarge_mm": 10.0}
+
+
+def test_absent_barrier_tuning_means_the_production_defaults_and_old_records_stay_valid():
+    record = wc.normalize(_record())
+    assert record["config"]["barrier_tuning"] == {"lip_margin_mm": 2.0, "lip_slab_mm": 8.0, "portal_enlarge_mm": 5.0}
+    assert wc.dumps(wc.loads(wc.dumps(_record()))) == wc.dumps(_record())  # canonical and stable
+    assert wc.differences(_record(), _record(barrier_tuning=record["config"]["barrier_tuning"])) == []
+
+
+def test_only_exactly_approved_tuning_values_are_stored_or_loaded():
+    stored = wc.normalize(_record(barrier_tuning=VARIANT))
+    assert stored["config"]["barrier_tuning"] == VARIANT
+    assert wc.loads(wc.dumps(stored))["config"]["barrier_tuning"] == VARIANT
+    for bad in ({**VARIANT, "lip_margin_mm": 1.0}, {**VARIANT, "lip_slab_mm": 6.0}, {**VARIANT, "portal_enlarge_mm": 7.5},
+                {"lip_margin_mm": 0.0, "lip_slab_mm": 4.0}, {**VARIANT, "extra": 1}, "variant", [0.0, 4.0, 10.0]):
+        with pytest.raises(ValueError):
+            wc.normalize(_record(barrier_tuning=bad))
+    with pytest.raises(ValueError):
+        wc.loads(wc.dumps(stored).replace('"lip_slab_mm":4.0', '"lip_slab_mm":6.0'))  # a hand-edited stored value fails closed
+
+
+def test_barrier_tuning_difference_is_named_so_restore_reapplies_it():
+    assert wc.differences(_record(barrier_tuning=VARIANT), _record()) == ["barrier_tuning"]
+    assert wc.differences(_record(), _record(barrier_tuning=VARIANT)) == ["barrier_tuning"]  # a live variant is reset to the saved default
+
+
+def test_capture_restore_and_summary_use_the_production_owner_only():
+    capture = _source("dentobot_workflow/logic_case_bundle.py")
+    capture = capture[capture.index("def captureStep6WorkingConfiguration"):]
+    capture = capture[:capture.index("\n    def ", 10)]
+    assert '"barrier_tuning": self.step6MouthBarrierTuning(parameterNode)' in capture
+    widget = _source("dentobot_workflow/widget_step6_branch_config.py")
+    restore = widget[widget.index("def onRestoreStep6WorkingConfiguration"):]
+    restore = restore[:restore.index("\n    def ", 10)]
+    assert 'if "barrier_tuning" in diffs:' in restore
+    assert 'self.logic.setStep6MouthBarrierTuning(self._parameterNode, **config["barrier_tuning"])' in restore
+    assert "setattr(" not in restore and "step6MouthBarrierLip" not in restore  # never writes the node fields itself
+    assert "_barrierTuningSummary(config)" in widget and "synchronize the planning scene" in restore

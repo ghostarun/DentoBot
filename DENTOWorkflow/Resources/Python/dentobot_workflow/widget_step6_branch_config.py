@@ -10,6 +10,20 @@ from .runtime import *
 from . import step6_working_config
 
 
+def _barrierTuningSummary(config: dict) -> str:
+    """Non-default mouth-barrier lip tuning only (the approved defaults stay silent)."""
+
+    tuning = config.get("barrier_tuning") or {}
+    if all(abs(tuning.get(k, v) - v) < 1e-9 for k, v in step6_working_config.mouth_portal.DEFAULT_BARRIER_TUNING.items()):
+        return ""
+    return (
+        _(" Mouth barrier variant: lip margin %1 mm, lip slab %2 mm, portal enlargement %3 mm.")
+        .replace("%1", f"{tuning['lip_margin_mm']:g}")
+        .replace("%2", f"{tuning['lip_slab_mm']:g}")
+        .replace("%3", f"{tuning['portal_enlarge_mm']:g}")
+    )
+
+
 class Step6BranchConfigWidgetMixin:
     def onImportStep6PlanningContext(self, checked: bool = False) -> None:
         del checked
@@ -61,6 +75,7 @@ class Step6BranchConfigWidgetMixin:
             .replace("%6", str(config["planning_attempts"]))
             .replace("%7", f"{config['planning_time_sec']:.1f}")
             .replace("%8", _("saved") if config["task_home_si"] else _("not saved"))
+            + _barrierTuningSummary(config)
         )
 
     def _refreshStep6WorkingConfigurationStatus(self) -> None:
@@ -173,6 +188,10 @@ class Step6BranchConfigWidgetMixin:
                 if bool(self._parameterNode.step6AllowSpindleGuideContact) != config["allow_spindle_guide_contact"]:
                     self._onSetSpindleGuideContact(config["allow_spindle_guide_contact"])
                 steps.append("policy")
+                if "barrier_tuning" in diffs:
+                    self.logic.setStep6MouthBarrierTuning(self._parameterNode, **config["barrier_tuning"])
+                    facade.clearTransientState()
+                    steps.append("barrier")
             if config["task_home_si"]:
                 controls = {
                     joint: panel.manualJogJointControls.get(joint)
@@ -205,6 +224,11 @@ class Step6BranchConfigWidgetMixin:
             + (
                 _(" Saved Task Home is staged in 6.2 pending operator review and acceptance.")
                 if "home_staged" in steps
+                else ""
+            )
+            + (
+                _(" The mouth barrier changed: synchronize the planning scene (6.1) before planning.")
+                if "barrier" in steps
                 else ""
             )
         )

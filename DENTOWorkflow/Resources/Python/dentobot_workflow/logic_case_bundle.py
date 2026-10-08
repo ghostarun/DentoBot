@@ -243,6 +243,7 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
                 "allow_spindle_guide_contact": bool(
                     getattr(parameterNode, "step6AllowSpindleGuideContact", False)
                 ),
+                "barrier_tuning": self.step6MouthBarrierTuning(parameterNode),
             }
         )
 

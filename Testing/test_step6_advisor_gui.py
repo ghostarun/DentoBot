@@ -350,7 +350,8 @@ def test_gui_source_names_temporary_trials_and_never_calls_planner_preview_or_ho
     source = GUI_PATH.read_text(encoding="utf-8")
     assert "temporarily changes the live simulation configuration" in source
     assert "attempts to restore the starting configuration" in source
-    assert "Lip/barrier variant candidates currently remain UNTESTED" in source
+    assert "evaluated only when the baseline's own contact evidence names the lip slab" in source
+    assert "otherwise they stay UNTESTED" in source
     assert "does not accept Task Home or move the robot" in source
     tree = ast.parse(source)
     forbidden_calls = {
@@ -372,7 +373,8 @@ def test_advisor_button_owner_callback_and_mixin_installation_remain_wired():
     assert '"DENTOBOTStep6FindWorkingConfigButton"' in panel
     assert "Each trial temporarily changes the live simulation configuration" in panel
     assert "attempts to restore the starting configuration" in panel
-    assert "Lip/barrier variant candidates currently remain UNTESTED" in panel
+    assert "own contact evidence names the lip slab" in panel
+    assert "otherwise they stay UNTESTED" in panel
     assert "nothing is applied or saved" not in panel
     assert '"find_working_config": self._onStep6FindWorkingConfig' in shell
     assert "Step6AdvisorWidgetMixin" in robot and "Step6AdvisorWidgetMixin" in structure
