@@ -5,8 +5,12 @@ A production control is pressed the way a user presses it:
 * the control must be visible, enabled, and reachable: it is scrolled into view
   through its QScrollArea ancestors, and it must not sit inside a collapsed
   ctkCollapsibleButton (that fails; nothing is expanded silently);
-* the Slicer main window (and the control's own top-level window) is raised and
-  activated;
+* the control's top-level window (the Slicer main window for its controls) is raised
+  and activated in Qt, and at X level with an EWMH ``_NET_ACTIVE_WINDOW`` request
+  plus ``XRaiseWindow``;
+* the pointer is moved and an X-level hit test must find the control's native window
+  under it (XQueryPointer descent from the root). A covered control is never pressed:
+  the refusal names the external X window;
 * the pointer is moved with the X server XTest extension and a real button press
   and release are sent. The press is confirmed by a ``clicked`` slot that runs
   inside the production handler's signal path.
@@ -36,7 +40,8 @@ ENV_VAR = "DENTOBOT_HEADED_INPUT"
 DEFAULT_MODE = "xtest"
 MODES = ("xtest", "demo", "qt_click")
 DELIVERY_TIMEOUT_SEC = 3.0
-POINTER_SETTLE_TIMEOUT_SEC = 1.0
+X_POLL_TIMEOUT_SEC = 1.5
+X_ACTIVATION_ATTEMPTS = 2
 DEMO_APPROACH_SEC = 0.9
 DEMO_PRE_CLICK_SEC = 1.5
 DEMO_POST_CLICK_SEC = 0.8
@@ -267,8 +272,33 @@ class _Overlay:
         _pump_once()
 
 
+_CLIENT_MESSAGE = 33
+_SUBSTRUCTURE_NOTIFY_MASK = 1 << 19
+_SUBSTRUCTURE_REDIRECT_MASK = 1 << 20
+_EWMH_SOURCE_PAGER = 2  # EWMH source indication: a pager/taskbar, as for a user's window switch
+_CURRENT_TIME = 0
+_ANY_PROPERTY_TYPE = 0
+XEVENT_SIZE = 192  # sizeof(XEvent) on 64-bit Linux; XClientMessageEvent occupies the first 96 bytes
+MAX_WINDOW_DEPTH = 64
+
+
+class ClientMessageEvent(ctypes.Structure):
+    """Xlib's XClientMessageEvent on 64-bit Linux (96 bytes)."""
+
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("serial", ctypes.c_ulong),
+        ("send_event", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("window", ctypes.c_ulong),
+        ("message_type", ctypes.c_ulong),
+        ("format", ctypes.c_int),
+        ("data", ctypes.c_long * 5),
+    ]
+
+
 class XTestBackend:
-    """ctypes binding to libX11 and libXtst: pointer query, motion, and button events."""
+    """ctypes binding to libX11 and libXtst: window stack, EWMH activation, pointer and buttons."""
 
     def __init__(self, xlib, xtst):
         self._x = xlib
@@ -286,6 +316,22 @@ class XTestBackend:
         xlib.XQueryPointer.restype = c.c_int
         xlib.XFlush.argtypes = [c.c_void_p]
         xlib.XFlush.restype = c.c_int
+        xlib.XInternAtom.argtypes = [c.c_void_p, c.c_char_p, c.c_int]
+        xlib.XInternAtom.restype = c.c_ulong
+        xlib.XSendEvent.argtypes = [c.c_void_p, c.c_ulong, c.c_int, c.c_long, c.c_void_p]
+        xlib.XSendEvent.restype = c.c_int
+        xlib.XRaiseWindow.argtypes = [c.c_void_p, c.c_ulong]
+        xlib.XRaiseWindow.restype = c.c_int
+        xlib.XGetWindowProperty.argtypes = [
+            c.c_void_p, c.c_ulong, c.c_ulong, c.c_long, c.c_long, c.c_int, c.c_ulong,
+            c.POINTER(c.c_ulong), c.POINTER(c.c_int), c.POINTER(c.c_ulong),
+            c.POINTER(c.c_ulong), c.POINTER(c.c_void_p),
+        ]
+        xlib.XGetWindowProperty.restype = c.c_int
+        xlib.XFetchName.argtypes = [c.c_void_p, c.c_ulong, c.POINTER(c.c_void_p)]
+        xlib.XFetchName.restype = c.c_int
+        xlib.XFree.argtypes = [c.c_void_p]
+        xlib.XFree.restype = c.c_int
         xtst.XTestQueryExtension.argtypes = [c.c_void_p] + [c.POINTER(c.c_int)] * 4
         xtst.XTestQueryExtension.restype = c.c_int
         xtst.XTestFakeMotionEvent.argtypes = [c.c_void_p, c.c_int, c.c_int, c.c_int, c.c_ulong]
@@ -300,20 +346,109 @@ class XTestBackend:
                                         c.pointer(major), c.pointer(minor)):
             raise UserInputError("the XTest extension is unavailable on the X display")
         self._root = xlib.XDefaultRootWindow(self._display)
+        self._atoms: dict[str, int] = {}
 
-    def pointer(self) -> tuple[int, int]:
+    def _query_pointer(self, window: int) -> tuple[int, int, int]:
+        """Return (child of ``window`` containing the pointer or 0, root_x, root_y)."""
         c = ctypes
         root, child = c.c_ulong(), c.c_ulong()
         root_x, root_y, win_x, win_y = (c.c_int() for _ in range(4))
         mask = c.c_uint()
         on_screen = self._x.XQueryPointer(
-            self._display, self._root, c.pointer(root), c.pointer(child),
+            self._display, window, c.pointer(root), c.pointer(child),
             c.pointer(root_x), c.pointer(root_y), c.pointer(win_x), c.pointer(win_y),
             c.pointer(mask),
         )
         if not on_screen:
             raise UserInputError("the pointer is not on the X screen")
-        return int(root_x.value), int(root_y.value)
+        return int(child.value), int(root_x.value), int(root_y.value)
+
+    def pointer(self) -> tuple[int, int]:
+        _child, x, y = self._query_pointer(self._root)
+        return x, y
+
+    def pointer_chain(self) -> list[int]:
+        """Windows under the pointer from the top-level down to the deepest (XQueryPointer descent).
+
+        Each step asks a window for the child containing the pointer, so the list is the ancestry
+        of the deepest window. A control's native window is hit exactly when its id is in it.
+        """
+        chain: list[int] = []
+        window = self._root
+        for _depth in range(MAX_WINDOW_DEPTH):
+            child, _x, _y = self._query_pointer(window)
+            if not child:
+                return chain
+            chain.append(child)
+            window = child
+        raise UserInputError(f"the window stack under the pointer is deeper than {MAX_WINDOW_DEPTH}")
+
+    def atom(self, name: str) -> int:
+        if name not in self._atoms:
+            self._atoms[name] = int(self._x.XInternAtom(self._display, name.encode("ascii"), 0))
+        return self._atoms[name]
+
+    def _property(self, window: int, name: str, req_type: int):
+        """Window property: list of ints for format 32, bytes for format 8, None when absent."""
+        c = ctypes
+        actual_type, actual_format = c.c_ulong(), c.c_int()
+        count, remaining = c.c_ulong(), c.c_ulong()
+        data = c.c_void_p()
+        status = self._x.XGetWindowProperty(
+            self._display, window, self.atom(name), 0, 1024, 0, req_type,
+            c.pointer(actual_type), c.pointer(actual_format), c.pointer(count),
+            c.pointer(remaining), c.pointer(data),
+        )
+        if status != 0 or not data.value or count.value == 0:
+            if data.value:
+                self._x.XFree(data.value)
+            return None
+        try:
+            if actual_format.value == 32:
+                longs = c.cast(data.value, c.POINTER(c.c_ulong))
+                return [int(longs[index]) for index in range(count.value)]
+            return c.string_at(data.value, count.value)
+        finally:
+            self._x.XFree(data.value)
+
+    def active_window(self) -> int:
+        """_NET_ACTIVE_WINDOW on the root window (0 when no window manager publishes one)."""
+        value = self._property(self._root, "_NET_ACTIVE_WINDOW", _ANY_PROPERTY_TYPE)
+        return int(value[0]) if isinstance(value, list) and value else 0
+
+    def window_name(self, window: int) -> str:
+        """_NET_WM_NAME (UTF-8) when set, else WM_NAME; empty when neither is available."""
+        value = self._property(window, "_NET_WM_NAME", self.atom("UTF8_STRING"))
+        if isinstance(value, bytes) and value:
+            return value.decode("utf-8", "replace")
+        c = ctypes
+        name = c.c_void_p()
+        if self._x.XFetchName(self._display, window, c.pointer(name)) and name.value:
+            try:
+                return c.string_at(name.value).decode("utf-8", "replace")
+            finally:
+                self._x.XFree(name.value)
+        return ""
+
+    def activate_window(self, window: int) -> None:
+        """EWMH _NET_ACTIVE_WINDOW request to the root window, plus a local XRaiseWindow."""
+        message = ClientMessageEvent()
+        message.type = _CLIENT_MESSAGE
+        message.send_event = 1
+        message.display = self._display
+        message.window = int(window)
+        message.message_type = self.atom("_NET_ACTIVE_WINDOW")
+        message.format = 32
+        message.data[0] = _EWMH_SOURCE_PAGER
+        message.data[1] = _CURRENT_TIME
+        message.data[2] = 0  # requestor's currently active window: none known
+        event = ctypes.create_string_buffer(XEVENT_SIZE)
+        ctypes.memmove(ctypes.addressof(event), ctypes.addressof(message), ctypes.sizeof(message))
+        self._x.XSendEvent(self._display, self._root, 0,
+                           _SUBSTRUCTURE_REDIRECT_MASK | _SUBSTRUCTURE_NOTIFY_MASK,
+                           ctypes.addressof(event))
+        self._x.XRaiseWindow(self._display, int(window))
+        self._x.XFlush(self._display)
 
     def move(self, x: int, y: int) -> None:
         self._t.XTestFakeMotionEvent(self._display, -1, int(x), int(y), 0)
@@ -337,12 +472,80 @@ def get_backend():
     return _BACKEND
 
 
-def _move_and_verify(backend, target) -> None:
-    backend.move(*target)
-    reached = _wait_for(lambda: backend.pointer() == tuple(target), POINTER_SETTLE_TIMEOUT_SEC)
-    if not reached:
-        raise UserInputError(f"pointer did not reach the control at {tuple(target)}; "
-                             f"it is at {backend.pointer()}")
+def _hex(value) -> str:
+    return f"0x{int(value):x}"
+
+
+def _native_window(top, label: str) -> int:
+    """Native X window of the control's top-level Qt window (the Slicer main window for its controls)."""
+    if top is None:
+        raise UserInputError(f"{label}: the control has no top-level window")
+    window = int(_value(top, "winId") or 0)
+    if not window:
+        raise UserInputError(f"{label}: the control's top-level window has no native X window")
+    return window
+
+
+def _poll_hit_test(backend, target: int, physical) -> dict:
+    """Move the pointer to ``physical`` and poll up to X_POLL_TIMEOUT_SEC for an X-level hit.
+
+    A hit means the pointer is at the target and ``target`` is in the window chain under it
+    (the deepest window is the target or one of its descendants).
+    """
+    began = _NOW()
+    deadline = began + X_POLL_TIMEOUT_SEC
+    target_xy = (int(physical[0]), int(physical[1]))
+    backend.move(*target_xy)
+    while True:
+        _pump_once()
+        pointer = tuple(backend.pointer())
+        if pointer != target_xy:
+            backend.move(*target_xy)
+        chain = list(backend.pointer_chain())
+        hit = pointer == target_xy and target in chain
+        if hit or _NOW() >= deadline:
+            return {"hit": bool(hit), "pointer_xy": pointer, "chain": chain,
+                    "elapsed_sec": round(_NOW() - began, 3)}
+
+
+def _x_activate_and_confirm(backend, widget, slicer, target: int, physical, label: str,
+                            evidence: dict) -> None:
+    """Activate the control's top-level window at X level and require an X-level hit test.
+
+    Two attempts. Each sends the EWMH activation and XRaiseWindow (the second repeats the Qt
+    raise first) and then polls up to 1.5 s for the pointer to hit the target. Never presses.
+    A covered control raises UserInputError that names the external window under the pointer.
+    """
+    evidence["attempts"] = []
+    last = None
+    for attempt in range(1, X_ACTIVATION_ATTEMPTS + 1):
+        if attempt > 1:
+            _raise_and_activate(widget, slicer)
+        backend.activate_window(target)
+        _pump_once()
+        last = _poll_hit_test(backend, target, physical)
+        evidence["attempts"].append({
+            "attempt": attempt,
+            "hit": last["hit"],
+            "pointer_xy": list(last["pointer_xy"]),
+            "chain": [_hex(window) for window in last["chain"]],
+            "elapsed_sec": last["elapsed_sec"],
+            "active_window_after": _hex(backend.active_window()),
+        })
+        if last["hit"]:
+            evidence["hit_test"] = "pass"
+            return
+    evidence["hit_test"] = "covered"
+    target_xy = (int(physical[0]), int(physical[1]))
+    if tuple(last["pointer_xy"]) != target_xy:
+        raise UserInputError(
+            f"{label}: pointer did not reach the control at {target_xy}; "
+            f"it is at {tuple(last['pointer_xy'])}"
+        )
+    chain = last["chain"]
+    external = chain[0] if chain else 0
+    name = backend.window_name(external) if external else ""
+    raise UserInputError(f"{label}: covered by external X window {_hex(external)} {name or '<no name>'}")
 
 
 def _animate(backend, start, end, seconds: float) -> None:
@@ -378,9 +581,9 @@ def _record(widget, label, mode, **details) -> dict:
 def user_click(widget, label: str, *, mode: str, evidence=None) -> dict:
     """Press ``widget`` the way a user does and return a record of the press.
 
-    Raises ``UserInputError`` (never falls back to ``click()``) in ``xtest`` and
-    ``demo`` modes when the control cannot be reached, is covered, or the press
-    is not delivered.
+    ``xtest`` and ``demo`` raise ``UserInputError`` and never call ``click()`` when the control
+    is unreachable, its window is not activated and hit at X level, Qt reports another widget
+    on top, or the press is not delivered. Each refusal is also written to the ledger.
     """
     if mode not in MODES:
         raise UserInputError(f"unknown input mode {mode!r}")
@@ -392,20 +595,24 @@ def user_click(widget, label: str, *, mode: str, evidence=None) -> dict:
         return record
 
     qt, slicer = _runtime()
-    scrolled = _preflight(widget, label)
-    _raise_and_activate(widget, slicer)
-    logical, dpr, physical = _target(widget, qt, label)
-    backend = get_backend()
-    start = backend.pointer()
+    x_activation: dict = {}
+    overlay = None
+    connected = False
+    clicked_signal = None
     delivered = {"utc": None}
 
     def on_clicked():
         if delivered["utc"] is None:
             delivered["utc"] = utc_now()
 
-    overlay = None
-    connected = False
     try:
+        scrolled = _preflight(widget, label)
+        _raise_and_activate(widget, slicer)
+        logical, dpr, physical = _target(widget, qt, label)
+        backend = get_backend()
+        start = backend.pointer()
+        target = _native_window(_value(widget, "window"), label)
+        x_activation["target_window"] = _hex(target)
         if mode == "demo":
             began = _NOW()
             overlay = _Overlay(qt, widget, f"Clicking: {label}")
@@ -414,7 +621,7 @@ def user_click(widget, label: str, *, mode: str, evidence=None) -> dict:
             _pump_until(began + DEMO_PRE_CLICK_SEC)
             overlay.hide()
             overlay = None
-        _move_and_verify(backend, physical)
+        _x_activate_and_confirm(backend, widget, slicer, target, physical, label, x_activation)
         found = qt.QApplication.widgetAt(qt.QPoint(*logical))
         if not _is_widget_or_descendant(found, widget):
             raise UserInputError(f"{label}: covered by {_describe(found)}")
@@ -424,8 +631,7 @@ def user_click(widget, label: str, *, mode: str, evidence=None) -> dict:
         backend.button(1, True)
         _pump_until(_NOW() + PRESS_HOLD_SEC)
         backend.button(1, False)
-        delivered_ok = _wait_for(lambda: delivered["utc"] is not None, DELIVERY_TIMEOUT_SEC)
-        if not delivered_ok:
+        if not _wait_for(lambda: delivered["utc"] is not None, DELIVERY_TIMEOUT_SEC):
             raise UserInputError(f"{label}: real click not delivered (no clicked signal within "
                                  f"{DELIVERY_TIMEOUT_SEC:.0f} s)")
         if mode == "demo":
@@ -435,6 +641,10 @@ def user_click(widget, label: str, *, mode: str, evidence=None) -> dict:
             overlay.hide()
             overlay = None
             _pump_until(_NOW() + DEMO_HOLD_SEC)
+    except UserInputError as refusal:
+        _append_evidence(evidence, _record(widget, label, mode, delivered=False,
+                                           refused=str(refusal), x_activation=x_activation))
+        raise
     finally:
         if connected:
             clicked_signal.disconnect(on_clicked)
@@ -445,7 +655,7 @@ def user_click(widget, label: str, *, mode: str, evidence=None) -> dict:
         widget, label, mode,
         physical_xy=list(physical), logical_xy=list(logical), device_pixel_ratio=dpr,
         pointer_start_xy=list(start), scrolled_areas=scrolled, delivered=True,
-        delivered_utc=delivered["utc"],
+        delivered_utc=delivered["utc"], x_activation=x_activation,
     )
     _append_evidence(evidence, record)
     return record

@@ -1,9 +1,10 @@
 """Host tests for Testing/step6_user_input.py (S6-ADVISOR-GUI-01 real-user input).
 
-No Qt, Slicer or X server is used: fake widgets, a fake XTest backend, and a fake
-clock stand in for them. The assertions cover the preconditions, the physical
-input sequence, delivery confirmation, the demo overlay order, and the absence of
-any ``click()`` fallback in the ``xtest`` and ``demo`` modes.
+No Qt, Slicer or X server is used. Fake widgets, a fake window stack, a fake XTest
+backend, a fake libX11/libXtst pair and a fake clock stand in for them. The assertions
+cover the Qt and X-level preconditions, the EWMH activation request, the window-chain
+hit test, the physical input sequence, delivery confirmation, the demo overlay order,
+the ledger evidence, and the absence of any ``click()`` fallback in xtest and demo.
 """
 
 from __future__ import annotations
@@ -18,6 +19,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import step6_user_input as ui  # noqa: E402
+
+ROOT = 99             # the X root window
+MAIN_WINDOW = 0x1000  # the Slicer main window's native X window
+MAIN_CHILD = 0x1001   # a native descendant of it (for example the VTK render window)
+EXTERNAL = 0x4000001  # another application's top-level window (for example T3)
 
 
 class FakeClock:
@@ -69,7 +75,7 @@ class FakeRect:
 
 
 class FakeWindowish:
-    """Records geometry, flags and show/hide (used for the demo overlay and the main window)."""
+    """Records geometry, flags and show/hide (demo overlay windows and the main window)."""
 
     def __init__(self, env, label, text=""):
         self.env, self.label, self.text = env, label, text
@@ -122,7 +128,7 @@ class FakeWindowish:
 
 class FakeWidget:
     def __init__(self, name, *, parent=None, cls="QPushButton", text="Press me", x=0, y=0,
-                 width=100, height=40, visible=True, enabled=True, collapsed=False):
+                 width=100, height=40, visible=True, enabled=True, collapsed=False, native_id=0):
         self.objectName = name
         self.text = text
         self.visible = visible
@@ -133,6 +139,7 @@ class FakeWidget:
         self._parent = parent
         self._class = cls
         self._origin = (x, y)
+        self._native_id = native_id
         self.clicked = FakeSignal()
         self.clicks = 0
         self.raised = 0
@@ -140,7 +147,6 @@ class FakeWidget:
         self._inherits = {cls, "QWidget", "QObject"}
         if cls == "ctkCollapsibleButton":
             self._inherits.add("ctkCollapsibleButton")
-        self.env = None
 
     @property
     def rect(self):
@@ -155,6 +161,9 @@ class FakeWidget:
     def inherits(self, name):
         return name in self._inherits
 
+    def winId(self):
+        return self._native_id
+
     def window(self):
         node = self
         while node.parent() is not None:
@@ -162,7 +171,7 @@ class FakeWidget:
         return node
 
     def isAncestorOf(self, other):
-        node = other.parent() if other is not None else None
+        node = other.parent() if other is not None and hasattr(other, "parent") else None
         while node is not None:
             if node is self:
                 return True
@@ -191,7 +200,7 @@ class FakeScrollArea(FakeWidget):
         self.ensure_calls.append((widget, margins))
 
 
-_TARGET = object()  # widgetAt() returns the control itself (nothing covers it)
+_TARGET = object()  # widgetAt() returns the control itself (nothing covers it in Qt)
 
 
 class FakeEnv:
@@ -248,14 +257,26 @@ def make_qt(env):
 
 
 class FakeBackend:
-    """Stands in for XTestBackend: it records the physical input sequence."""
+    """Stands in for XTestBackend: physical input, a window stack and EWMH activation.
 
-    def __init__(self, env, *, follows_pointer=True, emit_on_release=True):
+    ``covering`` is the window chain under the pointer until activation takes effect.
+    Activation number ``reveal_on_activation`` (1 by default) clears the covering chain;
+    None means no window manager ever does.
+    """
+
+    def __init__(self, env, *, follows_pointer=True, emit_on_release=True, covering=None,
+                 reveal_on_activation=1, names=None):
         self.env = env
         self.position = (0, 0)
         self.events = []
         self.follows_pointer = follows_pointer
         self.emit_on_release = emit_on_release
+        self.clear_chain = [MAIN_WINDOW, MAIN_CHILD]
+        self.current_chain = list(covering) if covering else list(self.clear_chain)
+        self.reveal_on_activation = reveal_on_activation
+        self.activations = []
+        self.active = 0
+        self.names = {EXTERNAL: "T3 Code"} if names is None else dict(names)
 
     def pointer(self):
         return self.position
@@ -270,6 +291,22 @@ class FakeBackend:
         if not pressed and self.emit_on_release:
             self.env.target.clicked.emit()
 
+    def activate_window(self, window):
+        self.activations.append(window)
+        if (window == MAIN_WINDOW and self.reveal_on_activation is not None
+                and len(self.activations) == self.reveal_on_activation):
+            self.current_chain = list(self.clear_chain)
+            self.active = window
+
+    def pointer_chain(self):
+        return list(self.current_chain)
+
+    def active_window(self):
+        return self.active
+
+    def window_name(self, window):
+        return self.names.get(window, "")
+
 
 @pytest.fixture
 def clock(monkeypatch):
@@ -281,11 +318,13 @@ def clock(monkeypatch):
 
 @pytest.fixture
 def harness(monkeypatch, clock):
-    """Build the fake world: a visible, enabled button inside a window, behind a scroll area."""
+    """Build the fake world: a visible, enabled button inside the Slicer main window."""
 
     def build(*, dpr=1.0, covered_by=_TARGET, follows_pointer=True, emit_on_release=True,
-              x=300, y=400, width=100, height=40, **button_kwargs):
-        window = FakeWidget("mainWindow", cls="QMainWindow", x=0, y=0, width=1200, height=800)
+              covering=None, reveal_on_activation=1, x=300, y=400, width=100, height=40,
+              **button_kwargs):
+        window = FakeWidget("mainWindow", cls="QMainWindow", x=0, y=0, width=1200, height=800,
+                            native_id=MAIN_WINDOW)
         target = FakeWidget("DENTOBOTStep6FindWorkingConfigButton", parent=window,
                             x=x, y=y, width=width, height=height, **button_kwargs)
         env = FakeEnv(target, dpr=dpr, covered_by=covered_by)
@@ -293,7 +332,8 @@ def harness(monkeypatch, clock):
         qt = make_qt(env)
         slicer = SimpleNamespace(util=SimpleNamespace(mainWindow=lambda: env.main))
         backend = FakeBackend(env, follows_pointer=follows_pointer,
-                              emit_on_release=emit_on_release)
+                              emit_on_release=emit_on_release, covering=covering,
+                              reveal_on_activation=reveal_on_activation)
         monkeypatch.setattr(ui, "_runtime", lambda: (qt, slicer))
         monkeypatch.setattr(ui, "get_backend", lambda: backend)
         return target, env, backend
@@ -311,11 +351,12 @@ def test_qt_click_mode_is_the_legacy_click_and_touches_no_x_input(harness, monke
     assert json.loads(ledger.read_text().splitlines()[0])["label"] == "Find Working Configuration"
 
 
-def test_xtest_click_uses_real_motion_press_release_and_confirms_delivery(harness, tmp_path):
+def test_xtest_click_activates_the_window_hit_tests_the_control_and_confirms_delivery(harness, tmp_path):
     target, env, backend = harness(x=300, y=400, width=100, height=40)
     ledger = tmp_path / "session" / "user-input-ledger.jsonl"
     record = ui.user_click(target, "Find Working Configuration", mode="xtest", evidence=ledger)
     # centre of (300..400, 400..440) in logical global coordinates is (350, 420)
+    assert backend.activations == [MAIN_WINDOW]
     assert backend.events[0] == ("move", 350, 420)
     assert ("button", 1, True) in backend.events and ("button", 1, False) in backend.events
     assert backend.events.index(("button", 1, True)) < backend.events.index(("button", 1, False))
@@ -323,8 +364,13 @@ def test_xtest_click_uses_real_motion_press_release_and_confirms_delivery(harnes
     assert target.clicks == 0  # no QAbstractButton.click() fallback
     assert record["delivered"] is True
     assert record["physical_xy"] == [350, 420] and record["objectName"] == target.objectName
+    evidence = record["x_activation"]
+    assert evidence["target_window"] == hex(MAIN_WINDOW) and evidence["hit_test"] == "pass"
+    assert evidence["attempts"][0]["hit"] is True
+    assert evidence["attempts"][0]["chain"][-1] == hex(MAIN_CHILD)  # a descendant of the main window
     saved = json.loads(ledger.read_text().splitlines()[0])
     assert saved["mode"] == "xtest" and saved["delivered_utc"]
+    assert saved["x_activation"]["hit_test"] == "pass"
 
 
 @pytest.mark.parametrize("kwargs, message", [
@@ -332,11 +378,11 @@ def test_xtest_click_uses_real_motion_press_release_and_confirms_delivery(harnes
     ({"enabled": False}, "control is disabled"),
 ])
 @pytest.mark.parametrize("mode", ["xtest", "demo"])
-def test_invisible_or_disabled_controls_fail_without_pressing(harness, mode, kwargs, message):
+def test_invisible_or_disabled_controls_fail_without_activating_or_pressing(harness, mode, kwargs, message):
     target, env, backend = harness(**kwargs)
     with pytest.raises(ui.UserInputError, match=message):
         ui.user_click(target, "Start search", mode=mode)
-    assert backend.events == []
+    assert backend.activations == [] and backend.events == []
     assert target.clicks == 0
 
 
@@ -350,7 +396,7 @@ def test_control_in_a_collapsed_group_says_to_expand_it_and_expands_nothing(harn
     assert backend.events == [] and group.collapsed is True
 
 
-def test_covered_control_fails_before_the_press(harness):
+def test_qt_covered_control_fails_before_the_press(harness):
     other = FakeWidget("dialogCancel", text="Cancel", parent=None)
     target, env, backend = harness(covered_by=other)
     with pytest.raises(ui.UserInputError, match="covered by QPushButton/dialogCancel"):
@@ -366,15 +412,54 @@ def test_point_with_no_qt_widget_is_reported_as_covered(harness):
     assert ("button", 1, True) not in backend.events
 
 
-def test_scroll_area_ensure_widget_visible_is_called_before_the_press(harness):
-    window = FakeWidget("mainWindow", cls="QMainWindow", width=1200, height=800)
-    scroll = FakeScrollArea("workflowScroll", parent=window)
-    content = FakeWidget("content", cls="QWidget", parent=scroll)
-    target, env, backend = harness()
-    target._parent = content
-    ui.user_click(target, "Load Robot", mode="xtest")
-    assert scroll.ensure_calls and scroll.ensure_calls[0][0] is target
-    assert backend.events[0][0] == "move"
+def test_external_window_covering_the_pointer_fails_without_pressing_and_is_recorded(harness, tmp_path):
+    target, env, backend = harness(covering=[EXTERNAL], reveal_on_activation=None)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    with pytest.raises(ui.UserInputError,
+                       match=r"covered by external X window 0x4000001 T3 Code"):
+        ui.user_click(target, "Start search", mode="xtest", evidence=ledger)
+    assert backend.activations == [MAIN_WINDOW, MAIN_WINDOW]  # activation retried once
+    assert ("button", 1, True) not in backend.events and ("button", 1, False) not in backend.events
+    assert target.clicks == 0
+    refusal = json.loads(ledger.read_text().splitlines()[0])
+    assert refusal["delivered"] is False
+    assert "covered by external X window 0x4000001" in refusal["refused"]
+    assert refusal["x_activation"]["hit_test"] == "covered"
+    assert [attempt["hit"] for attempt in refusal["x_activation"]["attempts"]] == [False, False]
+
+
+def test_each_activation_attempt_polls_for_up_to_one_and_a_half_seconds(harness, clock):
+    target, env, backend = harness(covering=[EXTERNAL], reveal_on_activation=None)
+    with pytest.raises(ui.UserInputError, match="covered by external X window"):
+        ui.user_click(target, "Start search", mode="xtest")
+    assert clock.t >= 2 * ui.X_POLL_TIMEOUT_SEC  # two attempts, each polling the full window
+    assert ui.X_POLL_TIMEOUT_SEC == 1.5 and ui.X_ACTIVATION_ATTEMPTS == 2
+
+
+def test_retry_activation_presses_when_the_second_activation_takes_effect(harness, tmp_path):
+    target, env, backend = harness(covering=[EXTERNAL], reveal_on_activation=2)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    record = ui.user_click(target, "Find Working Configuration", mode="xtest", evidence=ledger)
+    assert backend.activations == [MAIN_WINDOW, MAIN_WINDOW]
+    assert ("button", 1, True) in backend.events and target.clicks == 0
+    attempts = record["x_activation"]["attempts"]
+    assert [attempt["hit"] for attempt in attempts] == [False, True]
+    assert record["x_activation"]["hit_test"] == "pass" and record["delivered"] is True
+
+
+def test_descendant_of_the_slicer_window_under_the_pointer_is_pressed(harness):
+    target, env, backend = harness()  # the default stack is the main window with a native child
+    record = ui.user_click(target, "Connect", mode="xtest")
+    assert record["delivered"] is True
+    assert record["x_activation"]["attempts"][0]["chain"] == [hex(MAIN_WINDOW), hex(MAIN_CHILD)]
+
+
+def test_demo_refuses_a_covered_control_after_removing_its_overlay(harness):
+    target, env, backend = harness(covering=[EXTERNAL], reveal_on_activation=None)
+    with pytest.raises(ui.UserInputError, match="covered by external X window"):
+        ui.user_click(target, "Start search", mode="demo")
+    assert ("button", 1, True) not in backend.events and target.clicks == 0
+    assert ("overlay_hide", "frame") in env.log  # the highlight was removed, not left on top
 
 
 def test_device_pixel_ratio_maps_logical_centre_to_physical_pixels(harness):
@@ -385,7 +470,7 @@ def test_device_pixel_ratio_maps_logical_centre_to_physical_pixels(harness):
     assert backend.events[0] == ("move", 700, 840)
 
 
-def test_pointer_that_does_not_reach_the_target_fails_before_the_press(harness, clock):
+def test_pointer_that_does_not_reach_the_target_fails_before_the_press(harness):
     target, env, backend = harness(follows_pointer=False)
     with pytest.raises(ui.UserInputError, match="pointer did not reach the control"):
         ui.user_click(target, "Connect", mode="xtest")
@@ -400,14 +485,25 @@ def test_click_that_is_not_delivered_fails_and_disconnects(harness):
     assert target.clicks == 0
 
 
+def test_scroll_area_ensure_widget_visible_is_called_before_the_press(harness):
+    window = FakeWidget("mainWindow", cls="QMainWindow", width=1200, height=800, native_id=MAIN_WINDOW)
+    scroll = FakeScrollArea("workflowScroll", parent=window)
+    content = FakeWidget("content", cls="QWidget", parent=scroll)
+    target, env, backend = harness()
+    target._parent = content
+    ui.user_click(target, "Load Robot", mode="xtest")
+    assert scroll.ensure_calls and scroll.ensure_calls[0][0] is target
+    assert backend.events[0][0] == "move"
+
+
 def test_demo_mode_shows_a_click_through_highlight_before_the_check_and_keeps_its_caption(harness):
     target, env, backend = harness(x=300, y=400, width=100, height=40)
     record = ui.user_click(target, "Find Working Configuration", mode="demo")
-    overlay_flags = [entry for entry in env.log if entry[0] in ("overlay_show", "overlay_hide", "widgetAt")]
-    first_show = overlay_flags.index(("overlay_show", "frame"))
-    hide = overlay_flags.index(("overlay_hide", "frame"))
-    check = overlay_flags.index(next(entry for entry in overlay_flags if entry[0] == "widgetAt"))
-    assert first_show < hide < check, overlay_flags
+    order = [entry for entry in env.log if entry[0] in ("overlay_show", "overlay_hide", "widgetAt")]
+    first_show = order.index(("overlay_show", "frame"))
+    hide = order.index(("overlay_hide", "frame"))
+    check = order.index(next(entry for entry in order if entry[0] == "widgetAt"))
+    assert first_show < hide < check, order
     assert ("overlay_show", "caption") in env.log
     assert record["mode"] == "demo" and record["delivered"] is True
     assert backend.events.count(("button", 1, False)) == 1
@@ -464,68 +560,230 @@ class FakeLibrary:
         self._functions = functions
 
     def __getattr__(self, name):
-        if name.startswith("_"):
-            raise AttributeError(name)
-        return self._functions[name]
+        try:
+            return self._functions[name]
+        except KeyError:
+            raise AttributeError(name) from None
 
 
-def make_fake_x(calls, *, display=1, pointer=(640, 480)):
-    def record(name, result=None):
-        def impl(*args):
-            calls.append((name, args))
-            return result(args) if callable(result) else result
-        return impl
+class FakeXServer:
+    """Answers the Xlib calls the binding makes from a scripted window stack, and records them.
 
-    def query_pointer(args):
-        args[4].contents.value = pointer[0]
-        args[5].contents.value = pointer[1]
+    ``chain`` is the window stack under the pointer, top-level first. ``names`` answers
+    _NET_WM_NAME and ``legacy_names`` answers XFetchName (WM_NAME). With ``window_manager``
+    an EWMH _NET_ACTIVE_WINDOW request to the root is honoured and published on the root.
+    """
+
+    def __init__(self, *, display=1, chain=(MAIN_WINDOW, MAIN_CHILD), names=None, legacy_names=None,
+                 window_manager=True, pointer=(640, 480)):
+        self.calls = []
+        self.display = display
+        self.chain = list(chain)
+        self.names = dict(names or {})
+        self.legacy_names = dict(legacy_names or {})
+        self.window_manager = window_manager
+        self.pointer = pointer
+        self.active = 0
+        self._atoms = {}
+        self._atom_names = {}
+        self._buffers = []
+
+    def record(self, name, *args):
+        self.calls.append((name, args))
+
+    def atom(self, name):
+        if name not in self._atoms:
+            self._atoms[name] = 200 + len(self._atoms)
+            self._atom_names[self._atoms[name]] = name
+        return self._atoms[name]
+
+    def _open_display(self, name):
+        self.record("XOpenDisplay", name)
+        return self.display
+
+    def _root_window(self, display):
+        self.record("XDefaultRootWindow", display)
+        return ROOT
+
+    def _query_pointer(self, display, window, root_return, child_return, root_x, root_y,
+                       win_x, win_y, mask):
+        self.record("XQueryPointer", window)
+        if window == ROOT:
+            child = self.chain[0] if self.chain else 0
+        elif window in self.chain and self.chain.index(window) + 1 < len(self.chain):
+            child = self.chain[self.chain.index(window) + 1]
+        else:
+            child = 0
+        root_return.contents.value = ROOT
+        child_return.contents.value = child
+        root_x.contents.value, root_y.contents.value = self.pointer
         return 1
 
-    xlib = FakeLibrary({
-        "XOpenDisplay": FakeCFunction(record("XOpenDisplay", display)),
-        "XDefaultRootWindow": FakeCFunction(record("XDefaultRootWindow", 99)),
-        "XQueryPointer": FakeCFunction(record("XQueryPointer", query_pointer)),
-        "XFlush": FakeCFunction(record("XFlush", 1)),
-    })
-    xtst = FakeLibrary({
-        "XTestQueryExtension": FakeCFunction(record("XTestQueryExtension", 1)),
-        "XTestFakeMotionEvent": FakeCFunction(record("XTestFakeMotionEvent", 1)),
-        "XTestFakeButtonEvent": FakeCFunction(record("XTestFakeButtonEvent", 1)),
-    })
-    return xlib, xtst
+    def _flush(self, display):
+        self.record("XFlush", display)
+        return 1
+
+    def _intern_atom(self, display, name, only_if_exists):
+        self.record("XInternAtom", name.decode("ascii"))
+        return self.atom(name.decode("ascii"))
+
+    def _send_event(self, display, window, propagate, mask, event_address):
+        message = ui.ClientMessageEvent.from_address(event_address)
+        self.record("XSendEvent", window, propagate, mask, message.type, message.window,
+                    message.message_type, message.format, tuple(message.data))
+        if (self.window_manager and window == ROOT
+                and message.message_type == self.atom("_NET_ACTIVE_WINDOW")):
+            self.active = int(message.window)
+        return 1
+
+    def _raise_window(self, display, window):
+        self.record("XRaiseWindow", display, window)
+        return 1
+
+    def _get_window_property(self, display, window, atom, offset, length, delete, req_type,
+                             actual_type, actual_format, nitems, remaining, prop):
+        name = self._atom_names.get(atom, "")
+        self.record("XGetWindowProperty", window, name)
+        actual_type.contents.value = 0
+        actual_format.contents.value = 0
+        nitems.contents.value = 0
+        remaining.contents.value = 0
+        prop.contents.value = 0
+        if name == "_NET_ACTIVE_WINDOW" and window == ROOT and self.active:
+            data = (ctypes.c_ulong * 1)(self.active)
+            self._buffers.append(data)
+            prop.contents.value = ctypes.addressof(data)
+            nitems.contents.value = 1
+            actual_format.contents.value = 32
+        elif name == "_NET_WM_NAME" and window in self.names:
+            raw = self.names[window].encode("utf-8")
+            data = ctypes.create_string_buffer(raw)
+            self._buffers.append(data)
+            prop.contents.value = ctypes.addressof(data)
+            nitems.contents.value = len(raw)
+            actual_format.contents.value = 8
+        return 0
+
+    def _fetch_name(self, display, window, name_return):
+        self.record("XFetchName", window)
+        if window in self.legacy_names:
+            raw = self.legacy_names[window].encode("utf-8")
+            data = ctypes.create_string_buffer(raw)
+            self._buffers.append(data)
+            name_return.contents.value = ctypes.addressof(data)
+            return 1
+        return 0
+
+    def _free(self, pointer):
+        self.record("XFree")
+        return 1
+
+    def _query_extension(self, display, events, errors, major, minor):
+        self.record("XTestQueryExtension", display)
+        return 1
+
+    def _motion(self, display, screen, x, y, delay):
+        self.record("XTestFakeMotionEvent", display, screen, x, y, delay)
+        self.pointer = (x, y)
+        return 1
+
+    def _button(self, display, button, pressed, delay):
+        self.record("XTestFakeButtonEvent", display, button, pressed, delay)
+        return 1
+
+    def libraries(self):
+        xlib = FakeLibrary({
+            "XOpenDisplay": FakeCFunction(self._open_display),
+            "XDefaultRootWindow": FakeCFunction(self._root_window),
+            "XQueryPointer": FakeCFunction(self._query_pointer),
+            "XFlush": FakeCFunction(self._flush),
+            "XInternAtom": FakeCFunction(self._intern_atom),
+            "XSendEvent": FakeCFunction(self._send_event),
+            "XRaiseWindow": FakeCFunction(self._raise_window),
+            "XGetWindowProperty": FakeCFunction(self._get_window_property),
+            "XFetchName": FakeCFunction(self._fetch_name),
+            "XFree": FakeCFunction(self._free),
+        })
+        xtst = FakeLibrary({
+            "XTestQueryExtension": FakeCFunction(self._query_extension),
+            "XTestFakeMotionEvent": FakeCFunction(self._motion),
+            "XTestFakeButtonEvent": FakeCFunction(self._button),
+        })
+        return xlib, xtst
 
 
 def test_xtest_binding_issues_the_expected_xlib_and_xtest_sequence():
-    calls = []
-    xlib, xtst = make_fake_x(calls)
-    backend = ui.XTestBackend(xlib, xtst)
+    server = FakeXServer()
+    backend = ui.XTestBackend(*server.libraries())
     assert backend.pointer() == (640, 480)
     backend.move(350, 420)
     backend.button(1, True)
     backend.button(1, False)
-    names = [name for name, _args in calls]
+    names = [name for name, _args in server.calls]
     assert names[0] == "XOpenDisplay" and names.count("XOpenDisplay") == 1
     assert names[1] == "XTestQueryExtension"
-    assert ("XTestFakeMotionEvent", (1, -1, 350, 420, 0)) in calls
-    assert ("XTestFakeButtonEvent", (1, 1, 1, 0)) in calls
-    assert ("XTestFakeButtonEvent", (1, 1, 0, 0)) in calls
-    motion_index = names.index("XTestFakeMotionEvent")
-    press_index = calls.index(("XTestFakeButtonEvent", (1, 1, 1, 0)))
-    release_index = calls.index(("XTestFakeButtonEvent", (1, 1, 0, 0)))
-    assert motion_index < press_index < release_index
+    motion = server.calls.index(("XTestFakeMotionEvent", (1, -1, 350, 420, 0)))
+    press = server.calls.index(("XTestFakeButtonEvent", (1, 1, True, 0)))
+    release = server.calls.index(("XTestFakeButtonEvent", (1, 1, False, 0)))
+    assert motion < press < release
+
+
+def test_pointer_chain_descends_from_the_root_to_the_deepest_window():
+    server = FakeXServer(chain=[0x1000, 0x1001, 0x1002])
+    backend = ui.XTestBackend(*server.libraries())
+    assert backend.pointer_chain() == [0x1000, 0x1001, 0x1002]
+    queries = [args[0] for name, args in server.calls if name == "XQueryPointer"]
+    assert queries == [ROOT, 0x1000, 0x1001, 0x1002]
+
+
+def test_activation_is_an_ewmh_client_message_to_the_root_then_xraisewindow():
+    server = FakeXServer(chain=[MAIN_WINDOW])
+    backend = ui.XTestBackend(*server.libraries())
+    backend.activate_window(MAIN_WINDOW)
+    sends = [args for name, args in server.calls if name == "XSendEvent"]
+    assert len(sends) == 1
+    window, propagate, mask, msg_type, msg_window, msg_atom, fmt, data = sends[0]
+    assert window == ROOT and propagate == 0
+    assert mask == (1 << 20) | (1 << 19)  # SubstructureRedirectMask | SubstructureNotifyMask
+    assert msg_type == 33 and msg_window == MAIN_WINDOW and fmt == 32
+    assert msg_atom == server.atom("_NET_ACTIVE_WINDOW")
+    assert data[0] == 2  # EWMH source indication: pager/taskbar (a user action)
+    assert data[1] == 0  # timestamp: CurrentTime
+    names = [name for name, _args in server.calls]
+    assert names.index("XInternAtom") < names.index("XSendEvent") < names.index("XRaiseWindow")
+    assert names[-1] == "XFlush"
+    assert ("XRaiseWindow", (1, MAIN_WINDOW)) in server.calls
+
+
+def test_active_window_is_read_back_from_the_root_after_activation():
+    server = FakeXServer(chain=[MAIN_WINDOW])
+    backend = ui.XTestBackend(*server.libraries())
+    assert backend.active_window() == 0
+    backend.activate_window(MAIN_WINDOW)
+    assert backend.active_window() == MAIN_WINDOW
+
+
+def test_window_name_prefers_net_wm_name_and_falls_back_to_wm_name():
+    server = FakeXServer(chain=[EXTERNAL], names={EXTERNAL: "T3 Code"},
+                         legacy_names={EXTERNAL: "legacy name"})
+    backend = ui.XTestBackend(*server.libraries())
+    assert backend.window_name(EXTERNAL) == "T3 Code"
+    assert not any(name == "XFetchName" for name, _args in server.calls)
+    legacy = FakeXServer(chain=[EXTERNAL], legacy_names={EXTERNAL: "legacy name"})
+    assert ui.XTestBackend(*legacy.libraries()).window_name(EXTERNAL) == "legacy name"
+    assert ui.XTestBackend(*FakeXServer().libraries()).window_name(0x9999) == ""
 
 
 def test_xtest_binding_refuses_when_no_display_is_open():
-    calls = []
-    xlib, xtst = make_fake_x(calls, display=0)
+    server = FakeXServer(display=0)
     with pytest.raises(ui.UserInputError, match="X display is unavailable"):
-        ui.XTestBackend(xlib, xtst)
+        ui.XTestBackend(*server.libraries())
 
 
 def test_backend_loads_libx11_and_libxtst_once_and_caches(monkeypatch):
+    server = FakeXServer()
+    xlib, xtst = server.libraries()
     loaded = []
-    calls = []
-    xlib, xtst = make_fake_x(calls)
 
     def fake_cdll(name):
         loaded.append(name)
@@ -537,7 +795,30 @@ def test_backend_loads_libx11_and_libxtst_once_and_caches(monkeypatch):
     second = ui.get_backend()
     assert first is second
     assert loaded == ["libX11.so.6", "libXtst.so.6"]
-    assert [name for name, _ in calls].count("XOpenDisplay") == 1
+    assert [name for name, _args in server.calls].count("XOpenDisplay") == 1
+
+
+def test_client_message_layout_matches_xlib_on_64_bit_linux():
+    if ctypes.sizeof(ctypes.c_long) != 8:
+        pytest.skip("the layout check assumes LP64")
+    assert ctypes.sizeof(ui.ClientMessageEvent) == 96
+    assert ui.ClientMessageEvent.message_type.offset == 40
+    assert ui.ClientMessageEvent.format.offset == 48
+    assert ui.ClientMessageEvent.data.offset == 56
+    assert ui.XEVENT_SIZE >= ctypes.sizeof(ui.ClientMessageEvent)
+
+
+def test_real_xlib_exports_every_symbol_the_binding_uses_without_opening_a_display():
+    try:
+        xlib = ctypes.CDLL("libX11.so.6")
+        xtst = ctypes.CDLL("libXtst.so.6")
+    except OSError:
+        pytest.skip("libX11 or libXtst is not installed on this host")
+    for name in ("XOpenDisplay", "XDefaultRootWindow", "XQueryPointer", "XFlush", "XInternAtom",
+                 "XSendEvent", "XRaiseWindow", "XGetWindowProperty", "XFetchName", "XFree"):
+        assert hasattr(xlib, name), name
+    for name in ("XTestQueryExtension", "XTestFakeMotionEvent", "XTestFakeButtonEvent"):
+        assert hasattr(xtst, name), name
 
 
 def test_slug_is_a_safe_screenshot_label():
