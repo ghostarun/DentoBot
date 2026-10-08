@@ -68,6 +68,7 @@ def _extract_helper(name, extra_globals=None):
         "Mapping": Mapping,
         "Sequence": Sequence,
         "JOINT_NAMES": JOINT_NAMES,
+        "Path": Path,
         "re": re,
     }
     namespace.update(extra_globals or {})
@@ -271,7 +272,7 @@ def test_output_case_path_is_absolute_distinct_new_and_dentocase(tmp_path):
 
 def test_save_current_case_calls_production_owner_and_records_source_relation(tmp_path):
     validate = _extract_helper("_validate_output_case_path", {"Path": Path})
-    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib, "Path": Path})
+    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib})
     save = _extract_helper("_save_current_case", {
         "Path": Path,
         "os": os,
@@ -310,7 +311,7 @@ def test_save_current_case_calls_production_owner_and_records_source_relation(tm
 
 def test_save_current_case_never_calls_owner_for_existing_output(tmp_path):
     validate = _extract_helper("_validate_output_case_path", {"Path": Path})
-    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib, "Path": Path})
+    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib})
     save = _extract_helper("_save_current_case", {
         "Path": Path,
         "os": os,
@@ -690,7 +691,7 @@ def test_historical_probe_evidence_validator_checks_hash_events_authority_and_st
         "_exactly_matches",
         {"math": math, "Mapping": Mapping, "Sequence": Sequence, "JOINT_NAMES": JOINT_NAMES},
     )
-    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib, "Path": Path})
+    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib})
     validate = _extract_helper(
         "_historical_record_probe_evidence_error",
         {
