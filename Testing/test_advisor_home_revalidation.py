@@ -302,7 +302,7 @@ def test_a_change_to_the_saved_home_outside_the_advisor_is_detected_by_the_attri
 
     drive(s, on_step=foreign_revision)
     assert s.outcome == svc.BLOCKED
-    assert any(r.get("operator_review_required") and "identity changed" in r["reason"] for r in s.records)
+    assert any(r.get("operator_review_required") and "changed outside the advisor" in r["reason"] for r in s.records)
     assert world.accept_calls <= 2 and "foreign" not in json.dumps(ledger(s))
 
 

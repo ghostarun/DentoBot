@@ -66,10 +66,10 @@ def record_summary(record) -> dict:
         return {"revision": None, "status": "", "validated_at_utc": "", "base_fingerprint": "", "audit": ""}
     return {
         "revision": getattr(record, "revision", None),
-        "status": str(getattr(record, "runtime_validation_status", "")),
-        "validated_at_utc": str(getattr(record, "validated_at_utc", "")),
-        "base_fingerprint": str(getattr(record, "base_fingerprint", "")),
-        "audit": str(getattr(record, "collision_audit_fingerprint", "")),
+        "status": str(getattr(record, "runtime_validation_status", "") or ""),
+        "validated_at_utc": str(getattr(record, "validated_at_utc", "") or ""),
+        "base_fingerprint": str(getattr(record, "base_fingerprint", "") or ""),
+        "audit": str(getattr(record, "collision_audit_fingerprint", "") or ""),
     }
 
 
@@ -151,13 +151,19 @@ class HomeRevalidator:
             identity = reader()
         except Exception as exc:  # recorded, never hidden
             return [f"the accepted/monitored/displayed joint identity could not be read: {exc}"[:240]]
+        if identity is not None and not isinstance(identity, Mapping):
+            return ["the accepted/monitored/displayed joint identity is malformed"]
         issues = []
         for source in ("accepted", "monitored", "displayed"):
             vector = (identity or {}).get(source)
             if not isinstance(vector, Mapping) or set(vector) != set(self.saved):
                 issues.append(f"{source} J1–J5 are unavailable")
                 continue
-            worst = max(abs(float(vector[name]) - self.saved[name]) for name in self.saved)
+            try:
+                worst = max(abs(float(vector[name]) - self.saved[name]) for name in self.saved)
+            except (TypeError, ValueError, OverflowError):
+                issues.append(f"{source} J1–J5 are unavailable (non-numeric value)")
+                continue
             if worst > JOINT_TOLERANCE_SI:
                 issues.append(f"{source} J1–J5 differ from the saved Task Home by {worst:.3g} (SI)")
         return issues
@@ -171,23 +177,33 @@ class HomeRevalidator:
     def revalidate(self, *, kind: str, index: int, label: str, active: bool) -> dict:
         """Re-validate the unchanged saved joints once through the production owners."""
 
-        facade = self.facade
         entry = {"sequence": len(self.ledger) + 1, "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                  "kind": kind, "candidate": index, "label": label, "joints_si": dict(self.saved),
                  "before": record_summary(self.logic.taskHomeRecord(self.node)), "after": None,
                  "outcome": "started", "code": "", "message": ""}
         self.ledger.append(entry)
         try:
+            return self._attempt(entry, active)
+        except (HomeRevalidationRefused, HomeRevalidationRejected):
+            raise
+        except Exception as exc:  # anything unexpected may follow a committed accept: record it, never retry
+            message = f"Task Home revalidation failed unexpectedly ({type(exc).__name__}: {exc}); the outcome is unknown and is not retried"[:300]
+            return self._finish(entry, "refused", "unexpected", message, raises=HomeRevalidationRefused(message))
+
+    def _attempt(self, entry: dict, active: bool) -> dict:
+        facade = self.facade
+        try:
             self._preconditions(active)
         except HomeRevalidationRefused as exc:
             return self._finish(entry, "refused", "", str(exc), raises=exc)
         try:
             staged = facade.stageManualTaskHomeReview(dict(self.saved))
-        except Exception as exc:  # recorded, never hidden
-            return self._finish(entry, "refused", "", f"Home review could not be staged: {exc}",
-                                raises=HomeRevalidationRefused(f"Home review could not be staged: {exc}"[:300]))
+        except Exception as exc:  # recorded, never hidden; a possibly committed stage is cleared through its owner
+            self._cancel_staged(entry)
+            message = f"Home review could not be staged: {exc}"[:300]
+            return self._finish(entry, "refused", "", message, raises=HomeRevalidationRefused(message))
         if not staged.success:
-            self._cancel_staged()
+            self._cancel_staged(entry)
             message = "Home review was not staged: " + str(staged.message)[:240]
             return self._finish(entry, "refused", str(staged.code), message, raises=HomeRevalidationRefused(message))
         try:
@@ -201,7 +217,7 @@ class HomeRevalidator:
         if code == "manual_task_home_acceptance_unknown":
             message = "Task Home acceptance reported an unknown outcome: " + str(result.message)[:240]
             return self._finish(entry, "refused", code, message, raises=HomeRevalidationRefused(message))
-        self._cancel_staged()
+        self._cancel_staged(entry)
         message = "the production guard rejected the unchanged saved joints: " + str(result.message)[:240]
         self.consecutive_rejections += 1
         return self._finish(entry, "rejected", code, message, raises=HomeRevalidationRejected(message))
@@ -220,13 +236,13 @@ class HomeRevalidator:
         if issues:
             raise HomeRevalidationRefused("saved-joint identity check failed: " + "; ".join(issues)[:240])
 
-    def _cancel_staged(self) -> None:
+    def _cancel_staged(self, entry: dict) -> None:
         cancel = getattr(self.facade, "cancelManualTaskHomeReview", None)
         if callable(cancel):
             try:
                 cancel()
-            except Exception:  # the staged candidate stays detached; the failure is already recorded
-                pass
+            except Exception as exc:  # the staged candidate stays detached; the failure is recorded in the ledger entry
+                entry["cancel_error"] = f"{type(exc).__name__}: {exc}"[:200]
 
     def _accepted(self, entry: dict, code: str, message: str) -> dict:
         record = self.logic.taskHomeRecord(self.node)
@@ -239,18 +255,22 @@ class HomeRevalidator:
         if not saved_ok:
             message = "the saved Task Home joints changed during acceptance"
             return self._finish(entry, "refused", code, message, raises=HomeRevalidationRefused(message))
+        self.expected_identity = record_identity(record)  # the accept was the advisor's own, whatever the gap says
         if gap:
             self.consecutive_rejections += 1
             message = "accepted but not runtime-validated: " + gap[:200]
             return self._finish(entry, "rejected", code, message, raises=HomeRevalidationRejected(message))
-        self.expected_identity = record_identity(record)
         self.consecutive_rejections = 0
         return self._finish(entry, "validated", code, message[:240])
 
     def _finish(self, entry: dict, outcome: str, code: str, message: str, raises=None) -> dict:
         entry.update(outcome=outcome, code=code, message=message)
         if entry["after"] is None:
-            entry["after"] = record_summary(self.logic.taskHomeRecord(self.node))
+            try:
+                entry["after"] = record_summary(self.logic.taskHomeRecord(self.node))
+            except Exception as exc:  # the record could not be read either: say so
+                entry["after"] = {"revision": None, "status": f"unreadable: {type(exc).__name__}", "validated_at_utc": "",
+                                  "base_fingerprint": "", "audit": ""}
         self.write()
         if raises is not None:
             raise raises

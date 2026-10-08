@@ -290,7 +290,7 @@ def test_a_stage_that_raises_is_refused_with_one_stage_call_and_no_accept(tmp_pa
     owners.stage_error = RuntimeError("bridge down")
     with pytest.raises(ah.HomeRevalidationRefused, match="Home review could not be staged: bridge down"):
         attempt(revalidator)
-    assert owners.calls == ["review", "identity", "stage"]
+    assert owners.calls == ["review", "identity", "stage", "cancel"]  # a possibly committed stage is cleared via its owner
     assert revalidator.ledger[0]["outcome"] == "refused"
 
 
@@ -565,3 +565,81 @@ def test_a_refusal_keeps_the_pause_and_resumed_clears_the_frozen_info(tmp_path):
     assert pause.info is not None and pause.info["candidate"] == 3
     pause.resumed()
     assert pause.info is None
+
+
+# --- defects found by the worker review (W4) and fixed by the coordinator -----------------------------------------------
+def test_an_accepted_home_that_is_gap_rejected_is_still_the_advisors_own_revision(tmp_path):
+    """The accept was ours: the expected identity must follow the production record, so the next check sees the gap
+    (stale Home) and not a foreign change."""
+
+    revalidator, owners, logic = make(tmp_path)
+    owners.gap = "collision audit is stale"
+    with pytest.raises(ah.HomeRevalidationRejected):
+        attempt(revalidator)
+    assert revalidator.expected_identity == ah.record_identity(logic.record)
+    assert revalidator.external_change_issue(logic.record) == ""
+
+
+def test_an_accepted_home_with_changed_joints_is_not_adopted_as_expected(tmp_path):
+    revalidator, owners, logic = make(tmp_path)
+    before = dict(revalidator.expected_identity)
+    owners.next_home = TaskHome(2, joints={**SAVED, "j3": SAVED["j3"] + 1e-6})
+    with pytest.raises(ah.HomeRevalidationRefused):
+        attempt(revalidator)
+    assert revalidator.expected_identity == before  # unknown state stays foreign, so the service stops
+    assert revalidator.external_change_issue(logic.record)
+
+
+def test_an_unexpected_exception_after_a_committed_accept_is_ledgered_and_never_retried(tmp_path):
+    revalidator, owners, logic = make(tmp_path)
+
+    def broken_gap(node):
+        owners.calls.append("gap")
+        raise RuntimeError("bridge hiccup")
+
+    owners.taskHomeValidationGap = broken_gap
+    before = dict(revalidator.expected_identity)
+    with pytest.raises(ah.HomeRevalidationRefused, match="outcome is unknown and is not retried"):
+        attempt(revalidator)
+    [entry] = revalidator.ledger
+    assert (entry["outcome"], entry["code"]) == ("refused", "unexpected")
+    assert entry["after"]["revision"] == "home-revision-2"  # the committed revision is NOT missing from the ledger
+    assert json.loads((tmp_path / "home-revalidations.json").read_text())[0]["outcome"] == "refused"
+    assert owners.calls.count("accept") == 1 and revalidator.expected_identity == before
+    assert revalidator.external_change_issue(logic.record)
+
+
+@pytest.mark.parametrize("identity", [["not", "a", "mapping"], "text"])
+def test_a_malformed_identity_is_one_issue_not_an_exception(tmp_path, identity):
+    revalidator, owners, _ = make(tmp_path)
+    owners.identity = identity
+    assert revalidator.joint_issues() == ["the accepted/monitored/displayed joint identity is malformed"]
+
+
+def test_a_non_numeric_joint_value_is_an_issue_for_its_source_only(tmp_path):
+    revalidator, owners, _ = make(tmp_path)
+    owners.identity["monitored"] = {**SAVED, "j2": None}
+    assert revalidator.joint_issues() == ["monitored J1–J5 are unavailable (non-numeric value)"]
+    with pytest.raises(ah.HomeRevalidationRefused, match="saved-joint identity check failed"):
+        attempt(revalidator)
+    assert "stage" not in owners.calls
+
+
+def test_a_failing_cancel_is_recorded_in_the_ledger_entry(tmp_path):
+    revalidator, owners, _ = make(tmp_path)
+    owners.accept_result = result(False, "manual_task_home_review_rejected", "guard rejected")
+
+    def broken_cancel():
+        owners.calls.append("cancel")
+        raise RuntimeError("cancel failed")
+
+    owners.cancelManualTaskHomeReview = broken_cancel
+    with pytest.raises(ah.HomeRevalidationRejected):
+        attempt(revalidator)
+    assert revalidator.ledger[0]["cancel_error"] == "RuntimeError: cancel failed"
+
+
+def test_record_summary_blanks_present_but_none_fields():
+    record = SimpleNamespace(revision=4, runtime_validation_status=None, validated_at_utc=None,
+                             base_fingerprint=None, collision_audit_fingerprint=None)
+    assert ah.record_summary(record) == {"revision": 4, "status": "", "validated_at_utc": "", "base_fingerprint": "", "audit": ""}

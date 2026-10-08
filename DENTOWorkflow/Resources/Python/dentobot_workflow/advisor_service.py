@@ -303,7 +303,6 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         self._home: home_mod.HomeRevalidator | None = None
         self._home_stale_by_us = False  # the saved Home is stale only because of this search's own trial change
         self._pause: home_mod.OperatorPause | None = None
-        self._expected_home_identity: dict = {}
         self._declined_count = 0
         self._setup_error_run = 0
         self._cancel_requested = False
@@ -367,7 +366,9 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         record = logic.taskHomeRecord(node)
         if record is None:
             issues.append("the saved Task Home is missing")
-        elif fa.fingerprint_of(self._home_record_identity(record)) != fa.fingerprint_of(self._expected_home_identity):
+        elif self._home is not None:
+            issues.append(self._home.external_change_issue(record))  # "" when it is the ledgered state
+        elif fa.fingerprint_of(self._home_record_identity(record)) != fa.fingerprint_of(self._saved_home_identity):
             issues.append("the saved Task Home identity changed")
         return list(dict.fromkeys(str(issue) for issue in issues if issue))
 
@@ -542,7 +543,6 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         self.saved_base = self._ctx_matrix(node.robotBaseTransform)
         self.saved_home = dict(zip(home.joint_names, home.joint_positions_si))
         self._saved_home_identity = self._home_record_identity(home)
-        self._expected_home_identity = dict(self._saved_home_identity)
         if self._home_consent is not None:
             self._home = home_mod.HomeRevalidator(logic, facade, node, self.saved_home, self.root)
         registry = self._persisted_registry()
@@ -1063,7 +1063,6 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                 current.home_rejected = True
                 raise
             self._home_stale_by_us = False
-            self._expected_home_identity = dict(self._home.expected_identity)
             return (f"saved Task Home joints re-validated through the production owners (revision "
                     f"{(entry['before'] or {}).get('revision')}→{(entry['after'] or {}).get('revision')})")
         self._require_current_home(candidate_step="candidate evaluation" if not restoring else "baseline restoration")
@@ -1107,7 +1106,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
             "home_gap": str(facade.taskHomeValidationGap(node) or ""), "home_si": current_home,
             "home_identity_matches": (
                 fa.fingerprint_of(self._home_record_identity(home))
-                == fa.fingerprint_of(self._expected_home_identity)
+                == fa.fingerprint_of(self._home.expected_identity if self._home is not None else self._saved_home_identity)
             ),
             "home_delta_si": max((abs(float(current_home.get(k, 1e9)) - float(v)) for k, v in (self.saved_home or {}).items()),
                                  default=None) if self.saved_home else None,
