@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -37,7 +38,7 @@ GUARD_REJECTION_CODE = "task_home_collision_rejected"
 
 
 class HomeRevalidationRefused(RuntimeError):
-    """State, identity, ownership or an unknown outcome: stop for the operator; no authority was created."""
+    """State, identity, ownership or an unknown outcome: stop; authority may have been committed."""
 
 
 class HomeRevalidationRejected(RuntimeError):
@@ -142,6 +143,7 @@ class HomeRevalidator:
         self.root = Path(root)
         self.ledger: list = []
         self.consecutive_rejections = 0
+        self.unknown_outcome = ""
         self.expected_identity: dict = record_identity(logic.taskHomeRecord(node))
 
     # ---- identity ---------------------------------------------------------------------------
@@ -164,6 +166,9 @@ class HomeRevalidator:
                 issues.append(f"{source} J1–J5 are unavailable")
                 continue
             try:
+                values = [float(vector[name]) for name in self.saved]
+                if not all(math.isfinite(v) for v in (*values, *self.saved.values())):
+                    raise ValueError("non-finite joint value")
                 worst = max(abs(float(vector[name]) - self.saved[name]) for name in self.saved)
             except (TypeError, ValueError, OverflowError):
                 issues.append(f"{source} J1–J5 are unavailable (non-numeric value)")
@@ -192,6 +197,7 @@ class HomeRevalidator:
             raise
         except Exception as exc:  # anything unexpected may follow a committed accept: record it, never retry
             message = f"Task Home revalidation failed unexpectedly ({type(exc).__name__}: {exc}); the outcome is unknown and is not retried"[:300]
+            self.unknown_outcome = message
             return self._finish(entry, "refused", "unexpected", message, raises=HomeRevalidationRefused(message))
 
     def _attempt(self, entry: dict, active: bool) -> dict:
@@ -211,6 +217,7 @@ class HomeRevalidator:
             message = "Home review was not staged: " + str(staged.message)[:240]
             return self._finish(entry, "refused", str(staged.code), message, raises=HomeRevalidationRefused(message))
         try:
+            self.unknown_outcome = "Task Home acceptance is in progress; its outcome has not been confirmed"
             result = facade.acceptManualTaskHomeReview()
         except Exception as exc:  # the production owner may or may not have committed: unknown
             message = f"Task Home acceptance raised ({exc}); the outcome is unknown and is not retried"[:300]
@@ -222,6 +229,7 @@ class HomeRevalidator:
         if code == "manual_task_home_acceptance_unknown":
             message = "Task Home acceptance reported an unknown outcome: " + str(result.message)[:240]
             return self._finish(entry, "refused", code, message, raises=HomeRevalidationRefused(message))
+        self.unknown_outcome = ""  # the production owner definitively refused acceptance
         self._cancel_staged(entry)
         if owner_code != GUARD_REJECTION_CODE:  # a state/ownership refusal, not the collision guard's verdict
             message = f"Task Home acceptance was refused by the production owner ({owner_code}): " + str(result.message)[:200]
@@ -232,6 +240,9 @@ class HomeRevalidator:
 
     def _preconditions(self, active: bool) -> None:
         facade = self.facade
+        if self.unknown_outcome:
+            raise HomeRevalidationRefused("a previous Task Home acceptance outcome is unknown; no revalidation is retried, "
+                                         "including during restoration: " + self.unknown_outcome[:200])
         if not active:
             raise HomeRevalidationRefused("ROS/MoveIt is not connected; the advisor never connects by itself")
         if (getattr(facade, "_manual_task_home_acceptance_in_progress", False)
@@ -259,18 +270,19 @@ class HomeRevalidator:
         record = self.logic.taskHomeRecord(self.node)
         gap = str(self.facade.taskHomeValidationGap(self.node) or "")
         after = record_summary(record)
-        saved_ok = record is not None and all(
-            abs(float(dict(zip(record.joint_names, record.joint_positions_si)).get(name, 1e9)) - value)
-            <= JOINT_TOLERANCE_SI for name, value in self.saved.items())
+        joints = dict(zip(record.joint_names, record.joint_positions_si)) if record is not None else {}
+        saved_ok = (set(joints) == set(self.saved) and all(
+            math.isfinite(float(joints[name])) and math.isfinite(value)
+            and abs(float(joints[name]) - value) <= JOINT_TOLERANCE_SI for name, value in self.saved.items()))
         entry["after"] = after
         if not saved_ok:
             message = "the saved Task Home joints changed during acceptance"
             return self._finish(entry, "refused", code, message, raises=HomeRevalidationRefused(message))
         self.expected_identity = record_identity(record)  # the accept was the advisor's own, whatever the gap says
+        self.unknown_outcome = ""  # definitive owner result and the resulting record have both been inspected
         if gap:
-            self.consecutive_rejections += 1
             message = "accepted but not runtime-validated: " + gap[:200]
-            return self._finish(entry, "rejected", code, message, raises=HomeRevalidationRejected(message))
+            return self._finish(entry, "refused", code, message, raises=HomeRevalidationRefused(message))
         self.consecutive_rejections = 0
         return self._finish(entry, "validated", code, message[:240])
 
