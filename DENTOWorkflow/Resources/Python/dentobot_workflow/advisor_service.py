@@ -679,6 +679,10 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         else:
             if changed:
                 issues.append("frozen identity changed: " + ", ".join(changed))
+        try:
+            self._advance_trial_identity("apply_opening", commit=False)
+        except Exception as exc:
+            issues.append("frozen scene identity: " + str(exc)[:240])
         return issues
 
     def resume(self) -> StepEvent:

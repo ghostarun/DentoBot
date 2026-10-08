@@ -42,7 +42,7 @@ class AdvisorIdentityMixin:
                 "outgoing_fingerprint", "outgoing_bounds_base_link_mm")})
         return rows
 
-    def _advance_trial_identity(self, step: str) -> None:
+    def _advance_trial_identity(self, step: str, *, commit: bool = True) -> None:
         """Attribute only known fields changed by a successful configuration owner."""
 
         if self._home is None:
@@ -71,7 +71,8 @@ class AdvisorIdentityMixin:
                 changed.append("audited scene " + field)
         if changed:
             raise home_mod.HomeRevalidationRefused("immutable input identity changed during " + step + ": " + ", ".join(changed))
-        self._trial_identity = current
+        if commit:
+            self._trial_identity = current
 
     def _ctx_matrix(self, transform_node):
         import numpy as np
