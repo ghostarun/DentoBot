@@ -133,6 +133,8 @@ class AdvisorIdentityMixin:
             "confirmed_task_fingerprint": str(getattr(confirmed, "snapshot_fingerprint", "") or ""),
             "saved_base": fa.fingerprint_of([round(float(v), 9) for v in base_matrix.flatten()]),
             "saved_home": fa.fingerprint_of(home_identity),
+            "home_joints": {str(n): round(float(v), 9) for n, v in zip(getattr(home, "joint_names", ()) or (),
+                                                                       getattr(home, "joint_positions_si", ()) or ())},
             "mouth_barrier": {"edge_mode": str(getattr(node, "step6MouthBarrierEdgeMode", "") or ""),
                               "tuning": self._live_barrier_tuning()},
             "limits": fa.fingerprint_of(vars(self.limits)),

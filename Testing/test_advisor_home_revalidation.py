@@ -62,7 +62,8 @@ class _Facade(_Proxy):
         if w.accept_raises:
             raise RuntimeError("bridge dropped")
         if w.reject_home(w.view(), w.accept_calls):
-            return fail("manual_task_home_review_rejected", "strict collision guard rejected the pose")
+            return fail("manual_task_home_review_rejected", "strict collision guard rejected the pose",
+                        details={"failureEvidence": {"code": "task_home_collision_rejected"}})
         if w.accept_unknown:
             return fail("manual_task_home_acceptance_unknown", "may have committed")
         n = int(str(w.home.revision).rsplit("-", 1)[-1]) + 1
@@ -213,10 +214,28 @@ def test_joint_drift_between_trials_stops_for_operator_review_and_nothing_is_sub
     drive(s, on_step=drift_after_baseline)
     assert s.outcome == svc.BLOCKED
     blocked = next(r for r in s.records if r.get("operator_review_required"))
-    assert "saved-joint identity check failed" in blocked["reason"] and "monitored" in blocked["reason"]
-    assert "home_stage" not in world.calls and "home_accept" not in world.calls
-    assert [e["outcome"] for e in ledger(s)][:1] == ["refused"]
-    assert s.restore_issues  # the restore revalidation is refused too: reported and blocked, never PASS
+    assert "joint identity" in blocked["reason"] and "monitored" in blocked["reason"]
+    assert "home_stage" not in world.calls and "home_accept" not in world.calls and ledger(s) == []
+    assert s.restore_issues and any("joint identity" in i for i in s.restore_issues)  # restore proves the joints too
+
+
+def test_joint_drift_before_the_baseline_ends_stops_the_baseline_and_blocks_apply_and_save(tmp_path):
+    """W1 F2: the baseline and any trial that needs no revalidation are checked too, not only revalidating steps."""
+
+    world = HomeWorld()
+    s = consent_session(world, tmp_path)
+    s.prepare()
+
+    def drift_during_baseline(sess, event):
+        if event.step == "preentry":
+            world.monitored["j3"] += 1e-6
+
+    drive(s, on_step=drift_during_baseline)
+    assert s.outcome == svc.BLOCKED and s.records[0]["result"] != fa.PASSED
+    assert any("joint identity" in r["reason"] for r in s.records)
+    with pytest.raises(PermissionError):
+        s.apply_and_save(acknowledged=())
+    assert "store" not in world.calls and "home_stage" not in world.calls
 
 
 # --- per-trial production collision validation ------------------------------------------------------------------
@@ -441,3 +460,53 @@ def test_the_facade_joint_identity_accessor_is_read_only_and_mirrors_the_accept_
         assert needed in body
     for forbidden in ("self._apply_positions_si", "saveTaskHome", "stageManualTaskHomeReview", "setBasePose"):
         assert forbidden not in body
+
+
+# --- findings of the W1 review (F1 foreign change in the apply window / restore / Continue, F5, F7) ------------------
+def test_a_foreign_home_change_inside_the_apply_window_stops_before_any_home_owner_is_called(tmp_path):
+    world = HomeWorld(oracle=u5_passes)
+    s = consent_session(world, tmp_path)
+    s.prepare()
+
+    def foreign_write_after_base(sess, event):
+        if event.step == "apply_base":
+            world.home.revision = "home-revision-99"
+
+    drive(s, on_step=foreign_write_after_base)
+    assert s.outcome == svc.BLOCKED and world.accept_calls == 0 and "home_stage" not in world.calls
+    assert any(r.get("operator_review_required") and "changed outside the advisor" in r["reason"] for r in s.records)
+    assert s.restore_issues and any("never revalidates over a change it did not make" in i for i in s.restore_issues)
+    assert all(e["outcome"] == "refused" for e in ledger(s))  # nothing was revalidated over the foreign revision
+
+
+def test_continue_refuses_a_foreign_home_change_made_while_paused(tmp_path):
+    world = opening_world()
+    s, _ = _run_to_pause(world, tmp_path)
+    world.connected = True
+    world.home.revision = "home-revision-77"
+    assert any("changed outside the advisor" in i for i in s.resume_issues())
+    assert s.resume().kind == "pause" and s.phase == svc.PAUSED
+
+
+def test_consent_needs_a_complete_input_identity_instead_of_failing_later_at_the_pause(tmp_path):
+    world = HomeWorld(full_identity=False)
+    s = consent_session(world, tmp_path)
+    s.prepare()
+    assert s.finished and s.outcome == svc.BLOCKED and "complete input identity" in s.message
+
+
+def test_a_runtime_acknowledgement_that_is_lost_is_not_hidden_by_the_stable_identity(tmp_path):
+    world = HomeWorld(oracle=lambda v: {})
+    s = consent_session(world, tmp_path)
+    s.prepare()
+    ok_before, _ = s._identity_matches_baseline()
+    inner = world.logic._inner.collisionSceneAuditRecord
+
+    def lost_ack(node):
+        record = inner(node)
+        record.runtime_acknowledgement = {"status": "NotAcknowledged"}
+        return record
+
+    world.logic._inner.collisionSceneAuditRecord = lost_ack
+    ok_after, reason = s._identity_matches_baseline()
+    assert ok_before and not ok_after and "audited scene" in reason

@@ -370,7 +370,18 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
             issues.append(self._home.external_change_issue(record))  # "" when it is the ledgered state
         elif fa.fingerprint_of(self._home_record_identity(record)) != fa.fingerprint_of(self._saved_home_identity):
             issues.append("the saved Task Home identity changed")
+        if self._home is not None:  # accepted == monitored == displayed == saved joints at EVERY step, baseline included
+            issues += [f"joint identity: {text}" for text in self._home.joint_issues()]
         return list(dict.fromkeys(str(issue) for issue in issues if issue))
+
+    def _home_foreign_change_issues(self) -> list:
+        """The one Home check that stays on while the Home is stale by the search's own change (apply window)."""
+
+        try:
+            issue = self._home.external_change_issue(self.logic.taskHomeRecord(self.node)) if self._home is not None else ""
+        except Exception as exc:
+            issue = f"the saved Task Home could not be read: {exc}"[:200]
+        return [issue] if issue else []
 
     def _require_current_home(self, *, candidate_step: str) -> None:
         issues = self._home_currentness_issues()
@@ -577,6 +588,11 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
             }
             self._identity_available = False
             self._identity_error = str(exc)[:300]
+        if self._home is not None and not self._identity_available:
+            self.phase, self.outcome = DONE, BLOCKED
+            self.message = ("Task Home revalidation consent needs a complete input identity (restore verification and Continue "
+                            "depend on it): " + (self._identity_error or "unavailable"))
+            return issues
         self._candidates = [("baseline", dict(self.baseline)), *fa.ordered_candidates(self.baseline, self.limits)]
         self.phase = READY
         self.message = f"Ready: {len(self._candidates)} candidate states in the approved order."
@@ -647,8 +663,11 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         if self.phase != PAUSED or self._pause is None or self._home is None:
             return ["the search is not paused for an operator action"]
         issues = []
+        if self._cancel_requested and (self._pause.info or {}).get("stage") != "restore":
+            issues.append("a cancellation was requested; the search restores instead of continuing")
         if not self._active():
             issues.append("ROS/MoveIt is still disconnected; use the production Connect action, then Continue")
+        issues += self._home_foreign_change_issues()
         issues += [f"joint identity: {text}" for text in self._home.joint_issues()]
         try:
             changed = self._pause.drift(self._source_identity())
@@ -815,7 +834,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         if name in APPLY_STEPS and current.apply_failed:
             return self._event(current, name, "skipped after an earlier apply error")
         deferred = self._home is not None and self._home_stale_by_us and name in _HOME_DEFERRED_STEPS
-        home_issues = [] if deferred else self._home_currentness_issues()
+        home_issues = self._home_foreign_change_issues() if deferred else self._home_currentness_issues()
         if home_issues:
             return self._record_operator_review_block(
                 current, name, "Task Home requires explicit 6.2 operator review before this trial step: "
@@ -839,7 +858,11 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                 note = getattr(self, "_do_" + name)(current)
         except Exception as exc:  # recorded, never hidden
             if isinstance(exc, _PauseForOperator):
-                return self._enter_pause(current, name, str(exc))
+                try:
+                    return self._enter_pause(current, name, str(exc))
+                except Exception as pause_error:  # the pause needs the frozen identity; without it stop for review
+                    return self._record_operator_review_block(
+                        current, name, f"{exc} The search cannot pause safely ({pause_error}); stopped for review.")
             if isinstance(exc, (_HomeReviewRequired, home_mod.HomeRevalidationRefused)):
                 return self._record_operator_review_block(current, name, str(exc))
             if isinstance(exc, home_mod.HomeRevalidationRejected):
@@ -1353,6 +1376,8 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                     self.restore_issues += fa.precondition_issues(observed, self.limits)
                     if self._home is not None and self._home_stale_by_us:
                         self.restore_issues.append("the original Task Home joints were not re-validated after restoration")
+                    if self._home is not None:
+                        self.restore_issues += [f"joint identity: {t}" for t in self._home.joint_issues()]
                     if not self.restore_issues and self._identity_available:
                         matches, reason = self._identity_matches_baseline()
                         if not matches:
@@ -1365,6 +1390,8 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
             self.message += (f" Task Home was re-validated {len(done)} time(s) under the production owners (revisions and "
                              "outcomes in home-revalidations.json); original joint values re-validated: "
                              + ("yes" if self.restore_issues == [] and not self._home_stale_by_us else "NO") + ".")
+        elif self._home is not None:
+            self.message += " No Task Home revalidation was needed (Home was never made stale by this search)."
         if self.restore_issues:
             self.message += (" The original state could NOT be fully restored ("
                              + "; ".join(self.restore_issues)[:300]

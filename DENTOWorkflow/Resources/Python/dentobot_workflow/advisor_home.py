@@ -30,6 +30,10 @@ CONSENT_TEXT = (
     "The collision guards still apply to every validation, and clinically sensitive stages still need their own review."
 )
 MAX_CONSECUTIVE_REJECTIONS = 5  # a repeatedly rejected Home is a setup problem, not a search result
+# The only production owner code that is the collision guard's verdict on the unchanged joints. Every other refusal of
+# acceptManualTaskHomeReview (outstanding jog, state unavailable/invalid, monitor mismatch, runtime/scene missing,
+# unknown outcome) is a state/ownership problem: it stops for the operator and is never counted as a rejection.
+GUARD_REJECTION_CODE = "task_home_collision_rejected"
 
 
 class HomeRevalidationRefused(RuntimeError):
@@ -88,7 +92,7 @@ def stable_identity(identity: Mapping, saved_joints: Mapping, *, source_only: bo
     stable["saved_home_joints"] = {k: round(float(v), 9) for k, v in sorted((saved_joints or {}).items())}
     scene = dict(stable.get("audited_scene_sources") or {})
     stable["audited_scene_sources"] = {k: scene.get(k) for k in ("objects", "jaw_preparation_fingerprint",
-                                                                  "world_to_base_fingerprint")}
+                                                                  "world_to_base_fingerprint", "runtime_acknowledgement_status")}
     if source_only:
         stable.pop("audited_scene_sources", None)
         stable.pop("collision_audit_status", None)
@@ -214,13 +218,17 @@ class HomeRevalidator:
         code = str(getattr(result, "code", ""))
         if getattr(result, "success", False):
             return self._accepted(entry, code, str(result.message))
+        owner_code = str(((getattr(result, "details", None) or {}).get("failureEvidence") or {}).get("code") or code)
         if code == "manual_task_home_acceptance_unknown":
             message = "Task Home acceptance reported an unknown outcome: " + str(result.message)[:240]
             return self._finish(entry, "refused", code, message, raises=HomeRevalidationRefused(message))
         self._cancel_staged(entry)
+        if owner_code != GUARD_REJECTION_CODE:  # a state/ownership refusal, not the collision guard's verdict
+            message = f"Task Home acceptance was refused by the production owner ({owner_code}): " + str(result.message)[:200]
+            return self._finish(entry, "refused", owner_code, message, raises=HomeRevalidationRefused(message))
         message = "the production guard rejected the unchanged saved joints: " + str(result.message)[:240]
         self.consecutive_rejections += 1
-        return self._finish(entry, "rejected", code, message, raises=HomeRevalidationRejected(message))
+        return self._finish(entry, "rejected", owner_code, message, raises=HomeRevalidationRejected(message))
 
     def _preconditions(self, active: bool) -> None:
         facade = self.facade
@@ -232,6 +240,9 @@ class HomeRevalidator:
         review = getattr(facade, "manualTaskHomeReview", None)
         if callable(review) and (review().details or {}).get("staged"):
             raise HomeRevalidationRefused("a Task Home review is already staged; the advisor never overwrites it")
+        foreign = self.external_change_issue(self.logic.taskHomeRecord(self.node))
+        if foreign:
+            raise HomeRevalidationRefused(foreign + "; the advisor never revalidates over a change it did not make")
         issues = self.joint_issues()
         if issues:
             raise HomeRevalidationRefused("saved-joint identity check failed: " + "; ".join(issues)[:240])

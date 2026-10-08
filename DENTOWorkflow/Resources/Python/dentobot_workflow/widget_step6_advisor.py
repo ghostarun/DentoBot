@@ -124,8 +124,9 @@ class Step6AdvisorWidgetMixin:
         consentLayout = qt.QVBoxLayout(consentGroup)
         consentLabel = qt.QLabel(
             _(advisor_home.CONSENT_TEXT) + " "
-            + _("Without this consent a trial that makes the saved Task Home stale stops for your explicit 6.2 review. "
-                "An opening change always pauses for your own Connect and Continue."),
+            + _("Without this consent a trial that makes the saved Task Home stale (or an opening change, which disconnects ROS) "
+                "stops the search for your explicit 6.2 review. With it, an opening change pauses for your own Connect "
+                "and Continue."),
             consentGroup,
         )
         consentLabel.objectName = "DENTOBOTStep6AdvisorHomeConsentLabel"

@@ -42,8 +42,11 @@ IDENTITY = {
 }
 
 
-def result(success, code="", message=""):
-    return SimpleNamespace(success=success, code=code, message=message)
+def result(success, code="", message="", details=None):
+    return SimpleNamespace(success=success, code=code, message=message, details=details or {})
+
+
+GUARD = {"failureEvidence": {"code": "task_home_collision_rejected"}}  # the production owner's collision-guard verdict
 
 
 class TaskHome:
@@ -322,7 +325,7 @@ def test_an_accept_reporting_unknown_is_refused_and_keeps_the_staged_review(tmp_
 # --- production rejections and success --------------------------------------------------------------------------------
 def test_a_guard_rejection_fails_the_candidate_cancels_the_staged_review_and_counts_it(tmp_path):
     revalidator, owners, _ = make(tmp_path)
-    owners.accept_result = result(False, "manual_task_home_review_rejected", "strict collision guard rejected the pose")
+    owners.accept_result = result(False, "manual_task_home_review_rejected", "strict collision guard rejected the pose", GUARD)
     with pytest.raises(ah.HomeRevalidationRejected) as info:
         attempt(revalidator)
     assert str(info.value) == ("the production guard rejected the unchanged saved joints: "
@@ -330,13 +333,13 @@ def test_a_guard_rejection_fails_the_candidate_cancels_the_staged_review_and_cou
     assert owners.calls == ["review", "identity", "stage", "accept", "cancel"]
     assert not owners.staged
     [entry] = revalidator.ledger
-    assert (entry["outcome"], entry["code"]) == ("rejected", "manual_task_home_review_rejected")
+    assert (entry["outcome"], entry["code"]) == ("rejected", "task_home_collision_rejected")
     assert revalidator.consecutive_rejections == 1
 
 
 def test_rejections_accumulate_until_a_validated_revalidation_resets_them(tmp_path):
     revalidator, owners, _ = make(tmp_path)
-    owners.accept_result = result(False, "manual_task_home_review_rejected", "strict collision guard rejected the pose")
+    owners.accept_result = result(False, "manual_task_home_review_rejected", "strict collision guard rejected the pose", GUARD)
     for _ in range(2):
         with pytest.raises(ah.HomeRevalidationRejected):
             attempt(revalidator)
@@ -493,15 +496,18 @@ def test_saved_joints_are_rounded_to_nine_decimals_sorted_by_name_and_none_is_em
     assert ah.stable_identity(IDENTITY, None)["saved_home_joints"] == {}
 
 
-def test_audited_scene_sources_reduce_to_three_fields_with_none_for_the_missing_ones():
-    assert ah.stable_identity(IDENTITY, SAVED)["audited_scene_sources"] == {
-        "objects": ["tooth-11"], "jaw_preparation_fingerprint": "jaw-fp-1", "world_to_base_fingerprint": "w2b-fp-1"}
-    partial = ah.stable_identity({"audited_scene_sources": {"objects": []}}, SAVED)
-    assert partial["audited_scene_sources"] == {
-        "objects": [], "jaw_preparation_fingerprint": None, "world_to_base_fingerprint": None}
-    absent = ah.stable_identity({}, SAVED)
-    assert absent["audited_scene_sources"] == {
-        "objects": None, "jaw_preparation_fingerprint": None, "world_to_base_fingerprint": None}
+def test_audited_scene_sources_reduce_to_four_fields_with_none_for_the_missing_ones():
+    keys = ("objects", "jaw_preparation_fingerprint", "world_to_base_fingerprint", "runtime_acknowledgement_status")
+    full = ah.stable_identity({"audited_scene_sources": {**IDENTITY["audited_scene_sources"],
+                                                          "runtime_acknowledgement_status": "Acknowledged"}}, SAVED)
+    assert full["audited_scene_sources"] == {"objects": ["tooth-11"], "jaw_preparation_fingerprint": "jaw-fp-1",
+                                             "world_to_base_fingerprint": "w2b-fp-1",
+                                             "runtime_acknowledgement_status": "Acknowledged"}
+    assert ah.stable_identity({"audited_scene_sources": {"objects": []}}, SAVED)["audited_scene_sources"] == {
+        "objects": [], **{k: None for k in keys[1:]}}
+    assert ah.stable_identity({}, SAVED)["audited_scene_sources"] == {k: None for k in keys}
+    # the audit's base binding (revision-bound authority) is the one scene field that is not compared
+    assert "base_fingerprint" not in ah.stable_identity({"audited_scene_sources": {"base_fingerprint": "x"}}, SAVED)["audited_scene_sources"]
 
 
 def test_source_only_also_drops_the_audited_scene_and_the_audit_status():
@@ -627,7 +633,7 @@ def test_a_non_numeric_joint_value_is_an_issue_for_its_source_only(tmp_path):
 
 def test_a_failing_cancel_is_recorded_in_the_ledger_entry(tmp_path):
     revalidator, owners, _ = make(tmp_path)
-    owners.accept_result = result(False, "manual_task_home_review_rejected", "guard rejected")
+    owners.accept_result = result(False, "manual_task_home_review_rejected", "guard rejected", GUARD)
 
     def broken_cancel():
         owners.calls.append("cancel")
@@ -643,3 +649,32 @@ def test_record_summary_blanks_present_but_none_fields():
     record = SimpleNamespace(revision=4, runtime_validation_status=None, validated_at_utc=None,
                              base_fingerprint=None, collision_audit_fingerprint=None)
     assert ah.record_summary(record) == {"revision": 4, "status": "", "validated_at_utc": "", "base_fingerprint": "", "audit": ""}
+
+
+# --- findings of the W1 review (F1 foreign change, F3 state refusals) -------------------------------------------------
+@pytest.mark.parametrize("owner_code", ["manual_jog_reconciliation_required", "task_home_state_invalid", "task_home_monitor_mismatch",
+                                        "runtime_required", "planning_scene_required", "manual_task_home_candidate_requires_jog"])
+def test_a_production_state_refusal_stops_for_the_operator_and_is_never_counted_as_a_guard_rejection(tmp_path, owner_code):
+    revalidator, owners, _ = make(tmp_path)
+    owners.accept_result = result(False, "manual_task_home_review_rejected", "Resolve the outstanding manual jog.",
+                                  {"failureEvidence": {"code": owner_code}})
+    with pytest.raises(ah.HomeRevalidationRefused, match=owner_code):
+        attempt(revalidator)
+    assert revalidator.consecutive_rejections == 0 and owners.calls[-1] == "cancel"  # the staged review is cleared
+    assert revalidator.ledger[0]["outcome"] == "refused" and revalidator.ledger[0]["code"] == owner_code
+
+
+def test_a_rejection_without_a_named_owner_code_is_not_assumed_to_be_the_guard(tmp_path):
+    revalidator, owners, _ = make(tmp_path)
+    owners.accept_result = result(False, "manual_task_home_review_rejected", "something")  # no failureEvidence
+    with pytest.raises(ah.HomeRevalidationRefused):
+        attempt(revalidator)
+    assert revalidator.consecutive_rejections == 0
+
+
+def test_a_home_record_changed_by_someone_else_is_never_revalidated_over(tmp_path):
+    revalidator, owners, logic = make(tmp_path)
+    logic.record = TaskHome(99)  # a foreign revision after the advisor captured the expected identity
+    with pytest.raises(ah.HomeRevalidationRefused, match="never revalidates over a change it did not make"):
+        attempt(revalidator)
+    assert owners.calls == [] and revalidator.ledger[0]["outcome"] == "refused"
