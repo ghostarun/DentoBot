@@ -356,30 +356,80 @@ def test_continue_refuses_while_disconnected_on_joint_drift_and_on_identity_drif
     assert "Continue refused" in pause["last_refusal"] and "resumed_utc" not in pause
 
 
+def _finish_with_operator(s, world, *, connect_unchanged=True, max_pauses=4):
+    """Drive like the dialog: on every pause the operator connects (their own action) and presses Continue."""
+
+    pauses = 0
+    for _ in range(100000):
+        event = s.step()
+        if event.kind == "gate":
+            (s.approve_stage if event.stage == "opening" else s.decline_stage)(event.stage)
+        if event.kind == "pause":
+            pauses += 1
+            assert pauses <= max_pauses, "the search paused too often"
+            world.connected = True  # the operator's own Connect through the production owner
+            if not connect_unchanged:
+                world.accepted["j1"] += 1e-6
+            resumed = s.resume()
+            if resumed.kind == "pause":
+                return pauses
+        if s.finished:
+            return pauses
+    raise AssertionError("session did not finish")
+
+
 def test_continue_after_an_unchanged_connect_resumes_the_same_candidate_and_revalidates_through_the_owners(tmp_path):
     world = opening_world()
     s, _ = _run_to_pause(world, tmp_path)
     world.connected = True
     event = s.resume()
     assert event.kind == "step" and s.phase == svc.EVALUATING and s.resume_issues() == ["the search is not paused for an operator action"]
-    drive(s)
+    pauses = _finish_with_operator(s, world)
     candidate = next(r for r in s.records if r["stage"] == "opening")
     assert candidate["result"] == fa.PASSED and candidate["change"] == {fa.MOUTH_OPENING_MM: 40.5}
-    assert [e["kind"] for e in ledger(s)][0] == "trial" and ledger(s)[0]["outcome"] == "validated"
+    assert ledger(s)[0]["kind"] == "trial" and ledger(s)[0]["outcome"] == "validated"
     assert "resumed_utc" in json.loads((tmp_path / "run" / "pause.json").read_text())
-    # the restore of the opening disconnects again; Connect is not the advisor's, so restoration is reported and blocks
-    assert s.restore_issues and "not connected" in " ".join(s.restore_issues)
-    assert "could NOT be fully restored" in s.message and "connect" not in world.calls
+    # restoring the opening disconnects again: the advisor pauses for the operator's Connect, never connects itself
+    assert pauses == 1 and "connect" not in world.calls
+    assert s.outcome == svc.FOUND and s.restore_issues == [] and world.opening == 40.0
+    assert (ledger(s)[-1]["kind"], ledger(s)[-1]["outcome"]) == ("restore", "validated")
+    assert all(e["outcome"] == "validated" for e in ledger(s)) and all(a == HOME for a in world.stage_args)
+    assert "original joint values re-validated: yes" in s.message
 
 
-def test_cancel_while_paused_goes_to_restore_and_never_continues(tmp_path):
+def test_a_restore_pause_that_meets_joint_drift_refuses_continue_and_never_reports_a_restored_state(tmp_path):
+    world = opening_world()
+    s, _ = _run_to_pause(world, tmp_path)
+    world.connected = True
+    assert s.resume().kind == "step"
+    for _ in range(100000):  # run the candidate to the restore pause
+        event = s.step()
+        if event.kind == "pause":
+            break
+        if event.kind == "gate":
+            (s.approve_stage if event.stage == "opening" else s.decline_stage)(event.stage)
+    assert s.phase == svc.PAUSED and s._pause.info["stage"] == "restore"
+    world.connected = True
+    world.accepted["j1"] += 1e-6  # Connect re-seeded the accepted pose
+    assert s.resume().kind == "pause" and s.phase == svc.PAUSED and "joint identity" in s.message
+    accepts = world.accept_calls
+    s.cancel()  # the operator gives up instead: restoration restarts, still never revalidating drifted joints
+    for _ in range(100000):
+        event = s.step()
+        if event.kind == "pause" or s.finished:
+            break
+    assert world.accept_calls == accepts  # nothing was validated on drifted joints
+    assert not s.finished or s.restore_issues
+
+
+def test_cancel_while_paused_for_a_trial_connect_goes_to_restore_and_never_continues_the_trial(tmp_path):
     world = opening_world()
     s, _ = _run_to_pause(world, tmp_path)
     s.cancel()
-    drive(s)
+    _finish_with_operator(s, world)
     assert s.outcome == svc.CANCELLED and s._pause is None
     assert not [r for r in s.records if r["stage"] == "opening" and r["result"] == fa.PASSED]
-    assert s.restore_issues  # opening restore needs the operator's Connect: reported and blocked
+    assert s.restore_issues == [] and world.opening == 40.0 and ledger(s)[-1]["kind"] == "restore"
 
 
 # --- the facade accessor and the revalidator contract ------------------------------------------------------------------

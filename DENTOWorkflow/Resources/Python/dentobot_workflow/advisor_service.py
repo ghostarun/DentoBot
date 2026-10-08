@@ -672,7 +672,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                              total=self.total_candidates(), issues=issues)
         self._pause.resumed()
         self._pause = None
-        self.phase = EVALUATING
+        self.phase = RESTORING if info.get("stage") == "restore" else EVALUATING
         self.message = "Resumed after the operator's Connect; joint and source identity verified unchanged."
         return StepEvent("step", self.message, stage=info.get("stage", ""), index=info.get("candidate", 0),
                          total=self.total_candidates())
@@ -975,10 +975,11 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
             return f"opening {opening} mm applied; the branch now needs operator review"
         if self._home is not None:  # revalidation consented: Home is stale by our own change; Connect is the operator's
             self._home_stale_by_us = True
-            if not self._active() and current.stage != "restore":
+            if not self._active():
                 raise _PauseForOperator(
-                    f"Opening {opening} mm was applied and ROS/MoveIt was disconnected. Use Connect (6.1) in the dialog, "
-                    "then Continue. Continue stops if the accepted joints or any frozen identity differ.")
+                    f"Opening {opening} mm was {'restored' if current.stage == 'restore' else 'applied'} and ROS/MoveIt was "
+                    "disconnected. Use Connect (6.1) in the dialog, then Continue. Continue stops if the accepted joints "
+                    "or any frozen identity differ.")
         elif current.stage != "restore":
             self._require_current_home(candidate_step="the mouth-opening trial")
         return f"opening {opening} mm applied in the live case"
@@ -1328,6 +1329,8 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                     f"{name}: PreparedBranch needs operator review; original opening could not be safely restored"
                 )
                 self._restore_plan = []
+        except _PauseForOperator as pause:  # the restored opening needs the operator's Connect, then Continue
+            return self._enter_pause(current, name, str(pause))
         except Exception as exc:  # recorded, never hidden
             self.restore_issues.append(f"{name}: {exc}"[:300])
             self._restore_plan = []
