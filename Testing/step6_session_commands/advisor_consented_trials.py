@@ -72,7 +72,7 @@ try:
     # Consent is ticked explicitly (default OFF), then Keep searching: the next candidates are Base trials with revalidation
     state["consentBox"].checked = True
     _capture(report, evidence_dir, run_id, "advisor-B-consent-ticked")
-    state["moreButton"].click()
+    _press(state["moreButton"], "Keep searching")
     session = widget._advisorState["session"]
     assert session.home_consent is not None, "the consent was not recorded for the continued search"
     undo = probe.instrument_session(session, widget, timeline)
@@ -99,7 +99,7 @@ try:
         if (not session.finished and time.monotonic() - t_arm > 600.0 and not steps["fallback_inprocess_cancel"]):
             steps["fallback_inprocess_cancel"] = True  # the independent helper did not fire: not an independent measurement
             timeline.stamp("fallback_inprocess_cancel")
-            cancel.click()
+            _press(cancel, "Cancel")
     assert session.finished, "the continued search did not finish within the bound"
     _process_events(0.5)
     _capture(report, evidence_dir, run_id, "advisor-B-done")

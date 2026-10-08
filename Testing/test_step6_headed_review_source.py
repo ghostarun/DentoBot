@@ -17,7 +17,29 @@ import step6_manual_jog_scenarios as manual_jog_scenarios
 
 RUNNER = Path(__file__).with_name("run_dentobot_step6_headed_review.py")
 SOURCE = RUNNER.read_text(encoding="utf-8")
-TREE = ast.parse(SOURCE)
+
+
+def _press_as_click(tree):
+    """Normalise each production press ``_press(button, label)`` to ``button.click()``.
+
+    The checks below are about which production control is pressed, in what order, and
+    under which gate. ``_press`` is the harness's user-like press of that same control
+    (S6-ADVISOR-GUI-01), so it is compared as the same ``button.click()`` node. The
+    text checks in this file read ``ast.unparse`` of this normalised tree.
+    """
+
+    class _PressAsClick(ast.NodeTransformer):
+        def visit_Call(self, node):
+            self.generic_visit(node)
+            if isinstance(node.func, ast.Name) and node.func.id == "_press" and len(node.args) == 2:
+                attribute = ast.Attribute(value=node.args[0], attr="click", ctx=ast.Load())
+                return ast.copy_location(ast.Call(func=attribute, args=[], keywords=[]), node)
+            return node
+
+    return ast.fix_missing_locations(_PressAsClick().visit(tree))
+
+
+TREE = _press_as_click(ast.parse(SOURCE))
 TCP_WORKBENCH = RUNNER.with_name("run_dentobot_tcp_workbench_headed.py")
 TCP_WORKBENCH_TREE = ast.parse(TCP_WORKBENCH.read_text(encoding="utf-8"))
 JOINT_NAMES = ("J1", "J2", "J3", "J4", "J5")
@@ -3251,3 +3273,28 @@ def test_session_mode_checkpoints_after_scene_ack_and_serves_commands():
     assert "_serve_command_session(" in SOURCE and "run_session(namespace, session_dir, _process_events)" in SOURCE
     assert '"panel_callbacks_rebound": rebind_callbacks(panel._callbacks, widget)' in SOURCE
     assert '"Testing/step6_session_driver.py",' in SOURCE
+
+
+def _raw_click_calls(tree):
+    return [
+        node.lineno for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "click"
+    ]
+
+
+def test_headed_runner_presses_every_production_control_through_the_press_owner():
+    raw = ast.parse(SOURCE)
+    assert _raw_click_calls(raw) == []  # S6-ADVISOR-GUI-01: real-user input, no QAbstractButton.click()
+    press = next(node for node in raw.body if isinstance(node, ast.FunctionDef) and node.name == "_press")
+    assert [arg.arg for arg in press.args.args] == ["button", "label"]
+    modal = next(node for node in raw.body
+                 if isinstance(node, ast.FunctionDef) and node.name == "_modal_guarded_click")
+    watchdog = next(node for node in ast.walk(modal) if isinstance(node, ast.Call)
+                    and ast.unparse(node.func) == "make_modal_watchdog_click")
+    assert any(keyword.arg == "press" and ast.unparse(keyword.value) == "_press_control"
+               for keyword in watchdog.keywords)
+    run_fn = next(node for node in raw.body if isinstance(node, ast.FunctionDef) and node.name == "run")
+    context = [ast.unparse(node) for node in ast.walk(run_fn) if isinstance(node, ast.Call)]
+    assert any(text.startswith("user_input.input_mode_from_env(") for text in context)
+    assert any("session" in text and "user-input-ledger.jsonl" in text for text in
+               [ast.unparse(node) for node in ast.walk(run_fn)])

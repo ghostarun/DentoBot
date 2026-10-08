@@ -43,7 +43,7 @@ def test_every_command_parses_and_calls_no_state_changing_owner_directly():
 
 def test_the_precheck_is_read_only_and_stops_instead_of_repairing():
     source = (COMMANDS / "advisor_precheck.py").read_text(encoding="utf-8")
-    assert ".click()" not in source and "OwnerGuard" not in source
+    assert ".click()" not in source and "_press(" not in source and "OwnerGuard" not in source
     assert "raise RuntimeError" in source and "nothing was changed" in source
 
 
@@ -60,14 +60,14 @@ def test_the_dialog_commands_never_approve_a_stage_and_keep_consent_explicit():
         assert "stop" in calls and "write_text" in calls
         assert "STOP_UNEXPECTED_MODAL" in source
         assert 'state["consentBox"].checked is False' in source  # default OFF is asserted before anything else
-        assert 'state["closeButton"].click()' not in source  # the dialog stays open for the operator's verdict
+        assert 'state["closeButton"].click()' not in source and '_press(state["closeButton"]' not in source  # the dialog stays open for the operator's verdict
         assert "-FAILURE" in source and "first_failure" in source  # the first causal failure is captured and recorded
         assert "refuse=(" in source and '"connect"' in source and '"disconnect"' in source
     baseline = (COMMANDS / "advisor_baseline.py").read_text(encoding="utf-8")
     assert 'consentBox"].checked = True' not in baseline  # run A never ticks the consent
     trials = (COMMANDS / "advisor_consented_trials.py").read_text(encoding="utf-8")
     assert trials.count('state["consentBox"].checked = True') == 1 and "fallback_inprocess_cancel" in trials
-    assert 'state["startButton"].click()' not in trials and "found" in trials  # continues from Run A's open FOUND dialog
+    assert 'state["startButton"].click()' not in trials and '_press(state["startButton"]' not in trials and "found" in trials  # continues from Run A's open FOUND dialog
     assert 'get("measurement_complete")' in trials and "external Cancel measurement is incomplete" in trials
     assert "NO independent" in trials  # a fallback in-process Cancel fails the measurement instead of replacing it
     assert '"createOrUpdateStep6CaseJawOpening"' in trials and '"setStep6MouthBarrierTuning"' in trials  # refused
@@ -89,3 +89,16 @@ def test_helper_ignores_a_half_written_last_timeline_line(tmp_path):
     path = tmp_path / "t.jsonl"
     path.write_text(json.dumps({"kind": "step_start", "step": "x", "mono_ns": 1}) + "\n{\"kind\": \"st", encoding="utf-8")
     assert len(helper.read_rows(path)) == 1
+
+
+def test_run_a_session_commands_press_production_controls_only_through_the_press_owner():
+    for name in ("checkpoint_fast", "advisor_baseline", "advisor_consented_trials", "advisor_precheck"):
+        tree = ast.parse((COMMANDS / f"{name}.py").read_text(encoding="utf-8"))
+        bare = [node.lineno for node in ast.walk(tree)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "click"]
+        assert bare == [], (name, bare)  # S6-ADVISOR-GUI-01: _press(button, label) only
+    checkpoint = (COMMANDS / "checkpoint_fast.py").read_text(encoding="utf-8")
+    # Find Reachable Base is pressed through its production button, not the owner it dispatches to
+    assert "_onStep6SearchBasePlacement()" not in checkpoint
+    assert "_press(panel.searchBasePlacementButton, 'Find Reachable Base')" in checkpoint

@@ -16,7 +16,7 @@ _process_events(0.1)
 if bool(parameter_node.robotBaseMountLocked):
     if not widget.ui.unlockRobotBaseMountButton.enabled:
         stop("Base unlock control is not enabled.")
-    widget.ui.unlockRobotBaseMountButton.click()
+    _press(widget.ui.unlockRobotBaseMountButton, 'Unlock Base')
     _process_events(0.1)
     if bool(parameter_node.robotBaseMountLocked):
         stop("Base unlock did not complete.")
@@ -25,14 +25,14 @@ pre = dict(facade.manualBaseReview().details or {})
 if (pre.get("staged") is True and pre.get("identityStatus") == "current"
         and _same_matrix(pre.get("candidateMatrixWorldRasMm"), pre.get("acceptedMatrixWorldRasMm"))
         and panel.cancelManualBaseReviewButton.enabled):
-    panel.cancelManualBaseReviewButton.click()
+    _press(panel.cancelManualBaseReviewButton, 'Cancel Base Review')
     _process_events(0.1)
 steps["base_unlocked"] = not bool(parameter_node.robotBaseMountLocked)
 if not panel.beginManualBaseReviewButton.enabled:
     stop("Review Current Base is disabled.")
-panel.beginManualBaseReviewButton.click()
+_press(panel.beginManualBaseReviewButton, 'Review Current Base')
 _process_events(0.1)
-widget._onStep6SearchBasePlacement()
+_press(panel.searchBasePlacementButton, 'Find Reachable Base')
 _process_events(0.2)
 search = dict(getattr(widget, "_lastBasePlacementSearch", None) or {})
 staged = dict(facade.manualBaseReview().details or {})
@@ -63,7 +63,7 @@ widget._updateStep6PlanningUi()
 _show_step63_view(panel, 2, 0)
 if not panel.confirmTaskButton.enabled:
     stop("Confirm Immutable Task is disabled.")
-panel.confirmTaskButton.click()
+_press(panel.confirmTaskButton, 'Confirm Task')
 _process_events(0.2)
 issues = list(logic.confirmedTaskFreshnessIssues(parameter_node))
 steps["task_confirmed"] = logic.confirmedTaskRecord(parameter_node) is not None and not issues

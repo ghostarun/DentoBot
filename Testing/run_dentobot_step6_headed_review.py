@@ -67,6 +67,7 @@ from step6_expected_error_dialog import (  # noqa: E402
     make_expected_error_dialog_callback,
     make_modal_watchdog_click,
 )
+import step6_user_input as user_input  # noqa: E402
 
 
 CHECKOUT_PROFILES = {
@@ -535,6 +536,7 @@ def _modal_guarded_click(report, evidence_dir: Path, run_id: str, button, stage:
         qt,
         qt.QApplication.activeModalWidget,
         lambda capture_stage: _capture(report, evidence_dir, run_id, capture_stage),
+        press=_press_control,
     )
     click(button, stage)
 
@@ -605,7 +607,7 @@ def _guard_click(widget, panel, target: dict[str, float]) -> dict[str, object]:
     if not _representationally_matches(draft, target):
         raise RuntimeError("Visible controls cannot represent the J1–J5 request within 1e-12 SI.")
     _process_events(0.1)
-    panel.guardedManualJogButton.click()
+    _press(panel.guardedManualJogButton, 'Guarded Jog')
     _process_events(0.1)
     return {
         "draft_positions_si": draft,
@@ -1492,6 +1494,34 @@ def _capture(report, evidence_dir: Path, run_id: str, key: str) -> dict[str, str
     return paths
 
 
+# Production-control presses (S6-ADVISOR-GUI-01). run() fills _INPUT_CONTEXT before the first press.
+_INPUT_CONTEXT: dict[str, object] = {}
+
+
+def _control_label(control) -> str:
+    return str(control.text or "").strip() or str(control.objectName or "") or "production control"
+
+
+def _press(button, label: str) -> dict[str, object]:
+    """Press a production control the way a user does (see Testing/step6_user_input.py).
+
+    Mode comes from DENTOBOT_HEADED_INPUT: xtest (default), demo, or qt_click (legacy).
+    In demo mode a screenshot is kept after each press as ``demo-<n>-<label>``.
+    """
+    mode = user_input.input_mode_from_env()
+    record = user_input.user_click(button, label, mode=mode, evidence=_INPUT_CONTEXT.get("ledger"))
+    if mode == "demo":
+        count = int(_INPUT_CONTEXT.get("demo_count", 0)) + 1
+        _INPUT_CONTEXT["demo_count"] = count
+        _capture(_INPUT_CONTEXT["report"], _INPUT_CONTEXT["evidence_dir"], _INPUT_CONTEXT["run_id"],
+                 f"demo-{count}-{user_input.slug(label)}")
+    return record
+
+
+def _press_control(control) -> dict[str, object]:
+    return _press(control, _control_label(control))
+
+
 STEP6_DISPLAY_MODEL_ROLES = (
     "Step6MouthBarrierDisplay", "Step6MouthBarrierSurface", "Step6ReachEnvelope", "Step6WorkspaceHomeConnected", "RobotWorkspaceCloud",
 )
@@ -1739,7 +1769,7 @@ def _run_manual_jog_keyboard_draft_check(
         }
         capture("before-opt-in")
 
-        checkbox.click()
+        _press(checkbox, 'Joint keyboard draft checkbox')
         _process_events(0.05)
         if not checkbox.checked or not all(bool(shortcut.enabled) for shortcut in shortcuts):
             raise RuntimeError("Explicit keyboard opt-in did not enable the J1–J5 shortcuts.")
@@ -1883,7 +1913,7 @@ def _run_manual_jog_keyboard_draft_check(
         }
         capture("numeric-editor")
 
-        checkbox.click()
+        _press(checkbox, 'Joint keyboard draft checkbox')
         _process_events(0.05)
         if checkbox.checked or any(bool(shortcut.enabled) for shortcut in shortcuts):
             raise RuntimeError("Opting out did not immediately disable every J1–J5 shortcut.")
@@ -1930,7 +1960,7 @@ def _run_manual_jog_keyboard_draft_check(
     finally:
         try:
             if checkbox.checked:
-                checkbox.click()
+                _press(checkbox, 'Joint keyboard draft checkbox')
             _process_events(0.05)
             step_combo.currentIndex = original_step_index
             if accepted_before is not None:
@@ -2066,7 +2096,7 @@ def _discard_staged_base_if_requested(panel, logic, parameter_node, facade, repo
     evidence.update(status="CLICK_ATTEMPTED", production_cancel_clicks=1)
     _write_report(report)
     try:
-        button.click()
+        _press(button, 'Cancel Base Review')
         _process_events(0.1)
         after_result = facade.manualBaseReview()
         after = dict(after_result.details or {})
@@ -2182,7 +2212,7 @@ def _run_base_profile_rebind_prerequisite(
         evidence.update({"status": "FAIL", "reason": "Production Review Current Base was disabled."})
         _write_report(report)
         raise RuntimeError("Production Review Current Base is disabled for the stale Base rebind.")
-    panel.beginManualBaseReviewButton.click()
+    _press(panel.beginManualBaseReviewButton, 'Review Current Base')
     _process_events(0.1)
     staged = facade.manualBaseReview()
     staged_details = dict(staged.details or {})
@@ -2211,7 +2241,7 @@ def _run_base_profile_rebind_prerequisite(
         evidence.update({"status": "FAIL", "reason": "Existing Accept Base owner was disabled."})
         _write_report(report)
         raise RuntimeError("Existing Accept Base owner is disabled for the staged profile rebind.")
-    accept_owner.click()
+    _press(accept_owner, 'Accept Base')
     _process_events(0.2)
     evidence["screenshot_accepted"] = _capture(
         report, evidence_dir, run_id, "base-profile-rebind-accepted"
@@ -2367,7 +2397,7 @@ def _run_offline_base_home_configuration(
             unlock = widget.ui.unlockRobotBaseMountButton
             if not unlock.enabled:
                 stop("Production 6.1 Unlock Base control is disabled.")
-            unlock.click()
+            _press(unlock, 'Unlock Base')
             _process_events(0.1)
             if bool(parameter_node.robotBaseMountLocked):
                 stop("Production Unlock Base did not unlock the accepted Base.")
@@ -2382,7 +2412,7 @@ def _run_offline_base_home_configuration(
         )
         if not panel.beginManualBaseReviewButton.enabled:
             stop("Production Review Current Base control is disabled.")
-        panel.beginManualBaseReviewButton.click()
+        _press(panel.beginManualBaseReviewButton, 'Review Current Base')
         _process_events(0.1)
         staged_result = facade.manualBaseReview()
         staged = dict(staged_result.details or {})
@@ -2398,7 +2428,7 @@ def _run_offline_base_home_configuration(
         accept_base = widget.ui.lockRobotBaseMountButton
         if not accept_base.enabled:
             stop("Production Accept Base owner is disabled for the unchanged matrix.")
-        accept_base.click()
+        _press(accept_base, 'Accept Base')
         _process_events(0.2)
         accepted_result = facade.manualBaseReview()
         accepted = dict(accepted_result.details or {})
@@ -2448,7 +2478,7 @@ def _run_offline_base_home_configuration(
         reset_button = panel.resetManualJogDraftButton
         if not reset_button.enabled:
             stop("Production 6.2 Reset Draft to Local Robot Pose is disabled.")
-        reset_button.click()
+        _press(reset_button, 'Reset Draft to Local Robot Pose')
         _process_events(0.05)
         draft = _finite_vector(panel.manualJogJointPositionsSi())
         if not _exactly_matches(draft, reset_target):
@@ -2466,7 +2496,7 @@ def _run_offline_base_home_configuration(
         )
         if not panel.reviewTaskHomeButton.enabled:
             stop("Production Review Draft as Task Home control is disabled.")
-        panel.reviewTaskHomeButton.click()
+        _press(panel.reviewTaskHomeButton, 'Review Draft as Task Home')
         _process_events(0.1)
         staged_home_result = facade.manualTaskHomeReview()
         staged_home = dict(staged_home_result.details or {})
@@ -2481,7 +2511,7 @@ def _run_offline_base_home_configuration(
         )
         if not panel.acceptTaskHomeButton.enabled:
             stop("Production Save Home Configuration control is disabled.")
-        panel.acceptTaskHomeButton.click()
+        _press(panel.acceptTaskHomeButton, 'Accept Task Home')
         _process_events(0.1)
         saved_result = facade.manualTaskHomeReview()
         saved_details = dict(saved_result.details or {})
@@ -2624,13 +2654,13 @@ def _validate_offline_home_after_connection(
     evidence["screenshots"]["before_validation"] = _capture(
         report, evidence_dir, run_id, "offline-home-postconnect-before-validation"
     )
-    panel.resetManualJogDraftButton.click()
+    _press(panel.resetManualJogDraftButton, 'Reset Draft to Local Robot Pose')
     _process_events(0.05)
     if not _exactly_matches(panel.manualJogJointPositionsSi(), saved_vector):
         stop("6.2 Reset Draft did not restore the saved offline Home.")
     if not panel.reviewTaskHomeButton.enabled:
         stop("Production Review Draft as Task Home is disabled for the matching pose.")
-    panel.reviewTaskHomeButton.click()
+    _press(panel.reviewTaskHomeButton, 'Review Draft as Task Home')
     _process_events(0.1)
     staged = facade.manualTaskHomeReview()
     staged_details = dict(staged.details or {})
@@ -2639,7 +2669,7 @@ def _validate_offline_home_after_connection(
     if not panel.acceptTaskHomeButton.enabled:
         stop("Production Accept and Validate Task Home is disabled for the matching pose.")
     evidence["staged_review"] = staged_details
-    panel.acceptTaskHomeButton.click()
+    _press(panel.acceptTaskHomeButton, 'Accept Task Home')
     _process_events(0.2)
     accepted_review = facade.manualTaskHomeReview()
     accepted_details = dict(accepted_review.details or {})
@@ -2715,7 +2745,7 @@ def _accept_current_state_as_task_home(
     _process_events(0.1)
     if not panel.reviewTaskHomeButton.enabled:
         stop("Production Review Draft as Task Home control is disabled.")
-    panel.reviewTaskHomeButton.click()
+    _press(panel.reviewTaskHomeButton, 'Review Draft as Task Home')
     _process_events(0.1)
     staged = facade.manualTaskHomeReview()
     staged_details = dict(staged.details or {})
@@ -2745,7 +2775,7 @@ def _accept_current_state_as_task_home(
         stop("Production Accept Task Home control is disabled for the detached candidate.")
     report["task_home_acceptance_attempted"] = True
     _write_report(report)
-    panel.acceptTaskHomeButton.click()
+    _press(panel.acceptTaskHomeButton, 'Accept Task Home')
     _process_events(0.2)
     _scroll_to_visible(widget, panel.homeGroup, "profile migration accepted Task Home")
     evidence["screenshots"]["home_accepted"] = _capture(
@@ -2890,7 +2920,7 @@ def _ensure_current_home_workspace_task(
         )
         if not roi_button.enabled or not _visible(roi_button):
             stop("Production Use current incisor midpoint control is not visible and enabled.")
-        roi_button.click()
+        _press(roi_button, 'Use Current Incisor Midpoint')
         _process_events(0.1)
         if not getattr(panel, "_taskSpaceRoiInitialized", False):
             stop("Production Use current incisor midpoint did not initialize the ROI draft.")
@@ -3040,7 +3070,7 @@ def _ensure_current_home_workspace_task(
         stop("Production Review and Apply Suggested Limits control is disabled.")
     evidence["last_completed_boundary"] = "before_assisted_limit_review_click"
     _write_report(report)
-    panel.reviewLimitsButton.click()
+    _press(panel.reviewLimitsButton, 'Review Limits')
     _process_events(0.1)
     if (
         logic.assistedTaskLimitsReviewed(parameter_node) is not True
@@ -3058,7 +3088,7 @@ def _ensure_current_home_workspace_task(
     _show_step63_view(panel, 2, 0)
     if not panel.confirmTaskButton.enabled:
         stop("Production Confirm Immutable Task control is disabled after current review.")
-    panel.confirmTaskButton.click()
+    _press(panel.confirmTaskButton, 'Confirm Task')
     _process_events(0.1)
     evidence["screenshots"]["task_confirmed"] = _capture(
         report, evidence_dir, run_id, f"{phase}-task-confirmed"
@@ -3410,7 +3440,7 @@ def _run_unknown_reconciliation(
     if not panel.reconcileManualJogButton.enabled:
         raise RuntimeError("Production Reconcile State is not enabled for the unknown jog.")
 
-    panel.reconcileManualJogButton.click()
+    _press(panel.reconcileManualJogButton, 'Reconcile State')
     _process_events(0.2)
     reconciliation = dict(panel._manualJogEvidence or {})
     query_evidence = reconciliation.get("nativeGuardEvidence") or {}
@@ -3558,6 +3588,14 @@ def run() -> int:
             for name in CHECK_NAMES
         },
     }
+    input_mode = user_input.input_mode_from_env()
+    _INPUT_CONTEXT.update({
+        "report": report,
+        "evidence_dir": evidence_dir,
+        "run_id": run_id,
+        "ledger": evidence_dir.parent / "session" / "user-input-ledger.jsonl",
+    })
+    report["user_input"] = {"mode": input_mode, "ledger": str(_INPUT_CONTEXT["ledger"])}
     output_case_text = os.environ.get("DENTOBOT_HEADED_OUTPUT_CASE")
     output_case_path = None
     if output_case_text is None:
@@ -3872,7 +3910,7 @@ def run() -> int:
                  button_text=str(load_button.text),
                  local_robot_model_count=len(logic.robotModelNodes()))
         _scroll_to_visible(widget, load_button, "Load Robot")
-        load_button.click()
+        _press(load_button, 'Load Robot')
         _process_events(0.2)
         robot_models = _wait_until(
             lambda: logic.robotModelNodes()
@@ -3906,7 +3944,7 @@ def run() -> int:
                  button_text=str(import_button.text),
                  branch_eligibility=branch_before)
         _scroll_to_visible(widget, import_button, "Import Planning Context")
-        import_button.click()
+        _press(import_button, 'Import Planning Context')
         _process_events(0.2)
         imported = _wait_until(lambda: bool(parameter_node.step6PlanningContextImported))
         branch_after = logic.evaluatePreparedBranchEligibility(parameter_node)
@@ -4091,7 +4129,7 @@ def run() -> int:
                 fail(active_check, "A ROS session was already connected before the explicit connection trial.")
             if not panel.connectButton.enabled:
                 fail(active_check, "Production simulation ROS Connect control is not enabled.")
-            panel.connectButton.click()
+            _press(panel.connectButton, 'Connect')
             _process_events(0.2)
             capabilities = facade.capabilities()
             if capabilities.connected is not True or capabilities.simulation_only is not True:
@@ -4100,7 +4138,7 @@ def run() -> int:
                      status_text=str(panel.runtimeStatusLabel.text))
             if not panel.syncCollisionButton.enabled:
                 fail(active_check, "Production case collision-scene audit/sync control is not enabled.")
-            panel.syncCollisionButton.click()
+            _press(panel.syncCollisionButton, 'Sync Collision Scene')
             _process_events(0.2)
             scene = _scene_evidence(logic, parameter_node)
             scene_ack = scene["runtime_acknowledgement"]
@@ -4118,7 +4156,7 @@ def run() -> int:
                 if not panel.disconnectButton.enabled:
                     fail(active_check, "Production Disconnect control is not enabled.")
                 disconnect_started = time.monotonic()
-                panel.disconnectButton.click()
+                _press(panel.disconnectButton, 'Disconnect')
                 _process_events(0.2)
                 if facade.capabilities().connected:
                     fail(active_check, "Production Disconnect did not release the ROS session.")
@@ -4182,7 +4220,7 @@ def run() -> int:
             requested_draft = _finite_vector(panel.manualJogJointPositionsSi())
             if not _representationally_matches(requested_draft, before_draft["accepted_si"]):
                 fail(active_check, "Visible draft controls cannot represent the accepted J1–J5 vector within 1e-12 SI.")
-            panel.checkManualDraftStateButton.click()
+            _press(panel.checkManualDraftStateButton, 'Check Draft State')
             _process_events(0.1)
             draft_evidence = dict(panel._manualDraftStateCheckEvidence or {})
             evaluation = draft_evidence.get("manual_state_evaluation") or {}
@@ -4328,7 +4366,7 @@ def run() -> int:
                             candidate=candidate,
                         )
 
-                    panel.checkManualDraftStateButton.click()
+                    _press(panel.checkManualDraftStateButton, 'Check Draft State')
                     _process_events(0.1)
                     invalid_evidence = dict(panel._manualDraftStateCheckEvidence or {})
                     invalid_evaluation = invalid_evidence.get("manual_state_evaluation") or {}
@@ -4617,7 +4655,7 @@ def run() -> int:
             if bool(parameter_node.robotBaseMountLocked):
                 if not widget.ui.unlockRobotBaseMountButton.enabled:
                     fail(active_check, "Disposable-scene Base unlock control is not enabled.")
-                widget.ui.unlockRobotBaseMountButton.click()
+                _press(widget.ui.unlockRobotBaseMountButton, 'Unlock Base')
                 _process_events(0.1)
                 if bool(parameter_node.robotBaseMountLocked):
                     fail(active_check, "Disposable-scene Base unlock did not complete.")
@@ -4631,7 +4669,7 @@ def run() -> int:
                     and _same_matrix(pre_details.get("candidateMatrixWorldRasMm"),
                                      pre_details.get("acceptedMatrixWorldRasMm"))
                     and panel.cancelManualBaseReviewButton.enabled):
-                panel.cancelManualBaseReviewButton.click()
+                _press(panel.cancelManualBaseReviewButton, 'Cancel Base Review')
                 _process_events(0.1)
                 report["identity_viewport_candidate_cancelled"] = True
             base_before = _base_review(facade)
@@ -4639,7 +4677,7 @@ def run() -> int:
             base_matrix = tuple(base_before.details["acceptedMatrixWorldRasMm"])
             if not panel.beginManualBaseReviewButton.enabled:
                 fail(active_check, "Production Review Current Base control is not enabled after safe unlock.")
-            panel.beginManualBaseReviewButton.click()
+            _press(panel.beginManualBaseReviewButton, 'Review Current Base')
             _process_events(0.1)
             staged = facade.manualBaseReview()
             staged_details = dict(staged.details or {})
@@ -4660,7 +4698,7 @@ def run() -> int:
             if not _visible(panel.cancelManualBaseReviewButton):
                 fail(active_check, "Cancel Review control is not visible.")
             _capture(report, evidence_dir, run_id, "base-candidate-staged")
-            panel.cancelManualBaseReviewButton.click()
+            _press(panel.cancelManualBaseReviewButton, 'Cancel Base Review')
             _process_events(0.1)
             cancelled = facade.manualBaseReview()
             cancelled_details = dict(cancelled.details or {})
@@ -4708,7 +4746,7 @@ def run() -> int:
                          robot_base_fingerprint=logic.robotBaseFingerprint(parameter_node))
                 if not panel.beginManualBaseReviewButton.enabled:
                     fail(active_check, "Production Review Current Base control is not enabled for acceptance.")
-                panel.beginManualBaseReviewButton.click()
+                _press(panel.beginManualBaseReviewButton, 'Review Current Base')
                 _process_events(0.1)
                 base_acceptance_staged_frame = _scroll_to_visible(
                     widget, panel.manualBaseReviewGroup, "Base acceptance candidate"
@@ -4914,7 +4952,7 @@ def run() -> int:
                 if not panel.reviewTaskHomeButton.enabled:
                     fail(active_check, "Production Review Draft as Task Home control is not enabled.",
                          review=home_before_details)
-                panel.reviewTaskHomeButton.click()
+                _press(panel.reviewTaskHomeButton, 'Review Draft as Task Home')
                 _process_events(0.1)
                 task_home_staged_frame = _scroll_to_visible(
                     widget, panel.homeGroup, "staged Task Home review"
@@ -4966,7 +5004,7 @@ def run() -> int:
                          prior_saved_home_revision=prior_saved_home_revision)
                 report["task_home_acceptance_attempted"] = True
                 _write_report(report)
-                task_home_accept_owner.click()
+                _press(task_home_accept_owner, 'Accept Task Home')
                 _process_events(0.2)
                 task_home_accepted_frame = _scroll_to_visible(
                     widget, panel.homeGroup, "accepted Task Home review"
@@ -5145,6 +5183,7 @@ def run() -> int:
                         active_modal_widget,
                         capture_uncertainty,
                         timeout_sec=dialog_timeout_sec,
+                        press=_press_control,
                     )
                     uncertainty_evidence = run_base_home_uncertainty_probe(
                         widget,

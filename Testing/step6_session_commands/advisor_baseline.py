@@ -55,7 +55,7 @@ gate_timer.connect("timeout()", unexpected_gate)
 undo = None
 try:
     assert panel.findWorkingConfigButton.enabled, "the Find Working Configuration button is disabled"
-    panel.findWorkingConfigButton.click()
+    _press(panel.findWorkingConfigButton, "Find Working Configuration")
     _process_events(0.5)
     state = widget._advisorState
     session = state["session"]
@@ -63,7 +63,7 @@ try:
     undo = probe.instrument_session(session, widget, timeline)
     _capture(report, evidence_dir, run_id, "advisor-A-dialog-open")
     gate_timer.start()
-    state["startButton"].click()
+    _press(state["startButton"], "Start search")
     t0 = time.monotonic()
     shots = {"running": False, "diagnose": False}
     while not session.finished and time.monotonic() - t0 < 1500.0:

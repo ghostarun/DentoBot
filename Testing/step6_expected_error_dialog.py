@@ -56,13 +56,15 @@ def _dismiss(dialog, active_modal_widget):
 
 
 def make_expected_error_dialog_callback(
-    qt, active_modal_widget, capture_callback, timeout_sec=5.0
+    qt, active_modal_widget, capture_callback, timeout_sec=5.0, press=None
 ):
     """Return a callback that verifies, captures, then rejects the real modal.
 
     ``active_modal_widget`` is the Qt active-modal getter. ``capture_callback``
     receives the supplied capture stage and must return a non-empty reference.
+    ``press(button)`` presses the production control; it defaults to ``button.click()``.
     """
+    press = press or (lambda target: target.click())
     try:
         timeout_sec = float(timeout_sec)
     except (TypeError, ValueError, OverflowError) as exc:
@@ -193,7 +195,7 @@ def make_expected_error_dialog_callback(
             signal.connect(poll)
             connected = True
             timer.start(25)
-            button.click()
+            press(button)
         except BaseException as exc:
             click_error = exc
             click_traceback = exc.__traceback__
@@ -242,7 +244,7 @@ def _is_progress_dialog(qt, dialog):
     return callable(getattr(dialog, "wasCanceled", None))
 
 
-def make_modal_watchdog_click(qt, active_modal_widget, capture_callback):
+def make_modal_watchdog_click(qt, active_modal_widget, capture_callback, press=None):
     """Return ``click(button, capture_stage)`` that never blocks on a modal.
 
     Any modal opened while the click runs is captured, dismissed (reject/close,
@@ -250,7 +252,9 @@ def make_modal_watchdog_click(qt, active_modal_widget, capture_callback):
     click returns. A click that opens no modal returns ``None``; modal progress dialogs are
     ignored, never captured or dismissed. A modal already
     open before the click is captured, dismissed and also raises.
+    ``press(button)`` presses the production control; it defaults to ``button.click()``.
     """
+    press = press or (lambda target: target.click())
 
     def active():
         return active_modal_widget() if callable(active_modal_widget) else active_modal_widget
@@ -293,7 +297,7 @@ def make_modal_watchdog_click(qt, active_modal_widget, capture_callback):
             signal.connect(poll)
             connected = True
             timer.start(25)
-            button.click()
+            press(button)
         except BaseException as exc:
             click_error = exc
         finally:
