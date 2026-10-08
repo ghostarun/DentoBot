@@ -360,6 +360,15 @@ class DoneAndStatusTests(unittest.TestCase):
         self.assertNotIn("ros-log/latest", {entry["path"] for entry in done["files"]})
         self.assertIn("ros-log/2026-10-08-13-28-37-x-54/launch.log", {entry["path"] for entry in done["files"]})
 
+    def test_a_benign_looking_link_at_any_other_path_is_an_error(self):
+        (self.run_dir / "slicer.log").symlink_to("session-log.json")
+        (self.run_dir / "ros-log").mkdir(exist_ok=True)
+        (self.run_dir / "ros-log/latest").symlink_to("a/b")  # right path, wrong target shape
+        done = self.finalize(status="PASS")
+        self.assertEqual(done["status"], "ERROR")
+        self.assertIn("slicer.log", done["error"])
+        self.assertIn("ros-log/latest", done["error"])
+
     def test_foreign_or_escaping_symlinks_and_special_files_still_close_the_run_as_error(self):
         for name, make in (
                 ("absolute-elsewhere", lambda p: p.symlink_to("/etc/hostname")),
@@ -845,13 +854,16 @@ class CollectTests(unittest.TestCase):
     def test_collection_accepts_the_runs_own_symlink_and_refuses_a_foreign_one(self):
         link = self.b_run / "ros-log/latest"
         link.parent.mkdir(exist_ok=True)
-        link.symlink_to(vc.own_prefix_for(RUN_ID) + "/ros-log")
+        link.symlink_to(vc.own_prefix_for(RUN_ID) + "/ros-log/2026-10-08-13-28-37-x-54")
         (self.b_run / "DONE.json").unlink()
         vc.finalize(self.b_run, run_id=RUN_ID, sha=SHA, status="PASS", checks={"case_opened": True},
                     case_name="a.dentocase", case_sha256="c" * 64)
         code, result = self.collect([self.done_answer()])
         self.assertEqual((code, result["status"]), (0, "PASS"))
         self.assertTrue((self.dest_dir() / "ros-log/latest").is_symlink())
+        collected = json.loads((self.dest_dir() / "COLLECTED.json").read_text())
+        self.assertEqual((collected["done_schema"], collected["symlink_check"]), (vc.SCHEMA_DONE, "manifest-exact"))
+        self.assertEqual(collected["symlinks_not_followed"][0]["path"], "ros-log/latest")
         shutil.rmtree(self.dest_dir())
         def foreign(dest):
             (dest / "ros-log/latest").unlink()
@@ -859,6 +871,56 @@ class CollectTests(unittest.TestCase):
         with self.assertRaisesRegex(vc.VisibleCaseError, "unexpected entries.*ros-log/latest"):
             self.collect([self.done_answer()], transfer=self.transfer_from(self.b_run, mutate=foreign))
         self.assertFalse(self.dest_dir().exists())
+
+    def test_own_symlink_accepts_only_the_expected_ros_log_pointer(self):
+        prefix = vc.own_prefix_for(RUN_ID)
+        other = vc.own_prefix_for("20200101T000000Z")
+        good = (("ros-log/latest", "2026-10-08-13-28-37-x-54"), ("ros-log/latest", prefix + "/ros-log/2026-10-08-13-28-37-x-54"))
+        for relative, target in good:
+            self.assertTrue(vc.own_symlink(relative, target, prefix), (relative, target))
+        bad = (("ros-log/latest", prefix + "/ros-log"), ("ros-log/latest", prefix + "/ros-log/a/b"),
+               ("ros-log/latest", prefix + "/other/x"), ("ros-log/latest", other + "/ros-log/x"),
+               ("ros-log/latest", "a/b"), ("ros-log/latest", "../x"), ("ros-log/latest", ".."), ("ros-log/latest", "."),
+               ("ros-log/latest", ""), ("ros-log/latest", "/etc/hostname"), ("ros-log/latest", None),
+               ("slicer.log", "2026-10-08-13-28-37-x-54"), ("tmp/latest", "x"), ("ros-log/other", "x"))
+        for relative, target in bad:
+            self.assertFalse(vc.own_symlink(relative, target, prefix), (relative, target))
+
+    def test_collection_refuses_links_that_differ_from_the_recorded_manifest(self):
+        link = self.b_run / "ros-log/latest"
+        link.parent.mkdir(exist_ok=True)
+        link.symlink_to("2026-10-08-13-28-37-x-54")
+        (self.b_run / "DONE.json").unlink()
+        vc.finalize(self.b_run, run_id=RUN_ID, sha=SHA, status="PASS", checks={"case_opened": True},
+                    case_name="a.dentocase", case_sha256="c" * 64)
+        def retarget(dest):
+            (dest / "ros-log/latest").unlink()
+            (dest / "ros-log/latest").symlink_to("2026-10-08-99-99-99-other")  # also a valid-looking link, but not the recorded one
+        with self.assertRaisesRegex(vc.VisibleCaseError, "differ from DONE.json symlinks_not_followed"):
+            self.collect([self.done_answer()], transfer=self.transfer_from(self.b_run, mutate=retarget))
+        self.assertFalse(self.dest_dir().exists())
+        def drop(dest):
+            (dest / "ros-log/latest").unlink()
+        with self.assertRaisesRegex(vc.VisibleCaseError, "differ from DONE.json symlinks_not_followed"):
+            self.collect([self.done_answer()], transfer=self.transfer_from(self.b_run, mutate=drop))
+
+    def test_legacy_v1_done_is_collected_under_the_labelled_expected_link_rule_only(self):
+        link = self.b_run / "ros-log/latest"
+        link.parent.mkdir(exist_ok=True)
+        link.symlink_to(vc.own_prefix_for(RUN_ID) + "/ros-log/2026-10-08-13-28-37-x-54")
+        (self.b_run / "DONE.json").unlink()
+        vc.finalize(self.b_run, run_id=RUN_ID, sha=SHA, status="ERROR", error="run directory has unexpected entries: ros-log/latest",
+                    checks={"case_opened": True}, case_name="a.dentocase", case_sha256="c" * 64)
+        done = json.loads((self.b_run / "DONE.json").read_text())      # rewrite as the 012930c (v1) writer produced it
+        done["schema"] = vc.SCHEMA_DONE_V1
+        done.pop("symlinks_not_followed")
+        (self.b_run / "DONE.json").write_text(json.dumps(done))
+        code, result = self.collect([{**self.done_answer(), "status": "ERROR"}])
+        self.assertEqual((code, result["status"]), (2, "ERROR"))
+        collected = json.loads((self.dest_dir() / "COLLECTED.json").read_text())
+        self.assertEqual((collected["done_schema"], collected["symlink_check"]),
+                         (vc.SCHEMA_DONE_V1, "legacy-v1-expected-link-rule"))
+        self.assertEqual(json.loads((self.dest_dir() / "DONE.json").read_text())["status"], "ERROR")  # never rewritten to PASS
 
     def test_corrupt_transfer_is_refused_with_no_destination(self):
         def corrupt(dest):

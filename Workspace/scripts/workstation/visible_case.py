@@ -36,7 +36,9 @@ import smoke_runtime
 
 TASK = "PLAT-U-07-B-visible-case"
 SCHEMA_REQUEST = "dentobot.visible-case.request.v1"
-SCHEMA_DONE = "dentobot.visible-case.done.v1"
+SCHEMA_DONE_V1 = "dentobot.visible-case.done.v1"   # legacy: no symlink manifest (runs up to source 012930c)
+SCHEMA_DONE = "dentobot.visible-case.done.v2"      # records symlinks_not_followed; the collector matches it exactly
+EXPECTED_LINK = "ros-log/latest"
 SCHEMA_COLLECTED = "dentobot.visible-case.collected.v1"
 SUBDIRS = ("input", "tmp", "video", "ros-log", "watchdog")
 RUNNING_STATES = ("accepted", "preparing", "running", "finalizing")
@@ -223,30 +225,33 @@ def own_prefix_for(run_id):
     return f"/workspace/data/dentobot-runs/{run_id[0:4]}-{run_id[4:6]}-{run_id[6:8]}/{TASK}-{run_id}"
 
 
-def own_symlink(target, own_prefix):
-    """A link that can only point into the run's own evidence tree (ROS logging's ros-log/latest): relative
-    without .., or absolute under this run's container path. It is recorded, never followed or hashed."""
-    if not isinstance(target, str) or not target or "\\" in target or any(ord(c) < 32 for c in target):
+def own_symlink(relative, target, own_prefix):
+    """The ONE symlink the run may contain: ros-log/latest, ROS logging's pointer at the run's newest log directory.
+    Its target is a single directory name directly inside this run's own ros-log (relative, or the absolute
+    container path under own_prefix). It is recorded, never followed, hashed or copied as content."""
+    if relative != EXPECTED_LINK or not isinstance(target, str) or not target:
+        return False
+    if "\\" in target or any(ord(c) < 32 for c in target):
         return False
     path = PurePosixPath(target)
-    if ".." in path.parts:
+    if ".." in path.parts or path.name in ("", ".", ".."):
         return False
     if not path.is_absolute():
-        return True
-    return bool(own_prefix) and (path.as_posix() == own_prefix or path.as_posix().startswith(own_prefix + "/"))
+        return len(path.parts) == 1
+    return bool(own_prefix) and path.parent == PurePosixPath(own_prefix) / "ros-log"
 
 
 def list_run_files(root, exclude_names=("DONE.json", "COLLECTED.json"), own_prefix=None, links=None):
     """Regular files under root (top-level input/ skipped) and any other entries found.
 
-    Symlinks that only point into the run's own tree are appended to `links` as (path, target) and are
-    not anomalies; every other non-regular entry (foreign symlink, socket, FIFO, device) is an anomaly."""
+    Only the expected ros-log/latest link (see own_symlink) is appended to `links` as (path, target) and is
+    not an anomaly; every other non-regular entry (any other symlink, socket, FIFO, device) is an anomaly."""
     root = Path(root)
     files, anomalies = [], []
 
     def note_link(path, relative):
         target = os.readlink(path)
-        if own_symlink(target, own_prefix):
+        if own_symlink(relative, target, own_prefix):
             if links is not None:
                 links.append((relative, target))
         else:
@@ -1023,28 +1028,44 @@ def collected_manifest(temp, run_id, *, expect_done):
         raise VisibleCaseError("transfer did not include DONE.json")
     if has_done:
         done = read_json(temp / "DONE.json")
-        if (not done or done.get("schema") != SCHEMA_DONE or done.get("run_id") != run_id
+        if (not done or done.get("schema") not in (SCHEMA_DONE_V1, SCHEMA_DONE) or done.get("run_id") != run_id
                 or done.get("status") not in ("PASS", "FAIL", "ERROR")
                 or not isinstance(done.get("sha"), str) or not isinstance(done.get("files"), list)):
             raise VisibleCaseError("DONE.json is not a valid visible-case marker")
         verify_manifest(temp, done["files"])
-        found, anomalies = list_run_files(temp, exclude_names=("COLLECTED.json",), own_prefix=own_prefix_for(run_id))
+        links = []
+        found, anomalies = list_run_files(temp, exclude_names=("COLLECTED.json",), own_prefix=own_prefix_for(run_id),
+                                          links=links)
         if anomalies:
             raise VisibleCaseError("transfer contains unexpected entries; refusing: " + ", ".join(anomalies[:5]))
+        found_links = [{"path": path, "target": target} for path, target in sorted(links)]
+        if done["schema"] == SCHEMA_DONE:
+            recorded = done.get("symlinks_not_followed")
+            if recorded != found_links:  # v2: the transferred links must be exactly the ones B recorded
+                raise VisibleCaseError("symlinks in the transfer differ from DONE.json symlinks_not_followed; refusing")
+            symlink_check = "manifest-exact"
+        else:
+            symlink_check = "legacy-v1-expected-link-rule" if found_links else "none"
         listed = {safe_relative(entry["path"]) for entry in done["files"]} | {"DONE.json"}
         if set(found) != listed:
             raise VisibleCaseError("transfer contents differ from the DONE.json manifest")
         entries = sorted(_normalized(done["files"]) + [file_entry(temp, "DONE.json")],
                          key=lambda entry: entry["path"])
-        return entries, sha256_file(temp / "DONE.json"), done["status"], done["sha"], done.get("verified_at_sha")
+        meta = {"done_schema": done["schema"], "symlink_check": symlink_check, "symlinks_not_followed": found_links}
+        return (entries, sha256_file(temp / "DONE.json"), done["status"], done["sha"], done.get("verified_at_sha"),
+                meta)
     request_data = read_json(temp / "request.json")
     if not request_data or request_data.get("run_id") != run_id:
         raise VisibleCaseError("transfer has no request.json for an incomplete run")
     sha = validate_sha(request_data.get("sha"))
-    found, anomalies = list_run_files(temp, exclude_names=("COLLECTED.json",), own_prefix=own_prefix_for(run_id))
+    links = []
+    found, anomalies = list_run_files(temp, exclude_names=("COLLECTED.json",), own_prefix=own_prefix_for(run_id),
+                                      links=links)
     if anomalies:
         raise VisibleCaseError("transfer contains unexpected entries; refusing: " + ", ".join(anomalies[:5]))
-    return [file_entry(temp, relative) for relative in found], None, "INCOMPLETE", sha, None
+    meta = {"done_schema": None, "symlink_check": "legacy-v1-expected-link-rule" if links else "none",
+            "symlinks_not_followed": [{"path": path, "target": target} for path, target in sorted(links)]}
+    return [file_entry(temp, relative) for relative in found], None, "INCOMPLETE", sha, None, meta
 
 
 def _unique_aside(dest):
@@ -1080,14 +1101,14 @@ def collect(*, run_id, remote, local_workspace, accept_incomplete=False, transfe
     published = False
     try:
         transfer(remote.host, answer["run_path"], temp)
-        entries, done_sha, status_value, sha, verified_at = collected_manifest(
+        entries, done_sha, status_value, sha, verified_at, meta = collected_manifest(
             temp, run_id, expect_done=bool(answer.get("done")))
         label = collection_label(status_value, sha, verified_at)
         write_json_atomic(temp / "COLLECTED.json", {
             "schema": SCHEMA_COLLECTED, "run_id": run_id, "status": status_value, "label": label,
             "sha": sha, "verified_at_sha": verified_at, "collected_at_utc": utc_text(),
             "host": host_name or socket.gethostname(), "source_run_path": answer["run_path"],
-            "done_sha256": done_sha, "files": entries,
+            "done_sha256": done_sha, "files": entries, **meta,
         })
         code = 0 if status_value == "PASS" else 2
         if not os.path.lexists(dest):
