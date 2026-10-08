@@ -513,7 +513,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                                      fix_id="goto_6_3", fix_label="Review the 6.3 contact policy"))
         scene = None
         if ros:
-            status = facade.lastMoveItSceneStatus()
+            status = getattr(facade, "lastMoveItSceneStatus", None)
             scene = (status or {}).get("state")
         observed = {
             "ros_connected": ros, "base_locked": bool(getattr(node, "robotBaseMountLocked", False)),

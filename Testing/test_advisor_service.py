@@ -103,6 +103,7 @@ class World:
         self.stale_home_on_opening = stale_home_on_opening
         self.disconnect_drops_connection = disconnect_drops_connection
         self.full_identity = full_identity
+        self.last_scene_status = {"state": "matched"}  # facade lastMoveItSceneStatus is a @property (None or dict)
         self.branch_revision = "branch-revision-1"
         self.branch_foundation = "branch-foundation-1"
         self.source_volume_fingerprint = "volume-1"
@@ -258,8 +259,9 @@ class World:
                 w._log("policy")
                 w.policy.update(planner_id=planner, planning_attempts=attempts, planning_time_sec=seconds)
 
+            @property
             def lastMoveItSceneStatus(self):
-                return {"state": "matched"}
+                return w.last_scene_status
 
             def taskHomeValidationGap(self, node):
                 if w.home_stale:
@@ -1035,6 +1037,20 @@ def test_unavailable_setup_is_reported_with_fix_actions_and_blocks_the_search(tm
     world = World(home=dict.fromkeys(HOME, 0.0))
     issues = session(world, tmp_path / "zero").setup_report()
     assert any("all zeros" in i.message for i in issues)
+
+
+def test_setup_report_reads_the_moveit_scene_status_property_when_ros_is_connected(tmp_path):
+    # Production lastMoveItSceneStatus is a property returning None or a dict: read it, never call it.
+    cases = {"none": (None, "(not checked)"), "matched": ({"state": "matched"}, None),
+             "mismatch": ({"state": "mismatch"}, "(mismatch)")}
+    for name, (status, expected) in cases.items():
+        world = World()
+        world.last_scene_status = status
+        scene = [i for i in session(world, tmp_path / name).setup_report() if "MoveIt scene" in i.message]
+        if expected is None:
+            assert not scene, name
+        else:
+            assert len(scene) == 1 and expected in scene[0].message and scene[0].fix_id == "sync_scene", name
 
 
 def test_setup_issue_text_from_precondition_issues_maps_to_fix_actions():
