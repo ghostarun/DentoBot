@@ -99,6 +99,13 @@ try:
                  home_ledger=session.home_ledger, longest_step=session.longest_step(), evidence_root=str(session.root),
                  export=session.export_evidence(), unexpected_gates=modals)
     # the dialog stays open for the operator's visual verdict; the session stop command ends everything
+except BaseException as failure:
+    try:  # the first causal failure gets its own state-matched screenshot (the runner's fail() does not capture)
+        _capture(report, evidence_dir, run_id, "advisor-B-FAILURE")
+    except Exception as capture_error:
+        steps["failure_capture_error"] = str(capture_error)[:200]
+    steps["first_failure"] = f"{type(failure).__name__}: {failure}"[:400]
+    raise
 finally:
     gate_timer.stop()
     if undo is not None:

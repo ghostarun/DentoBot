@@ -271,7 +271,7 @@ def test_output_case_path_is_absolute_distinct_new_and_dentocase(tmp_path):
 
 def test_save_current_case_calls_production_owner_and_records_source_relation(tmp_path):
     validate = _extract_helper("_validate_output_case_path", {"Path": Path})
-    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib})
+    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib, "Path": Path})
     save = _extract_helper("_save_current_case", {
         "Path": Path,
         "os": os,
@@ -310,7 +310,7 @@ def test_save_current_case_calls_production_owner_and_records_source_relation(tm
 
 def test_save_current_case_never_calls_owner_for_existing_output(tmp_path):
     validate = _extract_helper("_validate_output_case_path", {"Path": Path})
-    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib})
+    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib, "Path": Path})
     save = _extract_helper("_save_current_case", {
         "Path": Path,
         "os": os,
@@ -690,7 +690,7 @@ def test_historical_probe_evidence_validator_checks_hash_events_authority_and_st
         "_exactly_matches",
         {"math": math, "Mapping": Mapping, "Sequence": Sequence, "JOINT_NAMES": JOINT_NAMES},
     )
-    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib})
+    sha_file = _extract_helper("_sha256_file", {"hashlib": hashlib, "Path": Path})
     validate = _extract_helper(
         "_historical_record_probe_evidence_error",
         {
@@ -926,7 +926,29 @@ def test_checkout_profile_accepts_only_renovation_or_explicit_integration(monkey
     }
 
     monkeypatch.setenv("DENTOBOT_HEADED_PROVENANCE_MODE", "custom")
-    with pytest.raises(RuntimeError, match="must be exactly 'renovation' or 'integration'"):
+    with pytest.raises(RuntimeError, match="must be exactly 'renovation', 'integration' or 'per-sha'"):
+        profile()
+
+
+def test_per_sha_profile_binds_the_exact_published_commit_to_its_detached_worktree(monkeypatch):
+    profile = _extract_helper(
+        "_checkout_profile",
+        {"os": os, "re": re, "CHECKOUT_PROFILES": _module_constant("CHECKOUT_PROFILES")},
+    )
+    sha = "6dce03e04ecf901a05dd3c821def9dd2865d2462"
+    monkeypatch.setenv("DENTOBOT_HEADED_PROVENANCE_MODE", "per-sha")
+    monkeypatch.setenv("DENTOBOT_HEADED_GIT_HEAD", sha)
+    assert profile() == {
+        "name": "per-sha", "branch": "DETACHED",
+        "host_root": "/home/light-tarun/dentobot/ros2_ws/src/DentoBot-visible-6dce03e04ecf",
+        "container_root": "/workspace/ros2_ws/src/DentoBot-visible-6dce03e04ecf",
+    }
+    for bad in ("", "6dce03e", sha.upper(), sha[:39] + "g", sha + "0"):
+        monkeypatch.setenv("DENTOBOT_HEADED_GIT_HEAD", bad)
+        with pytest.raises(RuntimeError, match="40 lowercase hexadecimal"):
+            profile()
+    monkeypatch.delenv("DENTOBOT_HEADED_GIT_HEAD")
+    with pytest.raises(RuntimeError, match="40 lowercase hexadecimal"):
         profile()
 
 

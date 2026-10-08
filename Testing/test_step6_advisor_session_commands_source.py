@@ -54,6 +54,7 @@ def test_the_dialog_commands_never_approve_a_stage_and_keep_consent_explicit():
         assert "advisor-UNEXPECTED-GATE" in source and "unexpected sensitive-stage review gate" in source  # retained FAIL
         assert 'state["consentBox"].checked is False' in source  # default OFF is asserted before anything else
         assert 'state["closeButton"].click()' not in source  # the dialog stays open for the operator's verdict
+        assert "-FAILURE" in source and "first_failure" in source  # the first causal failure is captured and recorded
         assert "refuse=(" in source and '"connect"' in source and '"disconnect"' in source
     baseline = (COMMANDS / "advisor_baseline.py").read_text(encoding="utf-8")
     assert 'consentBox"].checked = True' not in baseline  # run A never ticks the consent

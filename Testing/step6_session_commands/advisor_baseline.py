@@ -78,6 +78,13 @@ try:
     steps["evidence_root"] = str(session.root)
     steps["export"] = session.export_evidence()
     steps["unexpected_gates"] = modals
+except BaseException as failure:
+    try:  # the first causal failure gets its own state-matched screenshot (the runner's fail() does not capture)
+        _capture(report, evidence_dir, run_id, "advisor-A-FAILURE")
+    except Exception as capture_error:
+        steps["failure_capture_error"] = str(capture_error)[:200]
+    steps["first_failure"] = f"{type(failure).__name__}: {failure}"[:400]
+    raise
 finally:
     gate_timer.stop()
     if undo is not None:

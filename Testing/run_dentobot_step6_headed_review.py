@@ -668,9 +668,21 @@ def _checkout_evidence() -> dict[str, object]:
 
 def _checkout_profile() -> dict[str, str]:
     mode = os.environ.get("DENTOBOT_HEADED_PROVENANCE_MODE", "renovation")
+    if mode == "per-sha":
+        # S6-ADVISOR-GUI-01 (2026-10-08): the exact origin-published commit checked out detached under the
+        # Goal 2 per-SHA worktree name; the host wrapper must report that same commit and a clean tree.
+        commit = os.environ.get("DENTOBOT_HEADED_GIT_HEAD", "")
+        if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+            raise RuntimeError("per-sha provenance needs DENTOBOT_HEADED_GIT_HEAD as 40 lowercase hexadecimal characters.")
+        name = f"DentoBot-visible-{commit[:12]}"
+        return {
+            "name": mode, "branch": "DETACHED",
+            "host_root": f"/home/light-tarun/dentobot/ros2_ws/src/{name}",
+            "container_root": f"/workspace/ros2_ws/src/{name}",
+        }
     if mode not in CHECKOUT_PROFILES:
         raise RuntimeError(
-            "DENTOBOT_HEADED_PROVENANCE_MODE must be exactly 'renovation' or 'integration'."
+            "DENTOBOT_HEADED_PROVENANCE_MODE must be exactly 'renovation', 'integration' or 'per-sha'."
         )
     return {"name": mode, **CHECKOUT_PROFILES[mode]}
 
