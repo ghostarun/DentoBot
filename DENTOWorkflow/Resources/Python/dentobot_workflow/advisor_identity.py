@@ -20,9 +20,13 @@ class AdvisorIdentityMixin:
         if self._home is None:
             return []
         try:
-            current = self._stable_identity(self._capture_input_identity())
+            raw = self._capture_input_identity()
+            current = self._stable_identity(raw)
             expected = self._stable_identity(self._trial_identity)
             changed = sorted(k for k in set(current) | set(expected) if current.get(k) != expected.get(k))
+            if (raw.get("audited_scene_sources") or {}).get("base_fingerprint") != (
+                    self._trial_identity.get("audited_scene_sources") or {}).get("base_fingerprint"):
+                changed.append("audited scene Base binding")
         except Exception as exc:
             return [f"trial input identity could not be read: {exc}"[:250]]
         return ["trial input identity changed outside an advisor owner: " + ", ".join(changed)] if changed else []
@@ -63,12 +67,20 @@ class AdvisorIdentityMixin:
         if step in ("apply_base", "apply_barrier", "apply_opening") and self._unchanged_scene_sources(
                 before.get("audited_scene_sources"), step) != self._unchanged_scene_sources(after.get("audited_scene_sources"), step):
             changed.append("unrelated audited scene sources")
-        scene_before, scene_after = before.get("audited_scene_sources") or {}, after.get("audited_scene_sources") or {}
-        for field in ("jaw_preparation_fingerprint", "world_to_base_fingerprint"):
+        scene_before = self._trial_identity.get("audited_scene_sources") or {}
+        scene_after = current.get("audited_scene_sources") or {}
+        for field in ("base_fingerprint", "jaw_preparation_fingerprint", "world_to_base_fingerprint"):
             permitted = (step == "apply_base" and field == "world_to_base_fingerprint"
+                         or step == "apply_base" and field == "base_fingerprint"
                          or step == "apply_opening" and field == "jaw_preparation_fingerprint")
             if not permitted and scene_before.get(field) != scene_after.get(field):
                 changed.append("audited scene " + field)
+        if self._active():
+            if scene_after.get("runtime_acknowledgement_status") != "Acknowledged":
+                changed.append("audited scene runtime acknowledgement")
+            freshness = self.logic.collisionSceneAuditFreshnessIssues(self.node)
+            if freshness:
+                changed.append("audited scene freshness: " + "; ".join(freshness))
         if changed:
             raise home_mod.HomeRevalidationRefused("immutable input identity changed during " + step + ": " + ", ".join(changed))
         if commit:
@@ -236,6 +248,9 @@ class AdvisorIdentityMixin:
         except Exception as exc:
             return False, str(exc)[:300]
         if self._home is not None:  # revision-bound authority is re-established and ledgered, not compared
+            issues = self._trial_identity_issues()
+            if issues:
+                return False, "; ".join(issues)
             if fa.fingerprint_of(self._stable_identity(current)) != fa.fingerprint_of(self._stable_identity(self._base_identity)):
                 return False, "branch, trajectory, source geometry, saved Home joints, Base, limits, or audited scene geometry changed"
             return True, ""
