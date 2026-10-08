@@ -86,6 +86,7 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
                 "check_planning_p2": lambda: self._onStep6CheckPlanningStage("P2"),
                 "check_planning_p3": lambda: self._onStep6CheckPlanningStage("P3"),
                 "diagnose_base": self._onStep6DiagnoseBase,
+                "find_working_config": self._onStep6FindWorkingConfig,
                 "compare_planners": self._onStep6ComparePlanners,
                 "cancel_planner_comparison": self._onStep6CancelPlannerComparison,
                 "show_planner_comparison": self._onStep6ShowPlannerComparison,

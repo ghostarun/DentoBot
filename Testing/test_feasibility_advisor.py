@@ -177,6 +177,15 @@ def test_unapproved_states_are_refused_never_searched():
         assert not fa.state_violations({**base, **variant}, 40.06)
 
 
+def test_captured_guard_margin_is_an_immutable_expectation_not_a_search_lever():
+    base = {**fa.baseline_state(40.0), fa.CORRIDOR_MARGIN_SAMPLES: 3}
+    assert fa.state_violations(base, 40.0)  # default expects the zero-margin state
+    assert fa.state_violations(base, 40.0, expected_corridor_margin_samples=2)
+    assert fa.state_violations(base, 40.0, expected_corridor_margin_samples=4)
+    assert fa.state_violations(base, 40.0, expected_corridor_margin_samples=3) == []
+    assert base[fa.CORRIDOR_MARGIN_SAMPLES] == 3
+
+
 def test_preentry_classification_separates_collision_reach_and_setup():
     # 42.0 mm u+0 (recorded): converged, contacts only in the static-validity message.
     lip = _seed(static_state_validity_status="Invalid", endpoint_check_status="NotRun",

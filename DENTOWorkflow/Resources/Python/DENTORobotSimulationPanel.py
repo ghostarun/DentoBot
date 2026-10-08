@@ -68,6 +68,7 @@ class DENTORobotSimulationPanel:
         "check_planning_p2": 3,
         "check_planning_p3": 3,
         "diagnose_base": 3,
+        "find_working_config": 3,
         "compare_planners": 3,
         "cancel_planner_comparison": 3,
         "show_planner_comparison": 3,
@@ -1713,6 +1714,20 @@ class DENTORobotSimulationPanel:
             "the first failure, naming its cause (Base placement, collision, planner "
             "or tool geometry). Diagnostic only; no route or preview authority."
         )
+        # S6-ADVISOR-GUI-01: module-native ordered feasibility search with review gates.
+        self.findWorkingConfigButton = qt.QPushButton(
+            "Find Working Configuration…", self.approachGroup
+        )
+        self.findWorkingConfigButton.objectName = "DENTOBOTStep6FindWorkingConfigButton"
+        self.findWorkingConfigButton.toolTip = (
+            "Search the approved levers in a fixed order (Base translation, lip/barrier variant candidates, "
+            "mouth opening up to 46 mm, Base depth, Base yaw last) and show the least invasive "
+            "working configuration. Each trial temporarily changes the live simulation configuration; "
+            "the search attempts to restore the starting configuration when it ends. No trial is saved "
+            "to the branch. Lip/barrier variant candidates currently remain UNTESTED and are not applied. "
+            "Clinically sensitive stages ask for your approval first. Apply & Save retains "
+            "the recommendation only after baseline restoration is confirmed. Simulation only."
+        )
         self.motionDiagnosticsButton = qt.QPushButton(
             "Inspect Motion Diagnostics", self.approachGroup
         )
@@ -1722,6 +1737,7 @@ class DENTORobotSimulationPanel:
         approach_buttons.addWidget(self.motionDiagnosticsButton)
         approach_layout.addLayout(approach_buttons)
         approach_layout.addWidget(self.diagnoseBaseButton)
+        approach_layout.addWidget(self.findWorkingConfigButton)
         stage_diagnostic_buttons = qt.QHBoxLayout()
         for button in (
             self.checkPlanningP1Button,
@@ -1933,6 +1949,9 @@ class DENTORobotSimulationPanel:
         )
         self.diagnoseBaseButton.clicked.connect(
             lambda checked=False: self._invoke("diagnose_base")
+        )
+        self.findWorkingConfigButton.clicked.connect(
+            lambda checked=False: self._invoke("find_working_config")
         )
         self.resetManualJogDraftButton.clicked.connect(
             lambda checked=False: self._invoke("reset_manual_draft")

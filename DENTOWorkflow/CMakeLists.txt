@@ -98,6 +98,7 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/jaw_frame.py
   Resources/Python/dentobot_workflow/step6_working_config.py
   Resources/Python/dentobot_workflow/widget_step6_branch_config.py
+  Resources/Python/dentobot_workflow/widget_step6_advisor.py
   Resources/Python/dentobot_workflow/virtual_forehead_mount.py
   Resources/Python/dentobot_workflow/virtual_open_mouth_articulator.py
   Resources/Python/dentobot_workflow/logic_step6_scene.py

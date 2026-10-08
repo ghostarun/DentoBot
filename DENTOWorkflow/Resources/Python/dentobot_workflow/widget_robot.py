@@ -18,6 +18,7 @@ from dentobot_workflow.widget_robot_placement import RobotPlacementWidgetMixin
 
 from dentobot_workflow.widget_robot_scene import RobotSceneWidgetMixin
 from dentobot_workflow.widget_step6_branch_config import Step6BranchConfigWidgetMixin
+from dentobot_workflow.widget_step6_advisor import Step6AdvisorWidgetMixin
 
 
 class RobotWidgetMixin(
@@ -25,6 +26,7 @@ class RobotWidgetMixin(
     RobotPlacementWidgetMixin,
     RobotShellWidgetMixin,
     Step6BranchConfigWidgetMixin,
+    Step6AdvisorWidgetMixin,
 ):
     def _manualJogIdentityCurrent(self) -> bool:
         facade = getattr(self, "_robotWorkflowFacade", None)

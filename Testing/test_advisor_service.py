@@ -6,6 +6,7 @@ runtime fakes cannot (no blocking loops, one storing path).
 """
 
 import ast
+import json
 import math
 import sys
 from datetime import datetime, timezone
@@ -68,6 +69,10 @@ class Node:
         self.step6AllowSpindleGuideContact = False
         self.step6MouthBarrierEdgeMode = "gum_line"
 
+    @property
+    def step6TrajectoryRegistryJson(self):
+        return self._world.registry_json()
+
     step6CaseJawTargetGapMm = property(lambda self: self._world.opening,
                                        lambda self, v: setattr(self._world, "opening", float(v)))
     robotBaseMountLocked = property(lambda self: self._world.locked)
@@ -76,7 +81,9 @@ class Node:
 class World:
     """Shared fake of logic + facade + node; ``oracle`` decides each geometric check."""
 
-    def __init__(self, *, oracle=None, opening=40.0, profile="profile-1", branch_valid=lambda w: True, home=HOME):
+    def __init__(self, *, oracle=None, opening=40.0, profile="profile-1", branch_valid=lambda w: True,
+                 home=HOME, stale_home_on_base_change=False, stale_home_on_opening=False,
+                 disconnect_drops_connection=False, full_identity=True):
         self.calls = []
         self.opening = opening
         self.connected = True
@@ -90,7 +97,35 @@ class World:
         self.oracle = oracle or (lambda view: {})
         self.profile = profile
         self.branch_valid = branch_valid
-        self.home = None if home is None else SimpleNamespace(joint_names=list(home), joint_positions_si=list(home.values()))
+        self.home_stale = False
+        self.home_review_in_progress = False
+        self.stale_home_on_base_change = stale_home_on_base_change
+        self.stale_home_on_opening = stale_home_on_opening
+        self.disconnect_drops_connection = disconnect_drops_connection
+        self.full_identity = full_identity
+        self.branch_revision = "branch-revision-1"
+        self.branch_foundation = "branch-foundation-1"
+        self.source_volume_fingerprint = "volume-1"
+        self.trajectory_fingerprint = "trajectory-fingerprint-1"
+        self.active_trajectory_revision = "active-trajectory-revision-1"
+        self.scene_object = {
+            "source_name": "target-tooth", "source_role": "TargetTooth", "classification": "target_tooth",
+            "source_fingerprint": "source-geometry-1", "prepared_world_fingerprint": "prepared-geometry-1",
+            "outgoing_fingerprint": "outgoing-geometry-1", "jaw_transform_fingerprint": "jaw-transform-1",
+            "jaw_transform_application_count": 1, "world_to_base_application_count": 1,
+            "source_point_count": 20, "source_cell_count": 15, "outgoing_point_count": 20,
+            "outgoing_cell_count": 15, "source_bounds_world_ras_mm": [0, 1, 0, 1, 0, 1],
+            "prepared_bounds_world_ras_mm": [0, 1, 0, 1, 0, 1],
+            "outgoing_bounds_base_link_mm": [0, 1, 0, 1, 0, 1], "connected_component_count": 1,
+            "boundary_or_nonmanifold_edge_count": 0, "publisher_linear_scale_m_per_mm": 0.001,
+            "collision_padding_mm": 0.0, "publish_status": "Published",
+        }
+        self.drift_on_restore = False
+        self.home = None if home is None else SimpleNamespace(
+            joint_names=list(home), joint_positions_si=list(home.values()), base_fingerprint="base-fp-1",
+            robot_profile_fingerprint=profile, revision="home-revision-1", runtime_validation_status="Validated",
+            collision_audit_fingerprint="audit-fp-1", guard_policy_fingerprint="guard-fp-1",
+            validated_at_utc="2026-10-07T00:00:00Z", minimum_clearance_mm=1.0, world_object_count=1)
         self.node = Node(self)
         self.logic = self._logic()
         self.facade = self._facade()
@@ -104,6 +139,20 @@ class World:
     def _log(self, name):
         self.calls.append(name)
 
+    def registry_json(self):
+        return json.dumps({
+            "selected_branch_id": "b1",
+            "prepared_branches": {"b1": {
+                "state": "Current", "revision": self.branch_revision,
+                "branch_foundation_fingerprint": self.branch_foundation,
+                "trajectory_ids": ["traj-1"], "pairing_intent": "Single",
+            }},
+            "teeth": {"34": {"trajectory_set": {"slots": [{
+                "trajectory_id": "traj-1", "trajectory_fingerprint": self.trajectory_fingerprint,
+                "state": "Current",
+            }]}}},
+        })
+
     def _logic(self):
         w = self
 
@@ -111,17 +160,56 @@ class World:
             def isRos2MotionControlActive(self, transform):
                 return w.connected
 
-            def evaluatePreparedBranchEligibility(self, node):
+            def evaluatePreparedBranchEligibility(self, node, branch_id=None, *, registry=None):
+                if registry is None:
+                    raise AssertionError("identity evaluation must use the explicitly persisted registry")
+                branch_id = str(branch_id or registry.get("selected_branch_id") or "")
+                branch = (registry.get("prepared_branches") or {}).get(branch_id) or {}
                 if w.branch_valid(w):
-                    return {"reason": "VALID", "message": "", "branch_id": "b1",
-                            "branch": {"branch_foundation_fingerprint": "ff"}}
-                return {"reason": "STEP5C_MISMATCH", "message": "template stale", "branch_id": "b1", "branch": {}}
+                    return {"reason": "VALID", "message": "", "branch_id": branch_id, "branch": branch}
+                return {"reason": "STEP5C_MISMATCH", "message": "template stale", "branch_id": branch_id, "branch": branch}
 
             def taskHomeRecord(self, node):
                 return w.home
 
             def robotProfileFingerprint(self):
                 return w.profile
+
+            def step6TrajectoryRevision(self, node):
+                return w.active_trajectory_revision
+
+            def step6TaskLimitsFingerprint(self, node):
+                return "task-limits-1"
+
+            def buildCaseFoundationSnapshot(self, node):
+                values = {
+                    "case_identity": "case-1", "anatomy_fingerprint": "anatomy-1",
+                    "source_volume_fingerprint": w.source_volume_fingerprint,
+                    "source_segmentation_fingerprint": "segmentation-1",
+                    "jaw_source_fingerprint": "jaw-source-1", "jaw_landmarks_fingerprint": "jaw-landmarks-1",
+                    "landmark_positions_ras_mm": (1.0, 2.0, 3.0),
+                    "landmark_review_fingerprint": "landmark-review-1", "hinge_model_schema": "hinge-v1",
+                    "jaw_configuration_fingerprint": "jaw-config-1", "robot_profile_fingerprint": w.profile,
+                    "tool_identity": "dentobot_drill_tcp", "tool_fingerprint": "tool-fingerprint-1",
+                    "limits_fingerprint": "limits-1", "workspace_fingerprint": "workspace-1",
+                }
+                if not w.full_identity:
+                    values["jaw_source_fingerprint"] = ""
+                return SimpleNamespace(**values)
+
+            def collisionSceneAuditRecord(self, node):
+                return SimpleNamespace(
+                    status="Acknowledged", object_records=[dict(w.scene_object)],
+                    base_fingerprint="base-fp-1",
+                    jaw_preparation_fingerprint="jaw-preparation-1", world_to_base_fingerprint="world-to-base-1",
+                    runtime_acknowledgement={"status": "Acknowledged"}, audit_fingerprint="audit-fp-1",
+                )
+
+            def confirmedTaskRecord(self, node):
+                return SimpleNamespace(snapshot_fingerprint="confirmed-task-1")
+
+            def taskHomeFreshnessIssues(self, node):
+                return ("Task Home belongs to another Base pose.",) if w.home_stale else ()
 
             def confirmedTaskFreshnessIssues(self, node):
                 return ()
@@ -134,6 +222,8 @@ class World:
 
             def createOrUpdateStep6CaseJawOpening(self, node):
                 w._log("opening_applied")
+                if w.stale_home_on_opening:
+                    w.home_stale = float(w.opening) != 40.0
 
             def importStep6PlanningContext(self, node):
                 w._log("import_context")
@@ -161,6 +251,7 @@ class World:
                 return w.margin
 
             def setApproachCorridorMarginSamples(self, n):
+                w._log("set_margin")
                 w.margin = n
 
             def setJointPlanningPolicy(self, planner, attempts, seconds):
@@ -171,11 +262,24 @@ class World:
                 return {"state": "matched"}
 
             def taskHomeValidationGap(self, node):
+                if w.home_stale:
+                    return "Task Home stale after trial Base/opening."
+                if not w.connected:
+                    return "Connect ROS + MoveIt in 6.1; Task Home validation needs the live runtime."
                 return ""
+
+            @property
+            def _manual_task_home_acceptance_in_progress(self):
+                return w.home_review_in_progress
+
+            @property
+            def _manual_task_home_reconciliation_in_progress(self):
+                return False
 
             def disconnect(self, progress=None):
                 w._log("disconnect")
-                w.connected = False
+                if w.disconnect_drops_connection:
+                    w.connected = False
                 return ok()
 
             def connect(self, *, open_motion_module=False, progress=None):
@@ -204,12 +308,21 @@ class World:
                 w._log("base_accept")
                 w.base.matrix = w.staged
                 w.locked = True
+                is_saved = np.allclose(w.base.matrix, SAVED_BASE, atol=1e-9)
+                if is_saved:
+                    w.home_stale = False
+                    if w.drift_on_restore:
+                        w.base.matrix[0, 3] += 0.05
+                elif w.stale_home_on_base_change:
+                    w.home_stale = True
                 return ok()
 
             def cancelManualTaskHomeReview(self):
+                w._log("home_cancel")
                 return ok()
 
             def stageManualTaskHomeReview(self, joints):
+                w._log("home_stage")
                 return ok()
 
             def acceptManualTaskHomeReview(self):
@@ -221,7 +334,35 @@ class World:
                 return ok()
 
             def ensureMoveItSceneMatches(self):
-                return {"state": "matched", "message": ""}
+                w._log("scene_match")
+                return {"state": "matched", "message": "", "comparison": {
+                    "expected_count": 1, "matches": True, "summary": "All test objects match."}}
+
+            def checkPlanningStage(self, phase_id):
+                w._log("diagnose_" + str(phase_id).lower())
+                oracle = w.oracle(w.view())
+                verdict = oracle.get("diagnose_" + str(phase_id), "passed")
+                status = "passed" if verdict in (True, "passed", "PASS") else "blocked"
+                outcome = {"diagnostic_status": status, "reason": "test stage " + status}
+                if phase_id == "P3" and oracle.get("diagnose") == "WARNING":
+                    outcome["endpoint_evidence"] = {"plan": {"drilling_truncation": {
+                        "completed_depth_mm": 4.0, "requested_depth_mm": 5.0, "remaining_depth_mm": 1.0,
+                        "blocking_pair": [],
+                    }}}
+                return ok(payload=outcome)
+
+            def _frame_check_states(self):
+                w._log("diagnose_frame_states")
+                return ["entry"]
+
+            def frameConsistency(self, states):
+                w._log("diagnose_frame_consistency")
+                return {"matches": True, "summary": "Frames match.",
+                        "rows": [{"state": "entry", "status": "PASS"}]}
+
+            def checkManualRobotDraftState(self, positions, **kwargs):
+                w._log("manual_robot_draft")
+                return ok()
 
             def clearTransientState(self):
                 w._log("clear")
@@ -247,18 +388,14 @@ class World:
 
             def diagnoseBase(self, *, progress=None):
                 w._log("diagnose")
-                status = w.oracle(w.view()).get("diagnose", "PASS")
-                rows = [{"check": c, "status": "PASS"} for c in fa.DIAGNOSE_STAGE_CHECKS]
-                if status == "WARNING":
-                    rows[2]["status"] = "WARNING"
-                summary = {"status": status, "verdict": "v", "rows": rows}
-                return SimpleNamespace(success=True, code="d", message="m", details={"baseDiagnosis": summary}, payload=summary)
+                raise AssertionError("service must run one existing Diagnose row per tick")
 
         return Facade()
 
 
 def session(world, tmp_path, **kwargs):
     kwargs.setdefault("limits", SMALL)
+    kwargs.setdefault("target_fdi", "34")
     s = svc.FeasibilityAdvisorSession(world.logic, world.facade, world.node, tmp_path / "run", **kwargs)
     return s
 
@@ -282,12 +419,14 @@ def drive(s, *, approve=(), decline=(), max_steps=100000, on_step=None):
 def test_baseline_pass_stops_restores_and_stages_without_storing(tmp_path):
     world = World()
     s = session(world, tmp_path)
-    assert s.prepare() == [] or all(i.severity == "advisory" for i in s.prepare())
+    issues = s.prepare()
+    assert issues == [] or all(i.severity == "advisory" for i in issues)
     events = drive(s)
     assert s.outcome == svc.FOUND and s.finished
     assert [r["stage"] for r in s.records] == ["baseline"] and s.records[0]["result"] == fa.PASSED
     assert s.best_candidate() is s.records[0] or s.best_candidate()["state_key"] == s.records[0]["state_key"]
     assert "store" not in world.calls  # staged, never applied or saved
+    assert "temporarily applied" in s.message and "saved to the branch" in s.message
     assert any(e.kind == "restore" for e in events)
     assert (tmp_path / "run" / "advisor-ordered-report.md").exists()
 
@@ -332,6 +471,132 @@ def test_sensitive_stages_never_start_without_explicit_approval(tmp_path):
     assert all(abs(r["state"][fa.BASE_YAW_DEG]) == 0 for r in s.records)
     assert [g["answer"] for g in s.gate_log] == ["declined", "declined"]
     assert (tmp_path / "run" / "review-gates.json").exists()
+
+
+def test_cancel_while_waiting_for_a_review_gate_starts_restore(tmp_path):
+    world = World(oracle=lambda v: {"stroke": False})
+    s = session(world, tmp_path)
+    s.prepare()
+    for _ in range(1000):
+        event = s.step()
+        if event.kind == "gate":
+            break
+    assert event.stage == "opening" and s.phase == svc.AWAITING_APPROVAL
+    calls_before = list(world.calls)
+    s.cancel()
+    assert s.step().kind == "restore"
+    drive(s)
+    assert s.outcome == svc.CANCELLED and s.finished
+    assert world.calls.count("opening_applied") == calls_before.count("opening_applied")
+
+
+def test_connection_and_task_home_owners_are_never_called_automatically(tmp_path):
+    world = World()
+    wrapper_calls = []
+    s = session(world, tmp_path, connect_wrapper=lambda call: wrapper_calls.append(call))
+    s.prepare()
+    drive(s)
+    assert not wrapper_calls
+    assert "connect" not in world.calls
+    assert not {"home_cancel", "home_stage", "home_accept", "manual_robot_draft"}.intersection(world.calls)
+
+    disconnected = World()
+    disconnected.connected = False
+    wrapper_calls.clear()
+    blocked = session(disconnected, tmp_path / "offline", connect_wrapper=lambda call: wrapper_calls.append(call))
+    issues = blocked.prepare()
+    assert blocked.outcome == svc.BLOCKED and any("not connected" in issue.message for issue in issues)
+    assert not wrapper_calls and "connect" not in disconnected.calls
+
+
+def test_opening_disconnect_requires_production_connect_before_any_more_checks(tmp_path):
+    world = World(oracle=lambda v: {"stroke": False}, disconnect_drops_connection=True)
+    wrapper_calls = []
+    s = session(world, tmp_path, connect_wrapper=lambda call: wrapper_calls.append(call))
+    assert s.prepare() == []
+    drive(s, approve=("opening",), decline=("base_yaw",))
+
+    assert s.outcome == svc.BLOCKED and s.finished
+    record = next(row for row in s.records if row["stage"] == "opening")
+    assert record["failed_step"] == "apply_opening" and record["operator_review_required"]
+    assert "explicit production Connect action in 6.1" in record["reason"]
+    disconnect_index = world.calls.index("disconnect")
+    assert not {"stroke", "preentry", "corridor", "diagnose", "planning_stage"}.intersection(
+        world.calls[disconnect_index + 1:]
+    )
+    assert "connect" not in world.calls and not wrapper_calls
+    assert s.restore_issues  # Task Home validation cannot be reused while ROS/MoveIt is disconnected.
+    with pytest.raises(PermissionError, match="restoration is incomplete"):
+        s.apply_and_save()
+
+
+def test_preexisting_task_home_review_is_preserved_and_blocks_setup(tmp_path):
+    world = World()
+    world.home_review_in_progress = True
+    s = session(world, tmp_path)
+    issues = s.prepare()
+    assert s.outcome == svc.BLOCKED
+    assert any("already in progress" in issue.message for issue in issues)
+    assert not {"home_cancel", "home_stage", "home_accept"}.intersection(world.calls)
+
+
+def test_captured_nonzero_guard_margin_is_immutable_through_trial_and_restore(tmp_path):
+    world = World()
+    world.margin = 3
+    s = session(world, tmp_path)
+    s.prepare()
+    assert s.baseline[fa.CORRIDOR_MARGIN_SAMPLES] == 3
+    drive(s)
+    assert world.margin == 3 and "set_margin" not in world.calls
+    assert not s.restore_issues
+
+
+def test_guard_setting_change_between_ticks_stops_before_the_next_trial_mutation(tmp_path):
+    world = World()
+    s = session(world, tmp_path)
+    s.prepare()
+    event = s.step()  # starts the baseline candidate
+    assert event.kind == "started"
+    event = s.step()  # apply opening, unchanged
+    assert event.step == "apply_opening"
+    world.margin = 4
+    event = s.step()  # must refuse before Base is changed
+    assert event.kind == "candidate" and event.record["operator_review_required"]
+    assert "guard setting changed" in event.record["reason"]
+    assert "base_accept" not in world.calls
+    drive(s)
+    assert s.restore_issues and np.allclose(world.base.matrix, SAVED_BASE)
+
+
+def test_stale_home_after_base_trial_stops_for_explicit_62_review_without_accepting_home(tmp_path):
+    world = World(oracle=lambda v: {"stroke": False}, stale_home_on_base_change=True)
+    original_home = world.home
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, decline=("opening", "base_yaw"))
+    assert s.outcome == svc.BLOCKED and s.finished
+    assert len(s.records) == 2
+    record = s.records[-1]
+    assert record["operator_review_required"] and record["failed_step"] == "apply_base"
+    assert "6.2 operator review" in record["reason"]
+    assert world.home is original_home
+    assert not {"home_cancel", "home_stage", "home_accept", "manual_robot_draft"}.intersection(world.calls)
+    assert np.allclose(world.base.matrix, SAVED_BASE) and not world.home_stale
+    with pytest.raises(PermissionError, match="operator review"):
+        s.apply_and_save()
+
+
+def test_current_home_allows_base_candidate_evaluation_without_any_home_write(tmp_path):
+    world = World(oracle=lambda v: {"stroke": False})
+    s = session(world, tmp_path)
+    s.prepare()
+    for _ in range(500):
+        event = s.step()
+        if event.kind == "candidate" and event.stage == "base_lateral":
+            break
+    assert event.kind == "candidate" and event.record["failed_step"] == "stroke_reach"
+    assert not event.record.get("operator_review_required")
+    assert not {"home_cancel", "home_stage", "home_accept", "manual_robot_draft"}.intersection(world.calls)
 
 
 def test_a_gate_holds_the_search_until_answered_and_approval_unlocks_only_that_stage(tmp_path):
@@ -424,6 +689,20 @@ def test_restore_returns_opening_base_and_policy_to_the_original_after_the_searc
     assert "store" not in world.calls
 
 
+def test_restore_measures_actual_base_drift_and_blocks_apply_and_save(tmp_path):
+    world = World(oracle=lambda v: {"corridor": False})
+    world.drift_on_restore = True
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, decline=("opening", "base_yaw"))
+    assert s.finished and s.restore_issues
+    assert not np.allclose(world.base.matrix, SAVED_BASE)
+    assert any("restored Base differs" in issue for issue in s.restore_issues)
+    assert "could NOT be fully restored" in s.message
+    with pytest.raises(PermissionError, match="restoration is incomplete"):
+        s.apply_and_save()
+
+
 def test_stop_at_first_failing_step_for_each_candidate(tmp_path):
     def oracle(view):
         if view["u"] == 5.0 or view["u"] == -5.0:
@@ -469,6 +748,49 @@ def test_full_diagnose_runs_last_and_a_warning_never_outranks_a_pass(tmp_path):
     # WARNING record in the order list: diagnose happened after the screens
     steps = list(next(r for r in s.records if r["stage"] == "baseline")["steps"])
     assert steps == ["prerequisites", "stroke_reach", "preentry", "corridor", "diagnose"]
+
+
+def test_diagnose_runs_ordered_rows_one_per_tick_and_stops_at_first_failure(tmp_path):
+    world = World(oracle=lambda v: {"diagnose_P2": "blocked"})
+    s = session(world, tmp_path, stop_after_first_pass=False)
+    s.prepare()
+    diagnose_events = []
+    for _ in range(100):
+        event = s.step()
+        if event.step.startswith("diagnose"):
+            diagnose_events.append(event.step)
+        if event.kind == "candidate" and event.stage == "baseline":
+            break
+    assert diagnose_events == [
+        "diagnose:scene_match", "diagnose:stroke_reach", "diagnose:preentry_endpoint",
+        "diagnose:p1_route", "diagnose:p2_entry",
+    ]
+    record = next(r for r in s.records if r["stage"] == "baseline")
+    rows = record["steps"]["diagnose"]["raw"]["rows"]
+    by_check = {row["check"]: row["status"] for row in rows}
+    assert by_check["p2_entry"] == "FAIL" and by_check["p3_drilling"] == "NOT RUN"
+    assert "diagnose_p3" not in world.calls and "diagnose_frame_states" not in world.calls
+    assert "diagnose" not in world.calls  # the aggregate facade method was never used
+
+
+def test_cancel_between_diagnose_rows_runs_no_later_native_check(tmp_path):
+    # This verifies service-tick call boundaries only; it makes no claim about
+    # interrupting or keeping the UI responsive inside a native check.
+    world = World()
+    s = session(world, tmp_path, stop_after_first_pass=False)
+    s.prepare()
+    for _ in range(100):
+        event = s.step()
+        if event.step == "diagnose:scene_match":
+            break
+    assert event.step == "diagnose:scene_match"
+    before = list(world.calls)
+    s.cancel()
+    assert s.step().kind == "restore"
+    drive(s)
+    assert s.outcome == svc.CANCELLED
+    assert len([name for name in world.calls if name == "stroke"]) == before.count("stroke")
+    assert "diagnose_p1" not in world.calls and "diagnose_p2" not in world.calls
 
 
 def test_no_auto_apply_store_only_through_apply_and_save_with_acknowledgements(tmp_path):
@@ -521,7 +843,7 @@ def test_apply_and_save_refuses_a_stale_branch(tmp_path):
     s.prepare()
     drive(s)
     world.branch_valid = lambda w: False
-    with pytest.raises(ValueError):
+    with pytest.raises(PermissionError, match="input identity"):
         s.apply_and_save()
 
 
@@ -530,9 +852,11 @@ def test_a_branch_needing_a_rebuild_is_reported_for_operator_review_and_never_bu
     s = session(world, tmp_path)
     s.prepare()
     drive(s, approve=("opening",), decline=("base_yaw",))
-    rebuild = [r for r in s.records if r.get("failed_step") == "rebuild"]
-    assert [r["state"][fa.MOUTH_OPENING_MM] for r in rebuild] == [40.5, 41.0]  # one per opening, the rest skipped
-    assert all(r["result"] == fa.UNTESTED and "needs rebuild - operator review" in r["reason"] for r in rebuild)
+    rebuild = [r for r in s.records if r.get("failed_step") == "apply_opening"]
+    assert [r["state"][fa.MOUTH_OPENING_MM] for r in rebuild] == [40.5]
+    assert rebuild[0]["result"] == fa.SETUP_ERROR and rebuild[0].get("operator_review_required")
+    assert "operator review" in rebuild[0]["reason"]
+    assert s.outcome == svc.BLOCKED  # stop after the first stale branch candidate
     assert world.opening == 40.0  # restored
     source = SERVICE_SOURCE.read_text(encoding="utf-8")
     assert "build_branch" not in source and "rebuild_branch" not in source
@@ -545,22 +869,51 @@ def test_checkpoint_reuse_only_on_an_exact_identity_match(tmp_path):
     first.prepare()
     drive(first, decline=("opening", "base_yaw"))
     assert first.records and not any(r.get("reused_from") for r in first.records)
-    evaluated = [r for r in first.records if r["result"] != fa.UNTESTED]
 
     again = World(oracle=oracle)
-    second = svc.FeasibilityAdvisorSession(again.logic, again.facade, again.node, tmp_path / "run", limits=SMALL)
+    second = svc.FeasibilityAdvisorSession(again.logic, again.facade, again.node, tmp_path / "run", limits=SMALL,
+                                           target_fdi="34")
     second.prepare()
-    drive(second, decline=("opening", "base_yaw"))
-    reused = [r for r in second.records if r.get("reused_from")]
-    assert len(reused) == len([r for r in evaluated if r["result"] != fa.SETUP_ERROR])
-    assert "stroke" not in again.calls and "base_accept" not in again.calls  # nothing was re-run
+    event = second.next_candidate()
+    assert event.kind == "reused" and len(second.records) == 1
+    assert "stroke" not in again.calls  # baseline alone is reusable before transient trial changes
 
     other = World(oracle=oracle, profile="profile-2")  # robot profile changed: identity differs
-    third = svc.FeasibilityAdvisorSession(other.logic, other.facade, other.node, tmp_path / "run", limits=SMALL)
+    third = svc.FeasibilityAdvisorSession(other.logic, other.facade, other.node, tmp_path / "run", limits=SMALL,
+                                          target_fdi="34")
     third.prepare()
-    drive(third, decline=("opening", "base_yaw"))
-    assert not any(r.get("reused_from") for r in third.records)
-    assert "stroke" in other.calls
+    event = third.next_candidate()
+    assert event.kind == "started" and not any(r.get("reused_from") for r in third.records)
+    assert "stroke" not in other.calls  # the changed baseline was started fresh, not cached
+
+
+@pytest.mark.parametrize("mutation", ["branch_revision", "trajectory_fingerprint", "scene", "source_geometry"])
+def test_changed_baseline_inputs_refuse_checkpoint_reuse_before_trial(mutation, tmp_path):
+    world = World()
+    s = session(world, tmp_path)
+    s.prepare()
+    if mutation == "branch_revision":
+        world.branch_revision = "branch-revision-2"  # branch ID remains b1
+    elif mutation == "trajectory_fingerprint":
+        world.trajectory_fingerprint = "trajectory-fingerprint-2"  # same branch ID and trajectory ID
+    elif mutation == "scene":
+        world.scene_object["outgoing_fingerprint"] = "outgoing-geometry-2"
+    else:
+        world.source_volume_fingerprint = "volume-2"
+    event = s.next_candidate()
+    assert event.kind == "blocked" and s.outcome == svc.BLOCKED
+    assert not s.records and "stroke" not in world.calls and "base_accept" not in world.calls
+
+
+def test_incomplete_identity_is_session_only_and_disables_apply_and_save(tmp_path):
+    world = World(full_identity=False)
+    s = session(world, tmp_path)
+    s.prepare()
+    assert not s._identity_available and s._base_identity["reuse_scope"] == "session_only"
+    drive(s)
+    assert s.best_candidate() is not None
+    with pytest.raises(PermissionError, match="identity"):
+        s.apply_and_save()
 
 
 def test_setup_errors_are_never_checkpointed_or_reused(tmp_path):
@@ -613,6 +966,25 @@ def test_service_source_has_no_blocking_loops_sleeps_or_event_pumping_or_modal_h
             imported.add(node.module.partition(".")[0])
     assert imported.isdisjoint({"qt", "slicer", "ctk", "threading", "subprocess", "asyncio"})
     assert not [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr in ("QMessageBox", "QTimer")]
+
+
+def test_service_has_no_automatic_connect_or_task_home_owner_calls():
+    tree = ast.parse(SERVICE_SOURCE.read_text(encoding="utf-8"))
+    called = {
+        node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+        for node in ast.walk(tree) if isinstance(node, ast.Call)
+    }
+    forbidden = {
+        "connect", "cancelManualTaskHomeReview", "stageManualTaskHomeReview",
+        "acceptManualTaskHomeReview", "saveCurrentTaskHome", "checkManualRobotDraftState",
+    }
+    assert called.isdisjoint(forbidden)
+    assert "diagnoseBase" not in called
+    apply_home = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_do_apply_home")
+    home_calls = {
+        node.func.attr for node in ast.walk(apply_home) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    assert home_calls == {"_require_current_home"}
 
 
 def test_the_storing_call_exists_only_inside_apply_and_save():

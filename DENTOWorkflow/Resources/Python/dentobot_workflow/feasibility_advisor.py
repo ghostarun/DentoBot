@@ -471,7 +471,8 @@ def ordered_candidates(baseline: Mapping, limits: OrderedLimits = OrderedLimits(
         yield "base_yaw", {**base, BASE_YAW_DEG: yaw}
 
 
-def state_violations(state: Mapping, baseline_opening_mm: float, limits: OrderedLimits = OrderedLimits()) -> list:
+def state_violations(state: Mapping, baseline_opening_mm: float, limits: OrderedLimits = OrderedLimits(),
+                     *, expected_corridor_margin_samples: int = 0) -> list:
     """Reasons a candidate state is outside the approved search (empty when valid)."""
     issues = []
     if str(state.get(BARRIER_EDGE_MODE)) != DEFAULT_BARRIER[BARRIER_EDGE_MODE]:
@@ -482,8 +483,8 @@ def state_violations(state: Mapping, baseline_opening_mm: float, limits: Ordered
             issues.append(f"{key}={value!r} outside the approved range {low}-{high}")
     if bool(state.get(SPINDLE_TEMPLATE_ALLOWANCE)):
         issues.append("spindle-template allowance must be OFF")
-    if int(state.get(CORRIDOR_MARGIN_SAMPLES, 0) or 0) != 0:
-        issues.append("corridor margin is not an ordered-search lever (must be 0)")
+    if int(state.get(CORRIDOR_MARGIN_SAMPLES, 0) or 0) != int(expected_corridor_margin_samples):
+        issues.append("corridor margin differs from the captured immutable guard setting")
     for key, value in DEFAULT_POLICY.items():
         if state.get(key) != value:
             issues.append(f"planning policy {key}={state.get(key)!r} differs from {value!r}")
