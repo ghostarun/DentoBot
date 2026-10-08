@@ -97,6 +97,16 @@ SOURCE_FILES = (
     "Testing/step6_complete_cycle_probe.py",
     "Testing/step6_expected_error_dialog.py",
     "Testing/step6_session_driver.py",
+    "DENTOWorkflow/Resources/Python/dentobot_workflow/advisor_home.py",
+    "DENTOWorkflow/Resources/Python/dentobot_workflow/advisor_identity.py",
+    "DENTOWorkflow/Resources/Python/dentobot_workflow/advisor_service.py",
+    "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_step6_advisor.py",
+    "Testing/step6_advisor_probe.py",
+    "Testing/advisor_cancel_helper.py",
+    "Testing/step6_session_commands/advisor_precheck.py",
+    "Testing/step6_session_commands/advisor_baseline.py",
+    "Testing/step6_session_commands/advisor_consented_trials.py",
+    "Testing/step6_video_sanity.py",
 )
 CHECK_NAMES = (
     "checkout_and_case_provenance",
