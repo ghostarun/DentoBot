@@ -197,8 +197,8 @@ class Step6AdvisorWidgetMixin:
         busy = bool(state.get("running") or getattr(self, "_workflowActionBusy", False))
         state["startButton"].enabled = mode == "idle" and not unavailable and not busy
         state["cancelButton"].enabled = mode in ("running", "paused")
-        if state.get("consentBox") is not None:
-            state["consentBox"].enabled = mode == "idle" and not unavailable and not busy
+        if state.get("consentBox") is not None:  # consent is per search: tick it before Start or before "Keep searching"
+            state["consentBox"].enabled = mode in ("idle", "done") and not unavailable and not busy
         for key in ("pauseConnectButton", "continueButton"):
             if state.get(key) is not None:
                 state[key].setVisible(mode == "paused")
@@ -313,6 +313,8 @@ class Step6AdvisorWidgetMixin:
         issues = session.prepare()
         self._advisorShowSetup(issues)
         if session.finished:
+            if consent is not None:
+                consent.checked = False  # consent is per search, also when setup blocked it
             state["statusLabel"].text = session.message
             self._advisorSetButtons("idle")
             return
@@ -349,6 +351,7 @@ class Step6AdvisorWidgetMixin:
             "Cancellation requested. The current step will finish, then baseline restoration will be attempted…"
         )
         if paused:  # a paused search has no step in flight: drive the restoration now
+            state["stagedLabel"].text = _("No candidate is staged.")
             state["paused"] = False
             state["running"] = True
             self._workflowActionBusy = True
@@ -362,13 +365,21 @@ class Step6AdvisorWidgetMixin:
         state = getattr(self, "_advisorState", None)
         if not state or not state.get("paused") or state.get("running"):
             return
-        event = state["session"].resume()
+        try:
+            event = state["session"].resume()
+        except Exception as exc:  # the search stays paused and unchanged; Cancel restores the original configuration
+            state["statusLabel"].text = _(
+                "Continue could not be evaluated (%1); the search stays paused. Cancel restores the original "
+                "configuration."
+            ).replace("%1", str(exc)[:240])
+            return
         if event.kind == "pause":  # refused: still paused, nothing changed; the operator can fix or Cancel
             state["statusLabel"].text = event.message
             return
         state["paused"] = False
         state["running"] = True
         self._workflowActionBusy = True
+        state["stagedLabel"].text = _("No candidate is staged.")
         state["statusLabel"].text = event.message
         self._advisorSetButtons("running")
         state["timer"].start()

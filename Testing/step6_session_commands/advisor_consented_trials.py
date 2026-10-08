@@ -1,0 +1,123 @@
+# S6-ADVISOR-GUI-01 bounded B verification, RUN B (decision D1/O4): the real dialog with the Task Home consent TICKED.
+# (continues from Run A's open dialog, after the operator's verdict) tick consent -> "Keep searching for alternatives" -> the first
+# Base trial (production Base stage/accept) with the production Home revalidation of the UNCHANGED saved joints -> an
+# independently timed Cancel during that trial's P1 Diagnose row (sent by Testing/advisor_cancel_helper.py outside Slicer)
+# -> restore through the normal owners and a fresh revalidation of the original joints.
+# Never approves a sensitive stage (gates are skipped). connect/disconnect and the opening/barrier owners are refused.
+# If the external helper never fires within the bound, an in-process Cancel is issued and flagged "not independent".
+import json
+import step6_advisor_probe as probe
+
+stamp = run_id + "-advisor-B"
+session_dir = evidence_dir.parent / "session"
+before = probe.invariant_snapshot(logic, facade, parameter_node, label="before-run-B")
+steps = {"fallback_inprocess_cancel": False}
+widget._configureRobotSimulationShellSubstep(3)
+widget._updateStep6PlanningUi()
+_process_events(0.3)
+guard_facade = probe.OwnerGuard(
+    facade, refuse=("connect", "disconnect"),
+    count=("stageManualBaseReview", "acceptManualBaseReview", "unlockBase", "stageManualTaskHomeReview",
+           "acceptManualTaskHomeReview", "cancelManualTaskHomeReview", "confirmTask", "checkPreEntryIK",
+           "checkPlanningStage"))
+guard_logic = probe.OwnerGuard(
+    logic, refuse=("createOrUpdateStep6CaseJawOpening", "importStep6PlanningContext", "setStep6MouthBarrierTuning"))
+timeline = probe.Timeline(session_dir / "advisor-B-timeline.jsonl")
+modals = []
+
+
+def unexpected_gate():
+    """A sensitive-stage review gate is NOT part of this run: capture it, then dismiss it only through the dialog's own
+    safe default ("Skip this stage"). The run is marked FAILED at the end (retained outcome, never hidden)."""
+
+    modal = qt.QApplication.activeModalWidget()
+    if modal is not None and str(modal.objectName) == "DENTOBOTStep6AdvisorGateMessageBox":
+        modals.append({"utc": _utc_now(), "title": str(modal.windowTitle), "text": str(modal.text)[:300]})
+        try:
+            _capture(report, evidence_dir, run_id, f"advisor-UNEXPECTED-GATE-{len(modals)}")
+        finally:
+            for button in modal.findChildren(qt.QPushButton):
+                if str(button.objectName) == "DENTOBOTStep6AdvisorGateSkipButton":
+                    button.click()
+
+
+def pump_until(predicate, bound_sec, label):
+    started = time.monotonic()
+    while not predicate() and time.monotonic() - started < bound_sec:
+        _process_events(0.25)
+    assert predicate(), f"{label} did not happen within {bound_sec:.0f} s"
+
+
+gate_timer = qt.QTimer()
+gate_timer.setInterval(300)
+gate_timer.connect("timeout()", unexpected_gate)
+undo = None
+try:
+    state = getattr(widget, "_advisorState", None)
+    assert state and state["session"].finished and state["session"].outcome == "found" and not state["session"].restore_issues, \
+        "run B continues from Run A's open dialog in the FOUND/restored state (after the operator's verdict)"
+    assert state["consentBox"].checked is False, "consent must be OFF by default (Run B ticks it explicitly)"
+    _capture(report, evidence_dir, run_id, "advisor-B-dialog-done-consent-off")
+    gate_timer.start()
+    # Consent is ticked explicitly (default OFF), then Keep searching: the next candidates are Base trials with revalidation
+    state["consentBox"].checked = True
+    _capture(report, evidence_dir, run_id, "advisor-B-consent-ticked")
+    state["moreButton"].click()
+    session = widget._advisorState["session"]
+    assert session.home_consent is not None, "the consent was not recorded for the continued search"
+    undo = probe.instrument_session(session, widget, timeline)
+    cancel = state["cancelButton"]
+
+    def qt_value(obj, name):  # PythonQt exposes some Qt getters as properties and some as methods
+        value = getattr(obj, name)
+        return value() if callable(value) else value
+
+    origin = cancel.mapToGlobal(qt.QPoint(0, 0))  # the call pattern the existing headed runner already uses
+    centre_x = int(origin.x() + int(qt_value(cancel, "width")) // 2)
+    centre_y = int(origin.y() + int(qt_value(cancel, "height")) // 2)
+    (session_dir / "cancel-arm.json").write_text(json.dumps({
+        "x": centre_x, "y": centre_y, "target_step": "diagnose · p1_route", "min_candidate": 2,
+        "offset_sec": 2.0, "timeline": str(session_dir / "advisor-B-timeline.jsonl"), "armed_mono_ns": time.monotonic_ns()}), encoding="utf-8")
+    _capture(report, evidence_dir, run_id, "advisor-B-keep-searching-started")
+    t_arm = time.monotonic()
+    shot = False
+    while not session.finished and time.monotonic() - t_arm < 900.0:
+        _process_events(0.25)
+        if not shot and session.phase == "evaluating" and len(session.records) >= 1 and session.progress().get("index", 0) >= 1:
+            shot = True
+            _capture(report, evidence_dir, run_id, "advisor-B-first-trial-running")
+        if (not session.finished and time.monotonic() - t_arm > 600.0 and not steps["fallback_inprocess_cancel"]):
+            steps["fallback_inprocess_cancel"] = True  # the independent helper did not fire: not an independent measurement
+            timeline.stamp("fallback_inprocess_cancel")
+            cancel.click()
+    assert session.finished, "the continued search did not finish within the bound"
+    _process_events(0.5)
+    _capture(report, evidence_dir, run_id, "advisor-B-done")
+    steps.update(outcome=session.outcome, message=session.message, restore_issues=list(session.restore_issues),
+                 records=[{k: r.get(k) for k in ("sequence", "stage", "result", "failed_step", "reason", "timings_sec",
+                                                 "home_revalidation", "home_rejected")} for r in session.records],
+                 home_ledger=session.home_ledger, longest_step=session.longest_step(), evidence_root=str(session.root),
+                 export=session.export_evidence(), unexpected_gates=modals)
+    # the dialog stays open for the operator's visual verdict; the session stop command ends everything
+finally:
+    gate_timer.stop()
+    if undo is not None:
+        undo()
+    timeline.close()
+    guard_facade.restore()
+    guard_logic.restore()
+after = probe.invariant_snapshot(logic, facade, parameter_node, label="after-run-B")
+diff = probe.snapshot_diff(before, after, allow=probe.EXPECTED_AUTHORITY_DRIFT)
+(evidence_dir / f"{stamp}-snapshots.json").write_text(json.dumps({"before": before, "after": after, "diff": diff}, indent=2), encoding="utf-8")
+result = {"steps": steps, "guards": {"facade": guard_facade.report(), "logic": guard_logic.report()},
+          "invariant_diff": diff, "joint_issues_after": probe.joints_equal_saved(after)}
+if modals:
+    raise RuntimeError("run B met an unexpected sensitive-stage review gate (declined, retained): " + json.dumps(modals))
+if steps["fallback_inprocess_cancel"]:
+    raise RuntimeError("the independent cancel helper did not fire: an in-process Cancel ended the search, so NO independent "
+                       "Cancel-latency measurement was obtained (outcome retained, not substituted)")
+if guard_facade.refused_total() or guard_logic.refused_total():
+    raise RuntimeError("a forbidden owner was attempted during run B: " + json.dumps(result["guards"]))
+if diff["unexpected"] or result["joint_issues_after"] or steps.get("restore_issues"):
+    raise RuntimeError("run B ended with an unexpected change or an unconfirmed restoration: " + json.dumps(
+        {"unexpected": diff["unexpected"], "joints": result["joint_issues_after"], "restore": steps.get("restore_issues")}))

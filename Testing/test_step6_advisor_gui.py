@@ -571,10 +571,37 @@ def test_dialog_source_builds_an_unchecked_consent_box_whose_label_carries_the_e
     assert CONSENT_TEXT in label_text
 
 
-def test_consent_box_is_enabled_only_while_idle():
+def test_consent_box_can_be_ticked_only_before_a_search_starts_or_before_keep_searching():
     enabled = {mode: AdvisorHost(ScriptedSession(), mode=mode, consent=False)._advisorState["consentBox"].enabled
                for mode in ("idle", "running", "paused", "done")}
-    assert enabled == {"idle": True, "running": False, "paused": False, "done": False}
+    assert enabled == {"idle": True, "running": False, "paused": False, "done": True}  # "done" = before Keep searching
+
+
+def test_a_start_blocked_at_setup_resets_the_consent_box_too():
+    session = ScriptedSession(finished=True)
+    widget = AdvisorHost(session, consent=True)
+    widget._advisorOnStart()
+    assert session.calls == ["grant", "prepare"]
+    assert widget._advisorState["consentBox"].checked is False  # consent is per search, also when setup blocked it
+    assert widget._advisorState["statusLabel"].text == session.message
+
+
+def test_continue_that_raises_keeps_the_search_paused_and_unchanged():
+    widget = AdvisorHost(ScriptedSession(resume_events=[]), mode="paused")  # resume() raises IndexError
+    before = _snapshot(widget)
+    widget._advisorOnContinue()
+    assert "Continue could not be evaluated" in widget._advisorState["statusLabel"].text
+    assert "stays paused" in widget._advisorState["statusLabel"].text
+    assert _snapshot(widget) == before and widget._advisorState["timer"].starts == 0
+
+
+def test_the_paused_label_is_cleared_when_the_search_resumes_or_is_cancelled_from_the_pause():
+    resumed = SimpleNamespace(kind="step", message="Resumed.")
+    for action in ("continue", "cancel"):
+        widget = AdvisorHost(ScriptedSession(resume_events=[resumed]), mode="paused")
+        widget._advisorState["stagedLabel"].text = "Paused for your action: nothing continues until you press Continue"
+        (widget._advisorOnContinue if action == "continue" else widget._advisorOnCancel)()
+        assert widget._advisorState["stagedLabel"].text == "No candidate is staged.", action
 
 
 def test_finish_resets_the_consent_box_to_unchecked():
