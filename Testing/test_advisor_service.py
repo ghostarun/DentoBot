@@ -989,6 +989,9 @@ def test_service_has_no_connect_jog_or_direct_task_home_authority_calls():
     for name in ("advisor_service.py", "advisor_identity.py", "advisor_home.py"):
         tree, called = _calls_in(package / name)
         assert called.isdisjoint(forbidden_everywhere), name
+        assert not {method for method in called if "jog" in method.casefold()}, name
+        assert not {method for method in called
+                    if "connect" in method.casefold() and not method.casefold().startswith("disconnect")}, name
         assert "diagnoseBase" not in called, name
         if name != "advisor_home.py":
             assert called.isdisjoint(owners), name  # the service itself never calls a Home owner
@@ -997,7 +1000,7 @@ def test_service_has_no_connect_jog_or_direct_task_home_authority_calls():
     assert "cancelManualTaskHomeReview" in (package / "advisor_home.py").read_text(encoding="utf-8")
     stores = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store)}
     assert stores <= {"saved", "root", "ledger", "consecutive_rejections", "expected_identity", "info", "logic", "facade",
-                      "node"}  # never writes a Home record, validation flag or cached key
+                      "node", "unknown_outcome"}  # never writes a Home record, validation flag or cached key
     apply_home = next(n for n in ast.walk(ast.parse(SERVICE_SOURCE.read_text(encoding="utf-8")))
                       if isinstance(n, ast.FunctionDef) and n.name == "_do_apply_home")
     home_calls = {n.func.attr for n in ast.walk(apply_home) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}

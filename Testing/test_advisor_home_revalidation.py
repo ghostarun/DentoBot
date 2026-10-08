@@ -283,6 +283,30 @@ def test_an_unknown_acceptance_outcome_or_an_exception_stops_and_is_never_retrie
             s.apply_and_save(acknowledged=())
 
 
+def test_a_post_accept_validation_read_error_blocks_restore_without_retrying_the_committed_accept(tmp_path):
+    world = HomeWorld(oracle=u5_passes)
+    s = consent_session(world, tmp_path)
+    s.prepare()
+    original_gap = world.facade._inner.taskHomeValidationGap
+
+    def fail_after_commit(node):
+        if world.accept_calls:
+            raise RuntimeError("post-accept validation read failed")
+        return original_gap(node)
+
+    world.facade.taskHomeValidationGap = fail_after_commit
+    drive(s)
+
+    assert s.outcome == svc.BLOCKED
+    assert world.accept_calls == 1 and world.calls.count("home_stage") == 1
+    assert [(entry["kind"], entry["outcome"]) for entry in ledger(s)] == [
+        ("trial", "refused"), ("restore", "refused")]
+    assert "unknown" in ledger(s)[0]["message"].lower()
+    assert s.restore_issues and "unknown" in " ".join(s.restore_issues).lower()
+    with pytest.raises(PermissionError):
+        s.apply_and_save(acknowledged=())
+
+
 # --- restore: report and block, never PASS -----------------------------------------------------------------------
 def test_a_rejected_restore_revalidation_is_reported_and_blocks_apply_and_save(tmp_path):
     world = HomeWorld(oracle=u5_passes, reject_home=lambda view, call: call == 2)  # the trial passes, the restore is refused
@@ -322,7 +346,10 @@ def test_a_change_to_the_saved_home_outside_the_advisor_is_detected_by_the_attri
     drive(s, on_step=foreign_revision)
     assert s.outcome == svc.BLOCKED
     assert any(r.get("operator_review_required") and "changed outside the advisor" in r["reason"] for r in s.records)
-    assert world.accept_calls <= 2 and "foreign" not in json.dumps(ledger(s))
+    assert world.accept_calls == 1 and world.calls.count("home_stage") == 1
+    assert ledger(s)[-1]["kind"] == "restore" and ledger(s)[-1]["outcome"] == "refused"
+    assert s.restore_issues and any("changed outside the advisor" in issue for issue in s.restore_issues)
+    assert "foreign" not in json.dumps(ledger(s))
 
 
 # --- opening: Connect is the operator's; Continue never rebases -----------------------------------------------------
@@ -475,7 +502,7 @@ def test_a_foreign_home_change_inside_the_apply_window_stops_before_any_home_own
     drive(s, on_step=foreign_write_after_base)
     assert s.outcome == svc.BLOCKED and world.accept_calls == 0 and "home_stage" not in world.calls
     assert any(r.get("operator_review_required") and "changed outside the advisor" in r["reason"] for r in s.records)
-    assert s.restore_issues and any("never revalidates over a change it did not make" in i for i in s.restore_issues)
+    assert s.restore_issues and any("changed outside the advisor" in i for i in s.restore_issues)
     assert all(e["outcome"] == "refused" for e in ledger(s))  # nothing was revalidated over the foreign revision
 
 
@@ -486,6 +513,48 @@ def test_continue_refuses_a_foreign_home_change_made_while_paused(tmp_path):
     world.home.revision = "home-revision-77"
     assert any("changed outside the advisor" in i for i in s.resume_issues())
     assert s.resume().kind == "pause" and s.phase == svc.PAUSED
+
+
+@pytest.mark.parametrize("mutation", ["source", "scene"])
+def test_continue_refuses_foreign_source_or_scene_drift_without_rebasing(tmp_path, mutation):
+    world = opening_world()
+    s, _ = _run_to_pause(world, tmp_path)
+    world.connected = True
+    if mutation == "source":
+        world.source_volume_fingerprint = "volume-foreign"
+    else:
+        world.scene_object["source_fingerprint"] = "source-geometry-foreign"
+    calls = list(world.calls)
+
+    issues = s.resume_issues()
+    assert any(mutation in issue.lower() or "source" in issue.lower() or "scene" in issue.lower()
+               for issue in issues)
+    event = s.resume()
+    assert event.kind == "pause" and s.phase == svc.PAUSED and world.calls == calls
+
+
+@pytest.mark.parametrize("mutation", ["source", "scene"])
+def test_foreign_source_or_scene_drift_after_base_apply_stops_before_home_stage_and_restore_revalidation(
+        tmp_path, mutation):
+    world = HomeWorld(oracle=u5_passes)
+    s = consent_session(world, tmp_path)
+    s.prepare()
+
+    def foreign_write_after_trial_base(_session, event):
+        if event.stage != "base_lateral" or event.step != "apply_base":
+            return
+        if mutation == "source":
+            world.source_volume_fingerprint = "volume-foreign"
+        else:
+            world.scene_object["source_fingerprint"] = "source-geometry-foreign"
+
+    drive(s, on_step=foreign_write_after_trial_base)
+    reasons = " ".join([r.get("reason", "") for r in s.records] + list(s.restore_issues)).lower()
+    assert s.outcome == svc.BLOCKED
+    assert "source" in reasons or "scene" in reasons or "identity" in reasons
+    assert world.calls.count("home_stage") == 0 and world.accept_calls == 0
+    assert s.restore_issues  # the restore is reported incomplete instead of absorbing foreign input identity
+    assert all(entry["outcome"] != "validated" for entry in ledger(s))
 
 
 def test_consent_needs_a_complete_input_identity_instead_of_failing_later_at_the_pause(tmp_path):
@@ -500,13 +569,50 @@ def test_a_runtime_acknowledgement_that_is_lost_is_not_hidden_by_the_stable_iden
     s = consent_session(world, tmp_path)
     s.prepare()
     ok_before, _ = s._identity_matches_baseline()
-    inner = world.logic._inner.collisionSceneAuditRecord
+    inner = world.logic.collisionSceneAuditRecord
 
     def lost_ack(node):
         record = inner(node)
         record.runtime_acknowledgement = {"status": "NotAcknowledged"}
         return record
 
-    world.logic._inner.collisionSceneAuditRecord = lost_ack
+    world.logic.collisionSceneAuditRecord = lost_ack
     ok_after, reason = s._identity_matches_baseline()
     assert ok_before and not ok_after and "audited scene" in reason
+
+
+def test_a_changed_audit_base_binding_is_not_hidden_by_the_stable_identity(tmp_path):
+    world = HomeWorld(oracle=lambda v: {})
+    s = consent_session(world, tmp_path)
+    s.prepare()
+    ok_before, _ = s._identity_matches_baseline()
+    inner = world.logic.collisionSceneAuditRecord
+
+    def changed_base_binding(node):
+        record = inner(node)
+        record.base_fingerprint = "base-fp-foreign"
+        return record
+
+    world.logic.collisionSceneAuditRecord = changed_base_binding
+    ok_after, reason = s._identity_matches_baseline()
+    assert ok_before and not ok_after and ("scene" in reason.lower() or "base" in reason.lower())
+
+
+@pytest.mark.parametrize("source", ["accepted", "monitored", "displayed"])
+@pytest.mark.parametrize(("offset", "blocked"), [(1.0e-12, False), (1.1e-12, True)],
+                         ids=["at-tolerance", "over-tolerance"])
+def test_apply_and_save_checks_exact_joint_identity_tolerance_for_each_source(tmp_path, source, offset, blocked):
+    world = HomeWorld(oracle=u5_passes)
+    s = consent_session(world, tmp_path)
+    s.prepare()
+    drive(s)
+    assert s.outcome == svc.FOUND and s.restore_issues == []
+    getattr(world, source)["j4"] += offset  # j4 starts at 0.0, so the exact edge is representable
+
+    if blocked:
+        with pytest.raises(PermissionError, match="joint identity"):
+            s.apply_and_save(acknowledged=())
+        assert "store" not in world.calls
+    else:
+        s.apply_and_save(acknowledged=())
+        assert world.calls.count("store") == 1

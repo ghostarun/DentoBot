@@ -361,15 +361,17 @@ def test_a_validated_revalidation_stages_exactly_the_saved_joints_and_expects_th
     assert revalidator.external_change_issue(logic.record) == ""
 
 
-def test_a_validated_home_with_a_validation_gap_is_rejected_and_counted(tmp_path):
-    revalidator, owners, _ = make(tmp_path)
+def test_a_successful_accept_with_a_validation_gap_is_a_state_refusal_not_a_guard_rejection(tmp_path):
+    revalidator, owners, logic = make(tmp_path)
     owners.gap = "collision audit is stale"
-    with pytest.raises(ah.HomeRevalidationRejected,
+    with pytest.raises(ah.HomeRevalidationRefused,
                        match="accepted but not runtime-validated: collision audit is stale"):
         attempt(revalidator)
     [entry] = revalidator.ledger
-    assert (entry["outcome"], entry["after"]["revision"]) == ("rejected", "home-revision-2")
-    assert revalidator.consecutive_rejections == 1
+    assert (entry["outcome"], entry["after"]["revision"]) == ("refused", "home-revision-2")
+    assert revalidator.consecutive_rejections == 0
+    assert revalidator.expected_identity == ah.record_identity(logic.record)
+    assert revalidator.external_change_issue(logic.record) == ""
 
 
 def test_an_accepted_home_whose_joints_differ_from_the_saved_ones_is_refused(tmp_path):
@@ -574,18 +576,6 @@ def test_a_refusal_keeps_the_pause_and_resumed_clears_the_frozen_info(tmp_path):
 
 
 # --- defects found by the worker review (W4) and fixed by the coordinator -----------------------------------------------
-def test_an_accepted_home_that_is_gap_rejected_is_still_the_advisors_own_revision(tmp_path):
-    """The accept was ours: the expected identity must follow the production record, so the next check sees the gap
-    (stale Home) and not a foreign change."""
-
-    revalidator, owners, logic = make(tmp_path)
-    owners.gap = "collision audit is stale"
-    with pytest.raises(ah.HomeRevalidationRejected):
-        attempt(revalidator)
-    assert revalidator.expected_identity == ah.record_identity(logic.record)
-    assert revalidator.external_change_issue(logic.record) == ""
-
-
 def test_an_accepted_home_with_changed_joints_is_not_adopted_as_expected(tmp_path):
     revalidator, owners, logic = make(tmp_path)
     before = dict(revalidator.expected_identity)
@@ -613,6 +603,33 @@ def test_an_unexpected_exception_after_a_committed_accept_is_ledgered_and_never_
     assert json.loads((tmp_path / "home-revalidations.json").read_text())[0]["outcome"] == "refused"
     assert owners.calls.count("accept") == 1 and revalidator.expected_identity == before
     assert revalidator.external_change_issue(logic.record)
+    with pytest.raises(ah.HomeRevalidationRefused, match="unknown"):
+        attempt(revalidator, kind="restore", index=0, label="restore")
+    assert owners.calls.count("stage") == 1 and owners.calls.count("accept") == 1
+
+
+def test_a_ledger_write_error_after_a_committed_accept_latches_before_restore_retry(tmp_path, monkeypatch):
+    revalidator, owners, logic = make(tmp_path)
+    write = revalidator.write
+    writes = 0
+
+    def fail_once_after_accept():
+        nonlocal writes
+        writes += 1
+        if writes == 1:
+            raise OSError("ledger disk error")
+        return write()
+
+    monkeypatch.setattr(revalidator, "write", fail_once_after_accept)
+    with pytest.raises(ah.HomeRevalidationRefused, match="unknown"):
+        attempt(revalidator)
+    assert owners.calls.count("accept") == 1
+    assert revalidator.expected_identity == ah.record_identity(logic.record)
+    assert revalidator.external_change_issue(logic.record) == ""  # the latch, not identity drift, prevents retry
+    assert revalidator.ledger[0]["outcome"] == "refused"
+    with pytest.raises(ah.HomeRevalidationRefused, match="unknown"):
+        attempt(revalidator, kind="restore", index=0, label="restore")
+    assert owners.calls.count("stage") == 1 and owners.calls.count("accept") == 1
 
 
 @pytest.mark.parametrize("identity", [["not", "a", "mapping"], "text"])
@@ -629,6 +646,30 @@ def test_a_non_numeric_joint_value_is_an_issue_for_its_source_only(tmp_path):
     with pytest.raises(ah.HomeRevalidationRefused, match="saved-joint identity check failed"):
         attempt(revalidator)
     assert "stage" not in owners.calls
+
+
+@pytest.mark.parametrize("source", SOURCES)
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_a_non_finite_joint_value_fails_closed_before_staging(tmp_path, source, value):
+    revalidator, owners, _ = make(tmp_path)
+    owners.identity[source] = {**SAVED, "j3": value}
+    issues = revalidator.joint_issues()
+    assert len(issues) == 1 and source in issues[0] and "unavailable" in issues[0].lower()
+    with pytest.raises(ah.HomeRevalidationRefused, match="saved-joint identity check failed"):
+        attempt(revalidator)
+    assert "stage" not in owners.calls and "accept" not in owners.calls
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_an_extra_joint_name_fails_closed_before_staging(tmp_path, source):
+    revalidator, owners, _ = make(tmp_path)
+    owners.identity[source] = {**SAVED, "j6": 0.0}
+    issues = revalidator.joint_issues()
+    assert len(issues) == 1 and source in issues[0]
+    with pytest.raises(ah.HomeRevalidationRefused, match="saved-joint identity check failed"):
+        attempt(revalidator)
+    assert "stage" not in owners.calls and "accept" not in owners.calls
 
 
 def test_a_failing_cancel_is_recorded_in_the_ledger_entry(tmp_path):
@@ -677,4 +718,5 @@ def test_a_home_record_changed_by_someone_else_is_never_revalidated_over(tmp_pat
     logic.record = TaskHome(99)  # a foreign revision after the advisor captured the expected identity
     with pytest.raises(ah.HomeRevalidationRefused, match="never revalidates over a change it did not make"):
         attempt(revalidator)
-    assert owners.calls == [] and revalidator.ledger[0]["outcome"] == "refused"
+    assert owners.calls == ["review"]  # read-only staged-review inspection is allowed; no owner mutation occurs
+    assert revalidator.ledger[0]["outcome"] == "refused"
