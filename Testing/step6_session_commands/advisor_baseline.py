@@ -26,7 +26,7 @@ modals = []
 
 def unexpected_gate():
     """A sensitive-stage review gate is NOT part of this run: capture it, then dismiss it only through the dialog's own
-    safe default ("Skip this stage"). The run is marked FAILED at the end (retained outcome, never hidden)."""
+    safe default ("Skip this stage") after requesting cancellation, so only restoration may follow. The run fails."""
 
     modal = qt.QApplication.activeModalWidget()
     if modal is not None and str(modal.objectName) == "DENTOBOTStep6AdvisorGateMessageBox":
@@ -34,6 +34,8 @@ def unexpected_gate():
         try:
             _capture(report, evidence_dir, run_id, f"advisor-UNEXPECTED-GATE-{len(modals)}")
         finally:
+            widget._advisorState["session"].cancel()
+            timeline.stamp("unexpected_gate_abort")
             for button in modal.findChildren(qt.QPushButton):
                 if str(button.objectName) == "DENTOBOTStep6AdvisorGateSkipButton":
                     button.click()

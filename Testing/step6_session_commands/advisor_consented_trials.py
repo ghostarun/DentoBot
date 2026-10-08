@@ -28,7 +28,7 @@ modals = []
 
 def unexpected_gate():
     """A sensitive-stage review gate is NOT part of this run: capture it, then dismiss it only through the dialog's own
-    safe default ("Skip this stage"). The run is marked FAILED at the end (retained outcome, never hidden)."""
+    safe default ("Skip this stage") after requesting cancellation, so only restoration may follow. The run fails."""
 
     modal = qt.QApplication.activeModalWidget()
     if modal is not None and str(modal.objectName) == "DENTOBOTStep6AdvisorGateMessageBox":
@@ -36,6 +36,8 @@ def unexpected_gate():
         try:
             _capture(report, evidence_dir, run_id, f"advisor-UNEXPECTED-GATE-{len(modals)}")
         finally:
+            widget._advisorState["session"].cancel()
+            timeline.stamp("unexpected_gate_abort")
             for button in modal.findChildren(qt.QPushButton):
                 if str(button.objectName) == "DENTOBOTStep6AdvisorGateSkipButton":
                     button.click()
@@ -128,6 +130,10 @@ while not helper_path.exists() and time.monotonic() < receipt_deadline:
     _process_events(0.1)  # the external sender finishes its own receipt after the click; no replacement input
 helper_result = json.loads(helper_path.read_text()) if helper_path.exists() else {}
 result["external_cancel"] = helper_result
+timeline_rows = [json.loads(line) for line in (session_dir / "advisor-B-timeline.jsonl").read_text().splitlines()]
+if helper_result.get("sent"):
+    result["cancel_latency"] = probe.cancel_latency(timeline_rows, helper_result)
+    (session_dir / "advisor-B-cancel-latency.json").write_text(json.dumps(result["cancel_latency"], indent=2), encoding="utf-8")
 if not helper_result.get("sent") or steps.get("outcome") != "cancelled":
     raise RuntimeError("no externally cancelled trial was demonstrated; retained outcome is not a Cancel measurement")
 if modals:
