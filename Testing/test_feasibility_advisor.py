@@ -331,3 +331,63 @@ def test_rebuilt_branch_geometry_must_match_the_reference_in_the_jaw_frame():
     assert fa.compare_geometry(reference, islands)["status"] == "FAIL"
     missing = {"trajectory_mm": same["trajectory_mm"], "template": {}}
     assert fa.compare_geometry(reference, missing)["status"] == "FAIL"
+
+
+# ---- single lever registry (S6-ADVISOR-GUI-01) ----------------------------------
+def test_registry_orders_ordered_stages_and_puts_yaw_last():
+    ordered = sorted(fa.LEVER_REGISTRY.values(), key=lambda s: s.priority)
+    stages = [s.stage for s in ordered if s.stage]
+    assert tuple(stages) == fa.STAGE_ORDER
+    assert fa.STAGE_ORDER == ("base_lateral", "base_lateral_vertical", "lip_variant", "opening", "base_depth", "base_yaw")
+    assert fa.STAGE_ORDER[-1] == "base_yaw"
+    assert max(s.priority for s in fa.LEVER_REGISTRY.values() if s.id != "drilling_depth") == fa.LEVER_REGISTRY[fa.BASE_YAW_DEG].priority
+    # the order the generator actually yields follows the registry's stage order
+    seen = []
+    for stage, _state in fa.ordered_candidates(fa.baseline_state(40.0)):
+        if not seen or seen[-1] != stage:
+            seen.append(stage)
+    assert seen == list(fa.STAGE_ORDER)
+
+
+def test_registry_flags_clinically_sensitive_levers_and_owners():
+    sensitive = {s.id for s in fa.LEVER_REGISTRY.values() if s.clinical_review}
+    assert {"lip_variant", fa.MOUTH_OPENING_MM, fa.BASE_YAW_DEG, "drilling_depth"} <= sensitive
+    assert fa.SENSITIVE_STAGES == ("lip_variant", "opening", "base_yaw")
+    for engineering in ("base_lateral", "base_lateral_vertical", "base_depth", fa.PLANNING_ATTEMPTS,
+                        fa.CORRIDOR_MARGIN_SAMPLES):
+        assert not fa.LEVER_REGISTRY[engineering].clinical_review
+    assert all(spec.owner for spec in fa.LEVER_REGISTRY.values())
+    # depth truncation is a WARNING outcome, never an auto-searched lever
+    assert not fa.LEVER_REGISTRY["drilling_depth"].in_ordered_search
+    assert set(fa.STAGE_PROMPTS) == set(fa.SENSITIVE_STAGES)
+
+
+def test_registry_bounds_match_the_ordered_limits():
+    limits = fa.OrderedLimits()
+    opening = fa.LEVER_REGISTRY[fa.MOUTH_OPENING_MM].bounds
+    assert opening[fa.MOUTH_OPENING_MM][1] == limits.max_opening_mm == 46.0
+    assert opening["step_mm"] == limits.opening_step_mm == 0.5
+    assert fa.LEVER_REGISTRY[fa.BASE_YAW_DEG].bounds[fa.BASE_YAW_DEG] == (-limits.max_yaw_deg, limits.max_yaw_deg)
+    assert fa.LEVER_REGISTRY["lip_variant"].bounds == fa.LIP_VARIANT_BOUNDS
+
+
+def test_search_and_advisory_tables_reference_registered_levers_with_yaw_last():
+    for cause, levers in fa.CAUSE_CLASS_SEARCH.items():
+        assert all(lever in fa.LEVER_REGISTRY for lever in levers), cause
+        priorities = [fa.LEVER_REGISTRY[lever].priority for lever in levers]
+        assert priorities == sorted(priorities), cause
+        assert levers[-1] == fa.BASE_YAW_DEG
+    for cause, entries in fa.CAUSE_CLASS_ADVISORY.items():
+        assert all(lever_id in fa.LEVER_REGISTRY for lever_id, _text in entries), cause
+        if any(lever_id == fa.BASE_YAW_DEG for lever_id, _ in entries):
+            assert entries[-1][0] == fa.BASE_YAW_DEG, cause
+
+
+def test_diagnose_levers_come_from_the_registry():
+    from dentobot_workflow import base_diagnosis as bd
+
+    assert set(bd.CAUSE_CLASS_LEVERS) == set(fa.CAUSE_CLASS_ADVISORY)
+    for cause in fa.CAUSE_CLASS_ADVISORY:
+        assert bd.CAUSE_CLASS_LEVERS[cause] == fa.advisory_lever_texts(cause)
+    assert bd.CAUSE_CLASS_LEVERS["barrier"] == (
+        "Base translation", "Mouth opening", "Base yaw (±5° steps; last resort)")

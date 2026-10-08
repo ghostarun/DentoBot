@@ -35,18 +35,8 @@ BASE_YAW_DEG = "base_yaw_deg"  # yaw about the Base's own axis, relative to the 
 MOUTH_OPENING_MM = "mouth_opening_mm"  # Case Foundation target incisor gap
 CORRIDOR_MARGIN_SAMPLES = "corridor_margin_samples"  # approach point backed off from first contact
 
-# Cause class -> searchable levers, least invasive first (mirrors
-# base_diagnosis.CAUSE_CLASS_LEVERS; levers with no automatic owner are omitted).
-CAUSE_CLASS_SEARCH = {
-    # Base yaw is one of the last preferred adjustments in the robot design
-    # (operator 2026-10-06): always searched after every other lever.
-    "narrow_passage": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, MOUTH_OPENING_MM, BASE_YAW_DEG),
-    "barrier": (MOUTH_OPENING_MM, BASE_YAW_DEG),
-    "anatomy_neighbour": (MOUTH_OPENING_MM, BASE_YAW_DEG),
-    "template": (BASE_YAW_DEG,),
-    "solver": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, MOUTH_OPENING_MM, BASE_YAW_DEG),
-    "unknown": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, MOUTH_OPENING_MM, BASE_YAW_DEG),
-}
+# Cause class -> searchable levers and advisory lever texts: see LEVER_REGISTRY,
+# CAUSE_CLASS_SEARCH and CAUSE_CLASS_ADVISORY below (single source, 2026-10-08).
 
 
 @dataclass(frozen=True)
@@ -253,7 +243,7 @@ LIP_VARIANTS = (
     {LIP_SLAB_MM: 4.0, PORTAL_ENLARGE_MM: 10.0},
     {LIP_MARGIN_MM: 0.0, LIP_SLAB_MM: 4.0, PORTAL_ENLARGE_MM: 10.0},
 )
-STAGE_ORDER = ("base_lateral", "base_lateral_vertical", "lip_variant", "opening", "base_depth", "base_yaw")
+# STAGE_ORDER is derived from LEVER_REGISTRY (below), the single lever source.
 
 # Candidate outcomes. The first four are failures and are never merged.
 SETUP_ERROR = "setup_error"  # prerequisites, invalid Home, stale confirmation, scene mismatch
@@ -289,6 +279,127 @@ class OrderedLimits:
     template_centroid_tolerance_mm: float = 0.25
     template_volume_tolerance_fraction: float = 0.02
     template_surface_p95_tolerance_mm: float = 0.5
+
+
+
+# ---------------------------------------------------------------------------
+# Single lever registry (S6-ADVISOR-GUI-01, 2026-10-08). Diagnose's advisory
+# levers (base_diagnosis), the legacy single-lever search and the ordered search
+# all read this one table: priority (lower = tried earlier), approved bounds,
+# whether a change is clinically sensitive (operator review gate before the first
+# candidate and never auto-applied) and the existing owner that applies it.
+
+@dataclass(frozen=True)
+class LeverSpec:
+    id: str
+    label: str
+    priority: int
+    owner: str
+    clinical_review: bool = False
+    stage: str = ""  # ordered-search stage driven by this lever ("" = never auto-searched there)
+    bounds: Mapping = field(default_factory=dict)
+
+    @property
+    def in_ordered_search(self) -> bool:
+        return bool(self.stage)
+
+
+_LIMITS = OrderedLimits()
+LEVER_REGISTRY = {spec.id: spec for spec in (
+    LeverSpec(PLANNING_ATTEMPTS, "Planning attempts/time", 10, "facade.setJointPlanningPolicy",
+              bounds={PLANNING_ATTEMPTS: (1, 10), PLANNING_TIME_SEC: (0.5, 60.0)}),
+    LeverSpec(CORRIDOR_MARGIN_SAMPLES, "Approach-corridor margin", 20, "facade.setApproachCorridorMarginSamples",
+              bounds={CORRIDOR_MARGIN_SAMPLES: (0, 4)}),
+    LeverSpec("find_reachable_base", "Find Reachable Base (6.1)", 29, "6.1 Find Reachable Base (operator tool)"),
+    LeverSpec("base_lateral", "Base translation", 30, "facade.stageManualBaseReview/acceptManualBaseReview",
+              stage="base_lateral",
+              bounds={BASE_U_MM: (-_LIMITS.lateral_range_mm, _LIMITS.lateral_range_mm),
+                      "step_mm": _LIMITS.lateral_step_mm}),
+    LeverSpec("base_lateral_vertical", "Base translation (lateral + vertical)", 31,
+              "facade.stageManualBaseReview/acceptManualBaseReview", stage="base_lateral_vertical",
+              bounds={BASE_U_MM: (-_LIMITS.lateral_range_mm, _LIMITS.lateral_range_mm),
+                      BASE_V_MM: (-_LIMITS.vertical_range_mm, _LIMITS.vertical_range_mm),
+                      "grid_step_mm": _LIMITS.vertical_grid_step_mm}),
+    LeverSpec("lip_variant", "Lip/mouth barrier variant (bounded; never disabled)", 40,
+              "mouth_portal constants (operator-approved variants)", clinical_review=True,
+              stage="lip_variant", bounds=dict(LIP_VARIANT_BOUNDS)),
+    LeverSpec(MOUTH_OPENING_MM, "Mouth opening (+0.5 mm steps, within the patient maximum)", 50,
+              "logic.createOrUpdateStep6CaseJawOpening (Case Foundation)", clinical_review=True,
+              stage="opening", bounds={MOUTH_OPENING_MM: ("baseline", _LIMITS.max_opening_mm),
+                                       "step_mm": _LIMITS.opening_step_mm}),
+    LeverSpec("base_depth", "Base depth (forehead normal)", 60,
+              "facade.stageManualBaseReview/acceptManualBaseReview", stage="base_depth",
+              bounds={BASE_DEPTH_MM: (-_LIMITS.depth_range_mm, _LIMITS.depth_range_mm),
+                      "step_mm": _LIMITS.depth_step_mm}),
+    LeverSpec("target_review", "Review the PreEntry standoff and drill axis (operator)", 70,
+              "operator", clinical_review=True),
+    LeverSpec("template_review", "Template sleeve/relief review (operator, not automatic)", 71,
+              "operator", clinical_review=True),
+    LeverSpec("ik_budget", "PreEntry IK seeds/budget", 72, "facade.checkPreEntryIK"),
+    LeverSpec("scene_resync", "Re-sync the Step 6 planning scene (6.1 Connect / scene sync), then re-run", 73,
+              "6.1 Connect / scene sync"),
+    LeverSpec("frame_check", "Stop: check the robot description and Base transform before any planning (operator)",
+              74, "operator", clinical_review=True),
+    LeverSpec(BASE_YAW_DEG, "Base yaw (±5° steps; last resort)", 90, "facade.stageManualBaseReview/acceptManualBaseReview",
+              clinical_review=True, stage="base_yaw",
+              bounds={BASE_YAW_DEG: (-_LIMITS.max_yaw_deg, _LIMITS.max_yaw_deg), "step_deg": _LIMITS.yaw_step_deg}),
+    # A WARNING result (drilling shortened) is never auto-accepted; the search does not edit depth.
+    LeverSpec("drilling_depth", "Drilling-depth truncation (WARNING; operator decision)", 99, "operator",
+              clinical_review=True),
+)}
+# Ordered-search stages and the stages that need an explicit operator review gate.
+STAGE_ORDER = tuple(spec.stage for spec in sorted(LEVER_REGISTRY.values(), key=lambda s: s.priority) if spec.stage)
+SENSITIVE_STAGES = tuple(stage for stage in STAGE_ORDER
+                         if LEVER_REGISTRY[next(s.id for s in LEVER_REGISTRY.values() if s.stage == stage)].clinical_review)
+STAGE_PROMPTS = {
+    "lip_variant": "Evaluate bounded lip/mouth-barrier variants? (The barrier is never disabled.)",
+    "opening": f"Evaluate mouth openings up to {_LIMITS.max_opening_mm:g} mm in {_LIMITS.opening_step_mm:g} mm steps?",
+    "base_yaw": f"Evaluate Base yaw up to ±{_LIMITS.max_yaw_deg:g}° (last resort)?",
+}
+
+
+def lever_for_stage(stage: str) -> LeverSpec:
+    return next(spec for spec in LEVER_REGISTRY.values() if spec.stage == stage)
+
+
+def stage_requires_review(stage: str) -> bool:
+    return stage in SENSITIVE_STAGES
+
+
+# Cause class -> searchable levers, least invasive first. Levers with no
+# automatic owner are omitted; Base yaw is always last (operator 2026-10-06).
+CAUSE_CLASS_SEARCH = {
+    "narrow_passage": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, MOUTH_OPENING_MM, BASE_YAW_DEG),
+    "barrier": (MOUTH_OPENING_MM, BASE_YAW_DEG),
+    "anatomy_neighbour": (MOUTH_OPENING_MM, BASE_YAW_DEG),
+    "template": (BASE_YAW_DEG,),
+    "solver": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, MOUTH_OPENING_MM, BASE_YAW_DEG),
+    "unknown": (PLANNING_ATTEMPTS, CORRIDOR_MARGIN_SAMPLES, MOUTH_OPENING_MM, BASE_YAW_DEG),
+}
+# Cause class -> advisory levers shown by Diagnose (lever id, operator text), least
+# invasive first. Advisory only: contact allowances, guard tolerances and tool/axis
+# changes are never suggested.
+CAUSE_CLASS_ADVISORY = {
+    "reach": (("find_reachable_base", "Find Reachable Base (6.1)"), ("base_lateral", "Base translation")),
+    "anatomy_neighbour": ((MOUTH_OPENING_MM, "Mouth opening (+0.5 mm steps, within the patient maximum)"),
+                          (BASE_YAW_DEG, "Base yaw (±5° steps; last resort)")),
+    "target_tooth": (("target_review", "Review the PreEntry standoff and drill axis (operator)"),),
+    "barrier": (("base_lateral", "Base translation"), (MOUTH_OPENING_MM, "Mouth opening"),
+                (BASE_YAW_DEG, "Base yaw (±5° steps; last resort)")),
+    "template": (("template_review", "Template sleeve/relief review (operator, not automatic)"),
+                 (BASE_YAW_DEG, "Base yaw (±5° steps; last resort)")),
+    "narrow_passage": ((PLANNING_ATTEMPTS, "Planning attempts/time"),
+                       (CORRIDOR_MARGIN_SAMPLES, "Approach-corridor margin"),
+                       (BASE_YAW_DEG, "Base yaw (±5° steps; last resort)")),
+    "solver": (("ik_budget", "PreEntry IK seeds/budget"),),
+    "scene_mismatch": (("scene_resync", "Re-sync the Step 6 planning scene (6.1 Connect / scene sync), then re-run"),),
+    "frame_mismatch": (("frame_check", "Stop: check the robot description and Base transform before any planning (operator)"),),
+    "unknown": (),
+}
+
+
+def advisory_lever_texts(cause_class: str) -> tuple:
+    return tuple(text for _lever_id, text in CAUSE_CLASS_ADVISORY.get(cause_class, ()))
 
 
 def baseline_state(opening_mm: float) -> dict:

@@ -19,6 +19,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 
+from dentobot_workflow.feasibility_advisor import CAUSE_CLASS_ADVISORY, advisory_lever_texts
+
 CHECK_ORDER = ("scene_match", "stroke_reach", "preentry_endpoint", "p1_route", "p2_entry", "p3_drilling",
                "frame_match")
 CHECK_TITLES = {
@@ -62,17 +64,9 @@ CAUSE_CLASS_TITLES = {
 }
 # Least invasive first. Advisory only: nothing here is applied automatically, and
 # contact allowances, guard tolerances and tool/axis changes are never suggested.
+# The levers come from the single registry in feasibility_advisor (2026-10-08).
 CAUSE_CLASS_LEVERS = {
-    "reach": ("Find Reachable Base (6.1)", "Base translation"),
-    "anatomy_neighbour": ("Mouth opening (+0.5 mm steps, within the patient maximum)", "Base yaw (±5° steps; last resort)"),
-    "target_tooth": ("Review the PreEntry standoff and drill axis (operator)",),
-    "barrier": ("Base translation", "Mouth opening", "Base yaw (±5° steps; last resort)"),
-    "template": ("Template sleeve/relief review (operator, not automatic)", "Base yaw (±5° steps; last resort)"),
-    "narrow_passage": ("Planning attempts/time", "Approach-corridor margin", "Base yaw (±5° steps; last resort)"),
-    "solver": ("PreEntry IK seeds/budget",),
-    "scene_mismatch": ("Re-sync the Step 6 planning scene (6.1 Connect / scene sync), then re-run",),
-    "frame_mismatch": ("Stop: check the robot description and Base transform before any planning (operator)",),
-    "unknown": (),
+    cause: advisory_lever_texts(cause) for cause in CAUSE_CLASS_ADVISORY
 }
 _CONTACTS = re.compile(r"contacts=(.+?)<->([^\s;,)]+)")
 _EMPTY_PLAN = ("empty trajectory", "code=99999")
