@@ -40,6 +40,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dentobot_workflow import advisor_home as home_mod
+from dentobot_workflow.advisor_identity import AdvisorIdentityMixin
 from dentobot_workflow import feasibility_advisor as fa
 from dentobot_workflow import step6_working_config
 
@@ -61,7 +63,10 @@ STEP_TITLES = {
 
 # Session phases.
 IDLE, READY, SEARCHING, EVALUATING, AWAITING_APPROVAL = "idle", "ready", "searching", "evaluating", "awaiting_approval"
-RESTORING, DONE = "restoring", "done"
+RESTORING, DONE, PAUSED = "restoring", "done", "paused"
+# Apply steps that may run while the saved Task Home is stale because of the search's OWN trial change
+# (consent-gated revalidation, decision D1/O4); every other step needs a current Home.
+_HOME_DEFERRED_STEPS = ("apply_barrier", "apply_opening", "apply_base", "apply_policy", "apply_home")
 # Terminal outcomes (``outcome`` once phase == DONE).
 FOUND, EXHAUSTED, CANCELLED, BLOCKED = "found", "exhausted", "cancelled", "blocked"
 
@@ -145,7 +150,8 @@ def rank_key(record: Mapping) -> tuple:
     return (_RESULT_RANK.get(str(record.get("result")), 9), stage_index, round(size, 6), int(record.get("sequence", 0)))
 
 
-def working_configuration_record(record: Mapping, saved_home: Mapping | None, original: Mapping) -> dict:
+def working_configuration_record(record: Mapping, saved_home: Mapping | None, original: Mapping,
+                                 home_ledger: Sequence | None = None) -> dict:
     """The Step 6 working configuration a passing candidate stands for (not stored here)."""
 
     observed = ((record.get("steps") or {}).get("prerequisites") or {}).get("observed") or {}
@@ -171,7 +177,9 @@ def working_configuration_record(record: Mapping, saved_home: Mapping | None, or
                  + (f"; review items: {', '.join(sensitive_items(record))}" if sensitive_items(record) else ""),
         "evidence_dir": str(record.get("evidence_dir") or ""),
         "diagnostics": {"advisor_state_key": record.get("state_key"), "identity": record.get("identity_fingerprint"),
-                        "original_opening_mm": original.get(fa.MOUTH_OPENING_MM)},
+                        "original_opening_mm": original.get(fa.MOUTH_OPENING_MM),
+                        **({"home_revalidations": [{k: e.get(k) for k in ("sequence", "kind", "candidate", "outcome", "before", "after")}
+                                                   for e in home_ledger]} if home_ledger else {})},
     }
 
 
@@ -231,14 +239,19 @@ class _Current:
     diagnosis_rows: list = field(default_factory=list)
     diagnosis_done: bool = False
     timings: dict = field(default_factory=dict)  # seconds per uninterruptible sub-step (responsiveness evidence)
+    home_rejected: bool = False
 
 
 class _HomeReviewRequired(RuntimeError):
     """A trial made saved Home validation stale; only the operator can review it."""
 
 
+class _PauseForOperator(RuntimeError):
+    """The step needs an operator action (Connect after an opening change); the search pauses, never continues alone."""
+
+
 # ---------------------------------------------------------------------------
-class FeasibilityAdvisorSession:
+class FeasibilityAdvisorSession(AdvisorIdentityMixin):
     """One step-driven ordered feasibility search for the active PreparedBranch."""
 
     def __init__(self, logic, facade, parameterNode, evidence_root, *, limits: fa.OrderedLimits = fa.OrderedLimits(),
@@ -286,6 +299,11 @@ class FeasibilityAdvisorSession:
         self._skipped_openings: set = set()
         self._lip_evidence: list | None = None  # attributed baseline lip-slab contacts, computed at the lip stage
         self._synced_tuning: dict | None = None  # barrier tuning the audited/MoveIt scene is known to hold
+        self._home_consent: dict | None = None  # explicit operator consent to Home revalidation (D1/O4), default off
+        self._home: home_mod.HomeRevalidator | None = None
+        self._home_stale_by_us = False  # the saved Home is stale only because of this search's own trial change
+        self._pause: home_mod.OperatorPause | None = None
+        self._expected_home_identity: dict = {}
         self._declined_count = 0
         self._setup_error_run = 0
         self._cancel_requested = False
@@ -325,180 +343,6 @@ class FeasibilityAdvisorSession:
                 "step": step,
                 "label": current.label if current else ""}
 
-    def _ctx_matrix(self, transform_node):
-        import numpy as np
-        import vtk
-
-        matrix = vtk.vtkMatrix4x4()
-        transform_node.GetMatrixTransformToWorld(matrix)
-        return np.array([[matrix.GetElement(r, c) for c in range(4)] for r in range(4)])
-
-    def _persisted_registry(self) -> dict:
-        """Read the saved registry directly; eligibility checks must not sync/migrate it."""
-
-        raw = str(getattr(self.node, "step6TrajectoryRegistryJson", "") or "").strip()
-        registry = json.loads(raw) if raw else {}
-        if not isinstance(registry, dict):
-            raise ValueError("the saved PreparedBranch registry is unavailable")
-        branches = registry.get("prepared_branches")
-        if not isinstance(branches, Mapping):
-            raise ValueError("the saved PreparedBranch registry has no branch map")
-        return registry
-
-    @staticmethod
-    def _home_record_identity(record) -> dict:
-        if record is None:
-            return {}
-        to_dict = getattr(record, "to_dict", None)
-        if callable(to_dict):
-            value = to_dict()
-            return dict(value) if isinstance(value, Mapping) else {}
-        fields = (
-            "joint_names", "joint_positions_si", "base_fingerprint", "robot_profile_fingerprint",
-            "revision", "runtime_validation_status", "collision_audit_fingerprint", "guard_policy_fingerprint",
-            "validated_at_utc", "minimum_clearance_mm", "world_object_count",
-        )
-        return {name: getattr(record, name) for name in fields if hasattr(record, name)}
-
-    @staticmethod
-    def _scene_source_identity(audit) -> dict:
-        """Stable audited geometry identity, excluding MRML/runtime object IDs and timestamps."""
-
-        rows = []
-        for raw in getattr(audit, "object_records", ()) or ():
-            if not isinstance(raw, Mapping):
-                continue
-            rows.append({key: raw.get(key) for key in (
-                "source_name", "source_role", "classification", "source_fingerprint",
-                "prepared_world_fingerprint", "outgoing_fingerprint", "jaw_transform_fingerprint",
-                "jaw_transform_application_count", "world_to_base_application_count",
-                "source_point_count", "source_cell_count", "outgoing_point_count", "outgoing_cell_count",
-                "source_bounds_world_ras_mm", "prepared_bounds_world_ras_mm", "outgoing_bounds_base_link_mm",
-                "connected_component_count", "boundary_or_nonmanifold_edge_count",
-                "publisher_linear_scale_m_per_mm", "collision_padding_mm",
-            )})
-        rows.sort(key=lambda row: (str(row.get("source_role") or ""), str(row.get("source_name") or "")))
-        return {"objects": rows, "fingerprint": fa.fingerprint_of(rows) if rows else ""}
-
-    def _capture_input_identity(self) -> dict:
-        """Capture current source identity using existing logic/facade records only."""
-
-        logic, node = self.logic, self.node
-        registry = self._persisted_registry()
-        branch_id = str(registry.get("selected_branch_id") or "")
-        branches = registry.get("prepared_branches") or {}
-        branch = branches.get(branch_id) if branch_id else None
-        if not isinstance(branch, Mapping) or not branch_id:
-            raise ValueError("the selected PreparedBranch identity is unavailable")
-        eligibility = logic.evaluatePreparedBranchEligibility(node, branch_id, registry=registry)
-        if eligibility.get("reason") != "VALID":
-            raise ValueError("the selected PreparedBranch is no longer VALID: "
-                             + str(eligibility.get("message") or eligibility.get("reason")))
-        if str(eligibility.get("branch_id") or "") != branch_id:
-            raise ValueError("the selected PreparedBranch changed during identity capture")
-
-        # This existing snapshot is read-only. Keep only source/environment fields
-        # below; jaw opening and Base are candidate state and are captured separately.
-        snapshot_fn = getattr(logic, "buildCaseFoundationSnapshot", None)
-        if not callable(snapshot_fn):
-            raise ValueError("the Case Foundation source snapshot API is unavailable")
-        foundation = snapshot_fn(node)
-        audit = logic.collisionSceneAuditRecord(node)
-        home = logic.taskHomeRecord(node)
-        confirmed = logic.confirmedTaskRecord(node)
-        trajectory_ids = [str(value) for value in branch.get("trajectory_ids") or ()]
-        trajectory_revisions = {}
-        for tooth in (registry.get("teeth") or {}).values():
-            for slot in ((tooth.get("trajectory_set") or {}).get("slots") or ()):
-                trajectory_id = str(slot.get("trajectory_id") or "")
-                if trajectory_id in trajectory_ids:
-                    trajectory_revisions[trajectory_id] = str(slot.get("trajectory_fingerprint") or "")
-        active_trajectory_revision = str(logic.step6TrajectoryRevision(node) or "")
-        scene = self._scene_source_identity(audit) if audit is not None else {}
-        if audit is not None:
-            scene.update({
-                "base_fingerprint": str(getattr(audit, "base_fingerprint", "") or ""),
-                "jaw_preparation_fingerprint": str(getattr(audit, "jaw_preparation_fingerprint", "") or ""),
-                "world_to_base_fingerprint": str(getattr(audit, "world_to_base_fingerprint", "") or ""),
-                "runtime_acknowledgement_status": str(
-                    (getattr(audit, "runtime_acknowledgement", {}) or {}).get("status") or ""
-                ),
-            })
-            scene["fingerprint"] = fa.fingerprint_of({key: value for key, value in scene.items() if key != "fingerprint"})
-        source_fields = (
-            "case_identity", "anatomy_fingerprint", "source_volume_fingerprint", "source_segmentation_fingerprint",
-            "jaw_source_fingerprint", "jaw_landmarks_fingerprint", "landmark_positions_ras_mm",
-            "landmark_review_fingerprint", "hinge_model_schema", "jaw_configuration_fingerprint",
-            "robot_profile_fingerprint", "tool_identity", "tool_fingerprint", "limits_fingerprint",
-            "workspace_fingerprint",
-        )
-        source_environment = {
-            key: (foundation.get(key) if isinstance(foundation, Mapping) else getattr(foundation, key, None))
-            for key in source_fields
-        }
-        home_identity = self._home_record_identity(home)
-        base_matrix = self._ctx_matrix(node.robotBaseTransform)
-        policy = self.facade.jointPlanningPolicy()
-        identity = {
-            "schema": fa.ADVISOR_SCHEMA,
-            "target_fdi": self.target_fdi,
-            "selected_branch_id": branch_id,
-            "branch_revision": str(branch.get("revision") or ""),
-            "branch_foundation_fingerprint": str(branch.get("branch_foundation_fingerprint") or ""),
-            "trajectory_ids": trajectory_ids,
-            "trajectory_revisions": trajectory_revisions,
-            "active_trajectory_revision": active_trajectory_revision,
-            "source_environment": source_environment,
-            "audited_scene_sources": scene,
-            "collision_audit_status": str(getattr(audit, "status", "") or ""),
-            "robot_profile": str(logic.robotProfileFingerprint() or ""),
-            "confirmed_task_fingerprint": str(getattr(confirmed, "snapshot_fingerprint", "") or ""),
-            "saved_base": fa.fingerprint_of([round(float(v), 9) for v in base_matrix.flatten()]),
-            "saved_home": fa.fingerprint_of(home_identity),
-            "mouth_barrier": {"edge_mode": str(getattr(node, "step6MouthBarrierEdgeMode", "") or ""),
-                              "tuning": self._live_barrier_tuning()},
-            "limits": fa.fingerprint_of(vars(self.limits)),
-            "task_limits": str(logic.step6TaskLimitsFingerprint(node) or ""),
-            "corridor_margin_samples": int(self.facade.approachCorridorMarginSamples()),
-            "planning_policy": {key: policy.get(key) for key in (
-                "planner_id", "planning_attempts", "planning_time_sec", "independent_replans")},
-        }
-        missing = []
-        if not self.target_fdi:
-            missing.append("active target identity")
-        for key in ("branch_revision", "branch_foundation_fingerprint", "active_trajectory_revision",
-                    "robot_profile", "confirmed_task_fingerprint", "saved_home", "task_limits"):
-            if not identity.get(key):
-                missing.append(key)
-        if not home_identity:
-            missing.append("saved Task Home identity")
-        if not trajectory_ids or set(trajectory_revisions) != set(trajectory_ids) or not all(trajectory_revisions.values()):
-            missing.append("selected branch trajectory revisions")
-        if not all(source_environment.get(key) for key in (
-                "case_identity", "anatomy_fingerprint", "source_volume_fingerprint", "source_segmentation_fingerprint",
-                "jaw_source_fingerprint", "jaw_landmarks_fingerprint", "jaw_configuration_fingerprint",
-                "tool_identity", "tool_fingerprint", "limits_fingerprint")):
-            missing.append("source geometry/environment fingerprints")
-        if (not scene.get("objects") or not scene.get("base_fingerprint")
-                or not scene.get("jaw_preparation_fingerprint") or not scene.get("world_to_base_fingerprint")
-                or not scene.get("runtime_acknowledgement_status") or not scene.get("fingerprint")
-                or not identity["collision_audit_status"]):
-            missing.append("audited scene geometry")
-        if missing:
-            raise ValueError("safe input identity unavailable: " + ", ".join(missing))
-        return identity
-
-    def _identity_matches_baseline(self) -> tuple[bool, str]:
-        if not self._identity_available:
-            return False, self._identity_error or "safe input identity is unavailable"
-        try:
-            current = self._capture_input_identity()
-        except Exception as exc:
-            return False, str(exc)[:300]
-        if fa.fingerprint_of(current) != fa.fingerprint_of(self._base_identity):
-            return False, "branch, trajectory, source geometry, Task Home, Base, limits, or audited scene changed"
-        return True, ""
-
     def _home_currentness_issues(self) -> list:
         logic, facade, node = self.logic, self.facade, self.node
         issues = []
@@ -523,7 +367,7 @@ class FeasibilityAdvisorSession:
         record = logic.taskHomeRecord(node)
         if record is None:
             issues.append("the saved Task Home is missing")
-        elif fa.fingerprint_of(self._home_record_identity(record)) != fa.fingerprint_of(self._saved_home_identity):
+        elif fa.fingerprint_of(self._home_record_identity(record)) != fa.fingerprint_of(self._expected_home_identity):
             issues.append("the saved Task Home identity changed")
         return list(dict.fromkeys(str(issue) for issue in issues if issue))
 
@@ -569,6 +413,27 @@ class FeasibilityAdvisorSession:
         self._write(self.root, "progress.json", {
             "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "elapsed_sec": round(self._clock() - self._started, 1),
             "text": text, "phase": self.phase, "evaluated": len(self.records), "total": self.total_candidates()})
+
+    # ---- explicit, default-off consent to Home revalidation (decision D1/O4) -----------------
+    def grant_home_revalidation_consent(self, text: str) -> None:
+        """Record the operator's explicit consent; only before the search is prepared, never inferred."""
+
+        if self.phase != IDLE:
+            raise PermissionError("Home revalidation consent can only be given before the search is prepared.")
+        if str(text) != home_mod.CONSENT_TEXT:
+            raise ValueError("The consent text shown to the operator is not the approved wording.")
+        self._home_consent = {"utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                              "text_sha256_16": home_mod.consent_digest(text)}
+        self.gate_log.append({**self._home_consent, "stage": home_mod.CONSENT_GATE, "answer": "approved"})
+        self._write(self.root, "review-gates.json", self.gate_log)
+
+    @property
+    def home_consent(self) -> dict | None:
+        return dict(self._home_consent) if self._home_consent else None
+
+    @property
+    def home_ledger(self) -> list:
+        return list(self._home.ledger) if self._home is not None else []
 
     # ---- setup diagnostics (reuses precondition_issues) -------------------------
     def setup_report(self) -> list:
@@ -619,6 +484,17 @@ class FeasibilityAdvisorSession:
                 or getattr(facade, "_manual_task_home_reconciliation_in_progress", False)):
             issues.append(SetupIssue("A Task Home review or reconciliation is already in progress.",
                                      fix_id="goto_6_2", fix_label="Finish the current 6.2 review"))
+        if self._home_consent is not None and home is not None:
+            review = getattr(facade, "manualTaskHomeReview", None)
+            if callable(review) and (review().details or {}).get("staged"):
+                issues.append(SetupIssue("A Task Home review is already staged in 6.2; the advisor never overwrites it.",
+                                         fix_id="goto_6_2", fix_label="Finish or cancel the staged 6.2 review"))
+            joint_issues = home_mod.HomeRevalidator(logic, facade, node, dict(zip(home.joint_names, home.joint_positions_si)),
+                                                    self.root).joint_issues()
+            if joint_issues:
+                issues.append(SetupIssue("Home revalidation needs the accepted, monitored and displayed J1–J5 to equal the "
+                                         "saved Task Home exactly (the advisor never jogs): " + "; ".join(joint_issues)[:300],
+                                         fix_id="goto_6_2", fix_label="Go to 6.2: review the accepted pose and Task Home"))
         if bool(getattr(node, "step6AllowSpindleGuideContact", False)):
             issues.append(SetupIssue("The spindle-template contact allowance is ON; the advisor will not change it.",
                                      fix_id="goto_6_3", fix_label="Review the 6.3 contact policy"))
@@ -666,6 +542,9 @@ class FeasibilityAdvisorSession:
         self.saved_base = self._ctx_matrix(node.robotBaseTransform)
         self.saved_home = dict(zip(home.joint_names, home.joint_positions_si))
         self._saved_home_identity = self._home_record_identity(home)
+        self._expected_home_identity = dict(self._saved_home_identity)
+        if self._home_consent is not None:
+            self._home = home_mod.HomeRevalidator(logic, facade, node, self.saved_home, self.root)
         registry = self._persisted_registry()
         self.branch_id = str(registry.get("selected_branch_id") or "")
         opening = float(node.step6CaseJawTargetGapMm)
@@ -701,6 +580,8 @@ class FeasibilityAdvisorSession:
         self._candidates = [("baseline", dict(self.baseline)), *fa.ordered_candidates(self.baseline, self.limits)]
         self.phase = READY
         self.message = f"Ready: {len(self._candidates)} candidate states in the approved order."
+        if self._home is not None:
+            self.message += " Task Home revalidation consent is ON (simulation only; saved joints, no motion)."
         if not self._identity_available:
             self.message += " Checkpoint reuse and Apply & Save are disabled because a complete input identity is unavailable."
         return issues
@@ -741,9 +622,60 @@ class FeasibilityAdvisorSession:
             return StepEvent("gate", self._gate_message(self._pending_gate), stage=self._pending_gate)
         if self.phase == RESTORING:
             return self._restore_step()
+        if self.phase == PAUSED:
+            info = (self._pause.info if self._pause else None) or {}
+            return StepEvent("pause", self.message, stage=info.get("stage", ""), index=info.get("candidate", 0),
+                             total=self.total_candidates())
         if self.phase == EVALUATING:
             return self.evaluate_step()
         return self.next_candidate()
+
+    # ---- operator pause (opening change: Connect is the operator's action) and Continue -----------------
+    def _source_identity(self) -> dict:
+        return self._stable_identity(self._capture_input_identity(), source_only=True)
+
+    def _enter_pause(self, current, name: str, message: str) -> StepEvent:
+        self._pause = home_mod.OperatorPause(self.root)
+        self._pause.enter(candidate=current.index, stage=current.stage, step=name, message=message,
+                          frozen=self._source_identity())
+        self.phase, self.message = PAUSED, message
+        return StepEvent("pause", message, stage=current.stage, step=name, index=current.index, total=self.total_candidates())
+
+    def resume_issues(self) -> list:
+        """Why Continue is refused: ROS still disconnected, joint drift, or any frozen source identity change."""
+
+        if self.phase != PAUSED or self._pause is None or self._home is None:
+            return ["the search is not paused for an operator action"]
+        issues = []
+        if not self._active():
+            issues.append("ROS/MoveIt is still disconnected; use the production Connect action, then Continue")
+        issues += [f"joint identity: {text}" for text in self._home.joint_issues()]
+        try:
+            changed = self._pause.drift(self._source_identity())
+        except Exception as exc:
+            issues.append("source identity could not be captured: " + str(exc)[:200])
+        else:
+            if changed:
+                issues.append("frozen identity changed: " + ", ".join(changed))
+        return issues
+
+    def resume(self) -> StepEvent:
+        """The operator's Continue: refused (still paused) on any drift; never rebases or substitutes anything."""
+
+        issues = self.resume_issues()
+        info = (self._pause.info if self._pause else None) or {}
+        if issues:
+            self.message = "Continue refused: " + "; ".join(issues)[:400]
+            if self._pause is not None:
+                self._pause.refused(self.message)
+            return StepEvent("pause", self.message, stage=info.get("stage", ""), index=info.get("candidate", 0),
+                             total=self.total_candidates(), issues=issues)
+        self._pause.resumed()
+        self._pause = None
+        self.phase = EVALUATING
+        self.message = "Resumed after the operator's Connect; joint and source identity verified unchanged."
+        return StepEvent("step", self.message, stage=info.get("stage", ""), index=info.get("candidate", 0),
+                         total=self.total_candidates())
 
     # ---- candidate selection ------------------------------------------------------
     def next_candidate(self) -> StepEvent:
@@ -882,7 +814,8 @@ class FeasibilityAdvisorSession:
             current.cursor += 1
         if name in APPLY_STEPS and current.apply_failed:
             return self._event(current, name, "skipped after an earlier apply error")
-        home_issues = self._home_currentness_issues()
+        deferred = self._home is not None and self._home_stale_by_us and name in _HOME_DEFERRED_STEPS
+        home_issues = [] if deferred else self._home_currentness_issues()
         if home_issues:
             return self._record_operator_review_block(
                 current, name, "Task Home requires explicit 6.2 operator review before this trial step: "
@@ -905,8 +838,16 @@ class FeasibilityAdvisorSession:
             else:
                 note = getattr(self, "_do_" + name)(current)
         except Exception as exc:  # recorded, never hidden
-            if isinstance(exc, _HomeReviewRequired):
+            if isinstance(exc, _PauseForOperator):
+                return self._enter_pause(current, name, str(exc))
+            if isinstance(exc, (_HomeReviewRequired, home_mod.HomeRevalidationRefused)):
                 return self._record_operator_review_block(current, name, str(exc))
+            if isinstance(exc, home_mod.HomeRevalidationRejected):
+                current.home_rejected = True
+                current.steps["prerequisites"] = {
+                    "result": fa.SETUP_ERROR, "reason": "Task Home revalidation was rejected by the production guard: "
+                    + str(exc)[:300]}
+                return self._finish_candidate(current)
             note = None
             if name in APPLY_STEPS:
                 current.apply_failed = True
@@ -1015,7 +956,10 @@ class FeasibilityAdvisorSession:
         wanted = {key: float(current.state[key]) for key in fa.LIP_VARIANT_BOUNDS}
         if live is not None and all(abs(live[key] - wanted[key]) <= 1e-9 for key in wanted):
             return "barrier unchanged"
-        return self._barrier_applier(current.state)
+        note = self._barrier_applier(current.state)
+        if self._home is not None:
+            self._home_stale_by_us = True  # the audited scene (and so Home's audit binding) changed by our trial
+        return note
 
     def _do_apply_opening(self, current):
         opening = float(current.state[fa.MOUTH_OPENING_MM])
@@ -1029,7 +973,13 @@ class FeasibilityAdvisorSession:
         if eligibility.get("reason") != "VALID":
             current.observed["needs_rebuild"] = str(eligibility.get("message") or eligibility.get("reason"))
             return f"opening {opening} mm applied; the branch now needs operator review"
-        if current.stage != "restore":
+        if self._home is not None:  # revalidation consented: Home is stale by our own change; Connect is the operator's
+            self._home_stale_by_us = True
+            if not self._active() and current.stage != "restore":
+                raise _PauseForOperator(
+                    f"Opening {opening} mm was applied and ROS/MoveIt was disconnected. Use Connect (6.1) in the dialog, "
+                    "then Continue. Continue stops if the accepted joints or any frozen identity differ.")
+        elif current.stage != "restore":
             self._require_current_home(candidate_step="the mouth-opening trial")
         return f"opening {opening} mm applied in the live case"
 
@@ -1076,7 +1026,9 @@ class FeasibilityAdvisorSession:
         current.observed["base_accept"] = [bool(result.success), str(result.code), str(result.message)[:300]]
         if not result.success:
             raise RuntimeError("Base was not accepted: " + str(result.message)[:200])
-        if current.stage != "restore":
+        if self._home is not None:
+            self._home_stale_by_us = True
+        elif current.stage != "restore":
             self._require_current_home(candidate_step="the Base trial")
         return "Base accepted"
 
@@ -1101,8 +1053,19 @@ class FeasibilityAdvisorSession:
         return "planning policy set"
 
     def _do_apply_home(self, current):
-        self._require_current_home(candidate_step="candidate evaluation" if current.stage != "restore"
-                                   else "baseline restoration")
+        restoring = current.stage == "restore"
+        if self._home is not None and self._home_stale_by_us:
+            try:
+                entry = self._home.revalidate(kind="restore" if restoring else "trial", index=current.index,
+                                              label=current.label, active=self._active())
+            except home_mod.HomeRevalidationRejected:
+                current.home_rejected = True
+                raise
+            self._home_stale_by_us = False
+            self._expected_home_identity = dict(self._home.expected_identity)
+            return (f"saved Task Home joints re-validated through the production owners (revision "
+                    f"{(entry['before'] or {}).get('revision')}→{(entry['after'] or {}).get('revision')})")
+        self._require_current_home(candidate_step="candidate evaluation" if not restoring else "baseline restoration")
         return "saved Task Home identity and existing validation remain current"
 
     def _do_apply_confirm(self, current):
@@ -1143,7 +1106,7 @@ class FeasibilityAdvisorSession:
             "home_gap": str(facade.taskHomeValidationGap(node) or ""), "home_si": current_home,
             "home_identity_matches": (
                 fa.fingerprint_of(self._home_record_identity(home))
-                == fa.fingerprint_of(self._saved_home_identity)
+                == fa.fingerprint_of(self._expected_home_identity)
             ),
             "home_delta_si": max((abs(float(current_home.get(k, 1e9)) - float(v)) for k, v in (self.saved_home or {}).items()),
                                  default=None) if self.saved_home else None,
@@ -1283,6 +1246,9 @@ class FeasibilityAdvisorSession:
                                      evidence_dir=str(current.directory))
         record["sequence"] = current.index
         record["timings_sec"] = dict(current.timings)
+        if self._home is not None:
+            record["home_revalidation"] = [e for e in self._home.ledger if e["candidate"] == current.index and e["kind"] == "trial"]
+            record["home_rejected"] = bool(current.home_rejected)
         self._current = None
         return self._finalize(record, current.directory, store=True)
 
@@ -1300,7 +1266,12 @@ class FeasibilityAdvisorSession:
                          index=len(self.records), total=self.total_candidates(), record=record)
 
     def _after_record(self, record) -> None:
-        self._setup_error_run = self._setup_error_run + 1 if record.get("result") == fa.SETUP_ERROR else 0
+        counts = record.get("result") == fa.SETUP_ERROR and not record.get("home_rejected")
+        self._setup_error_run = self._setup_error_run + 1 if counts else 0
+        if self._home is not None and self._home.consecutive_rejections >= home_mod.MAX_CONSECUTIVE_REJECTIONS:
+            self._operator_review_block = True
+            self.message = (f"Task Home revalidation was rejected {self._home.consecutive_rejections} times in a row by "
+                            "the production guard; review the Base/Home in 6.1-6.2 before searching again.")
         reason = self.should_stop()
         if reason == FOUND:
             change = ", ".join(f"{k}={v}" for k, v in sorted((record.get("change") or {}).items())) or "baseline"
@@ -1336,6 +1307,7 @@ class FeasibilityAdvisorSession:
     def _begin_restore(self, outcome: str, message: str) -> StepEvent:
         self.outcome, self.message = outcome, message
         self._current = None
+        self._pause = None
         self.phase = RESTORING
         plan = [n for n in APPLY_STEPS if n != "apply_barrier" or self._barrier_applier is not None]
         self._restore_plan = plan
@@ -1377,6 +1349,8 @@ class FeasibilityAdvisorSession:
                 else:
                     observed = self._observe(self._restore_state, self._restore_observed)
                     self.restore_issues += fa.precondition_issues(observed, self.limits)
+                    if self._home is not None and self._home_stale_by_us:
+                        self.restore_issues.append("the original Task Home joints were not re-validated after restoration")
                     if not self.restore_issues and self._identity_available:
                         matches, reason = self._identity_matches_baseline()
                         if not matches:
@@ -1384,6 +1358,11 @@ class FeasibilityAdvisorSession:
             except Exception as exc:  # recorded, never hidden
                 self.restore_issues.append(f"restore check could not run: {exc}"[:300])
         self.phase = DONE
+        if self._home is not None and self._home.ledger:
+            done = [e for e in self._home.ledger if e["outcome"] == "validated"]
+            self.message += (f" Task Home was re-validated {len(done)} time(s) under the production owners (revisions and "
+                             "outcomes in home-revalidations.json); original joint values re-validated: "
+                             + ("yes" if self.restore_issues == [] and not self._home_stale_by_us else "NO") + ".")
         if self.restore_issues:
             self.message += (" The original state could NOT be fully restored ("
                              + "; ".join(self.restore_issues)[:300]
@@ -1427,6 +1406,9 @@ class FeasibilityAdvisorSession:
             return
         notes = [f"Outcome: {self.outcome or 'running'}; {self.message}"] + [
             f"Unavailable stage {stage}: {why}" for stage, why in self.unavailable_stages.items()]
+        if self._home is not None:
+            notes.append("Home revalidation consent: granted (" + str((self._home_consent or {}).get("utc")) + "); ledger: "
+                         + ("none" if not self._home.ledger else "; ".join(self._home.summary_lines())[:1500]))
         longest = self.longest_step()
         if longest:
             notes.append(f"Longest single uninterruptible step measured: {longest[0]:.1f} s (candidate {longest[1]}, "
@@ -1485,5 +1467,5 @@ class FeasibilityAdvisorSession:
             raise PermissionError("Operator review required for: " + ", ".join(missing))
         if str(self._base_identity.get("selected_branch_id") or "") != self.branch_id:
             raise ValueError("The active branch changed since the search; run it again.")
-        config = working_configuration_record(record, self.saved_home, self.original)
+        config = working_configuration_record(record, self.saved_home, self.original, self.home_ledger)
         return self.logic.storeStep6WorkingConfiguration(self.node, config)

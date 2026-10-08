@@ -352,7 +352,8 @@ def test_gui_source_names_temporary_trials_and_never_calls_planner_preview_or_ho
     assert "attempts to restore the starting configuration" in source
     assert "evaluated only when the baseline's own contact evidence names the lip slab" in source
     assert "otherwise they stay UNTESTED" in source
-    assert "does not accept Task Home or move the robot" in source
+    assert "never moves the robot or uses different joints" in source
+    assert "unless you tick the Task Home consent" in source
     tree = ast.parse(source)
     forbidden_calls = {
         "planApproachPhase", "planDrillingPhase", "previewApproach", "previewDrilling",

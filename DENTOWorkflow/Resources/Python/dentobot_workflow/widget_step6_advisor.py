@@ -12,6 +12,7 @@ dialog is auto-answered.
 from __future__ import annotations
 
 from .runtime import *
+from . import advisor_home
 from . import advisor_service as advisor
 from . import step6_working_config
 
@@ -28,7 +29,7 @@ class Step6AdvisorWidgetMixin:
         root = advisor.default_evidence_root(os.environ)
         self._advisorState = {
             "root": root, "session": None, "timer": None, "dialog": None,
-            "running": False, "fixButtons": [], "restoreFailed": False,
+            "running": False, "fixButtons": [], "restoreFailed": False, "paused": False,
         }
         self._advisorNewSession()
         self._advisorBuildDialog()
@@ -96,7 +97,8 @@ class Step6AdvisorWidgetMixin:
                 "Opening, barrier variants, Base yaw and a shortened drilling depth need your explicit review. "
                 "The window may stop repainting while one planning step runs (the length is not yet measured); "
                 "Cancel takes effect when that step finishes. "
-                "The search does not accept Task Home or move the robot. Use Apply & Save to branch only after "
+                "The search never moves the robot or uses different joints; unless you tick the Task Home consent "
+                "below it does not accept or re-validate Task Home either. Use Apply & Save to branch only after "
                 "the search reports that baseline restoration completed."
             ),
             dialog,
@@ -116,6 +118,25 @@ class Step6AdvisorWidgetMixin:
         state["setupTable"].setMaximumHeight(150)
         setupLayout.addWidget(state["setupTable"])
         layout.addWidget(setupGroup)
+
+        consentGroup = qt.QGroupBox(_("Task Home revalidation (optional; OFF by default)"), dialog)
+        consentGroup.objectName = "DENTOBOTStep6AdvisorHomeConsentGroup"
+        consentLayout = qt.QVBoxLayout(consentGroup)
+        consentLabel = qt.QLabel(
+            _(advisor_home.CONSENT_TEXT) + " "
+            + _("Without this consent a trial that makes the saved Task Home stale stops for your explicit 6.2 review. "
+                "An opening change always pauses for your own Connect and Continue."),
+            consentGroup,
+        )
+        consentLabel.objectName = "DENTOBOTStep6AdvisorHomeConsentLabel"
+        consentLabel.wordWrap = True
+        consentLayout.addWidget(consentLabel)
+        state["consentBox"] = qt.QCheckBox(
+            _("I consent to Task Home revalidation for this search (simulation only)"), consentGroup)
+        state["consentBox"].objectName = "DENTOBOTStep6AdvisorHomeConsentCheckBox"
+        state["consentBox"].checked = False
+        consentLayout.addWidget(state["consentBox"])
+        layout.addWidget(consentGroup)
 
         state["statusLabel"] = qt.QLabel(_("Ready."), dialog)
         state["statusLabel"].objectName = "DENTOBOTStep6AdvisorStatusLabel"
@@ -143,6 +164,9 @@ class Step6AdvisorWidgetMixin:
         specs = (
             ("startButton", "DENTOBOTStep6AdvisorStartButton", _("Start search"), self._advisorOnStart),
             ("cancelButton", "DENTOBOTStep6AdvisorCancelButton", _("Cancel"), self._advisorOnCancel),
+            ("pauseConnectButton", "DENTOBOTStep6AdvisorPauseConnectButton", _("Connect ROS + MoveIt (6.1)"),
+             lambda: self._advisorOnFix("connect")),
+            ("continueButton", "DENTOBOTStep6AdvisorContinueButton", _("Continue"), self._advisorOnContinue),
             ("moreButton", "DENTOBOTStep6AdvisorKeepSearchingButton", _("Keep searching for alternatives"),
              self._advisorOnKeepSearching),
             ("applyButton", "DENTOBOTStep6AdvisorApplySaveButton", _("Apply & Save to branch"),
@@ -159,6 +183,8 @@ class Step6AdvisorWidgetMixin:
         layout.addLayout(buttons)
         dialog.rejected.connect(self._advisorOnRejected)
         state["dialog"] = dialog
+        for key in ("pauseConnectButton", "continueButton"):
+            state[key].setVisible(False)
         self._advisorSetButtons("idle")
 
     def _advisorSetButtons(self, mode: str) -> None:
@@ -170,7 +196,13 @@ class Step6AdvisorWidgetMixin:
         unavailable = bool(state.get("restoreFailed") or state.get("configurationApplied"))
         busy = bool(state.get("running") or getattr(self, "_workflowActionBusy", False))
         state["startButton"].enabled = mode == "idle" and not unavailable and not busy
-        state["cancelButton"].enabled = mode == "running"
+        state["cancelButton"].enabled = mode in ("running", "paused")
+        if state.get("consentBox") is not None:
+            state["consentBox"].enabled = mode == "idle" and not unavailable and not busy
+        for key in ("pauseConnectButton", "continueButton"):
+            if state.get(key) is not None:
+                state[key].setVisible(mode == "paused")
+                state[key].enabled = mode == "paused"
         state["moreButton"].enabled = (
             mode == "done" and not unavailable and session is not None
             and session.outcome == advisor.FOUND
@@ -179,9 +211,9 @@ class Step6AdvisorWidgetMixin:
         state["exportButton"].enabled = (
             mode != "running" and not busy and session is not None and bool(session.baseline)
         )
-        state["closeButton"].enabled = mode != "running"
+        state["closeButton"].enabled = mode not in ("running", "paused")
         for button in state.get("fixButtons", ()):
-            button.enabled = not busy and mode != "running"
+            button.enabled = not busy and mode not in ("running", "paused")
         state["applyButton"].toolTip = (
             _("Stores the staged configuration on this PreparedBranch (saved in the dentocase) and then re-applies it "
               "through the normal Restore owner. Clinically sensitive changes are listed for your confirmation.")
@@ -230,6 +262,8 @@ class Step6AdvisorWidgetMixin:
         if handler is None:
             return
         navigation_fixes = {"goto_6_1", "goto_6_2", "goto_6_3"}
+        if state.get("paused") and fix_id != "connect":
+            return  # a paused search is continued or cancelled, never abandoned by navigating away
         if fix_id in navigation_fixes:
             if not self._advisorCloseForNavigation():
                 return
@@ -241,8 +275,11 @@ class Step6AdvisorWidgetMixin:
         finally:
             if getattr(self, "_advisorState", None) is state:
                 state["dialog"].show()
-                self._advisorShowSetup()
-                self._advisorSetButtons("idle")
+                if state.get("paused"):
+                    self._advisorSetButtons("paused")
+                else:
+                    self._advisorShowSetup()
+                    self._advisorSetButtons("idle")
 
     def _advisorCloseForNavigation(self) -> bool:
         """Release the application-modal dialog before moving the main workflow."""
@@ -269,6 +306,10 @@ class Step6AdvisorWidgetMixin:
         if session.phase != advisor.IDLE:  # resume after a cancel/finish: a new session reuses the checkpoints
             self._advisorNewSession()
             session = state["session"]
+        consent = state.get("consentBox")
+        consented = bool(consent is not None and consent.checked)
+        if consented:
+            session.grant_home_revalidation_consent(advisor_home.CONSENT_TEXT)
         issues = session.prepare()
         self._advisorShowSetup(issues)
         if session.finished:
@@ -279,7 +320,8 @@ class Step6AdvisorWidgetMixin:
         state["running"] = True
         state["cancelRequested"] = False
         self._advisorSetButtons("running")
-        state["statusLabel"].text = _("Starting the ordered search…")
+        state["statusLabel"].text = _("Starting the ordered search…") + (
+            " " + _("(Task Home revalidation consent: ON; simulation only, no joint moves)") if consented else "")
         timer = qt.QTimer()
         timer.setSingleShot(True)
         timer.setInterval(10)
@@ -289,7 +331,8 @@ class Step6AdvisorWidgetMixin:
 
     def _advisorOnCancel(self) -> None:
         state = getattr(self, "_advisorState", None)
-        if not state or not state.get("running") or state.get("cancelRequested"):
+        paused = bool(state and state.get("paused"))
+        if not state or not (state.get("running") or paused) or state.get("cancelRequested"):
             return
         try:
             state["session"].cancel()
@@ -305,6 +348,42 @@ class Step6AdvisorWidgetMixin:
         state["statusLabel"].text = _(
             "Cancellation requested. The current step will finish, then baseline restoration will be attempted…"
         )
+        if paused:  # a paused search has no step in flight: drive the restoration now
+            state["paused"] = False
+            state["running"] = True
+            self._workflowActionBusy = True
+            self._advisorSetButtons("running")
+            state["cancelButton"].enabled = False
+            state["timer"].start()
+
+    def _advisorOnContinue(self) -> None:
+        """The operator's Continue after their own Connect; the service refuses on any joint/identity drift."""
+
+        state = getattr(self, "_advisorState", None)
+        if not state or not state.get("paused") or state.get("running"):
+            return
+        event = state["session"].resume()
+        if event.kind == "pause":  # refused: still paused, nothing changed; the operator can fix or Cancel
+            state["statusLabel"].text = event.message
+            return
+        state["paused"] = False
+        state["running"] = True
+        self._workflowActionBusy = True
+        state["statusLabel"].text = event.message
+        self._advisorSetButtons("running")
+        state["timer"].start()
+
+    def _advisorEnterPause(self, event) -> None:
+        state = self._advisorState
+        state["paused"] = True
+        state["running"] = False
+        self._workflowActionBusy = False  # the production Connect owner must be usable by the operator
+        state["statusLabel"].text = event.message
+        state["stagedLabel"].text = _(
+            "Paused for your action: nothing continues until you press Continue after your own Connect. "
+            "Cancel restores the original configuration."
+        )
+        self._advisorSetButtons("paused")
 
     def _advisorOnRejected(self) -> None:
         """Closing the window mid-search cancels (and restores); the dialog stays up until done."""
@@ -312,7 +391,7 @@ class Step6AdvisorWidgetMixin:
         state = getattr(self, "_advisorState", None)
         if not state:
             return
-        if state["running"]:
+        if state["running"] or state.get("paused"):
             self._advisorOnCancel()
             state["dialog"].show()
             state["dialog"].raise_()
@@ -323,7 +402,7 @@ class Step6AdvisorWidgetMixin:
         state = getattr(self, "_advisorState", None)
         if not state:
             return
-        if state["running"]:
+        if state["running"] or state.get("paused"):
             self._advisorOnCancel()
             state["dialog"].show()
             state["dialog"].raise_()
@@ -355,6 +434,9 @@ class Step6AdvisorWidgetMixin:
             if event.kind == "gate":
                 approved = self._advisorAskGate(event)
                 (session.approve_stage if approved else session.decline_stage)(event.stage)
+            if event.kind == "pause":
+                self._advisorEnterPause(event)
+                return
             self._advisorShowProgress(event)
         except Exception as exc:  # Request one bounded service restoration; never retry a failed restore tick.
             if recovery:
@@ -446,6 +528,9 @@ class Step6AdvisorWidgetMixin:
         if not state:
             return
         state["running"] = False
+        state["paused"] = False
+        if state.get("consentBox") is not None:
+            state["consentBox"].checked = False
         state["restoreFailed"] = True
         state["errorRecovery"] = None
         self._workflowActionBusy = False
@@ -531,7 +616,10 @@ class Step6AdvisorWidgetMixin:
         state = self._advisorState
         session = state["session"]
         state["running"] = False
+        state["paused"] = False
         self._workflowActionBusy = False
+        if state.get("consentBox") is not None:
+            state["consentBox"].checked = False  # consent is per search and is never carried to the next one
         restore_issues = list(getattr(session, "restore_issues", ()) or ())
         restored = bool(session.finished and not restore_issues)
         state["restoreFailed"] = not restored

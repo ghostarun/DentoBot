@@ -968,23 +968,40 @@ def test_service_source_has_no_blocking_loops_sleeps_or_event_pumping_or_modal_h
     assert not [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr in ("QMessageBox", "QTimer")]
 
 
-def test_service_has_no_automatic_connect_or_task_home_owner_calls():
-    tree = ast.parse(SERVICE_SOURCE.read_text(encoding="utf-8"))
-    called = {
+def _calls_in(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return tree, {
         node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
         for node in ast.walk(tree) if isinstance(node, ast.Call)
     }
-    forbidden = {
-        "connect", "cancelManualTaskHomeReview", "stageManualTaskHomeReview",
-        "acceptManualTaskHomeReview", "saveCurrentTaskHome", "checkManualRobotDraftState",
+
+
+def test_service_has_no_connect_jog_or_direct_task_home_authority_calls():
+    """D1/O4 (Tarun "do it", 2026-10-08) supersedes the old no-automatic-Home rule ONLY for the explicit-consent
+    search through the existing owners, which live in advisor_home.HomeRevalidator. Everything else stays forbidden."""
+
+    package = SERVICE_SOURCE.parent
+    forbidden_everywhere = {
+        "connect", "saveCurrentTaskHome", "saveTaskHome", "recordTaskHomeRuntimeValidation", "checkManualRobotDraftState",
+        "applyJointPositions", "setBasePose", "lockBase", "invalidateStep6TaskConfirmation",
     }
-    assert called.isdisjoint(forbidden)
-    assert "diagnoseBase" not in called
-    apply_home = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_do_apply_home")
-    home_calls = {
-        node.func.attr for node in ast.walk(apply_home) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-    }
-    assert home_calls == {"_require_current_home"}
+    owners = {"cancelManualTaskHomeReview", "stageManualTaskHomeReview", "acceptManualTaskHomeReview"}
+    for name in ("advisor_service.py", "advisor_identity.py", "advisor_home.py"):
+        tree, called = _calls_in(package / name)
+        assert called.isdisjoint(forbidden_everywhere), name
+        assert "diagnoseBase" not in called, name
+        if name != "advisor_home.py":
+            assert called.isdisjoint(owners), name  # the service itself never calls a Home owner
+    tree, called = _calls_in(package / "advisor_home.py")
+    assert {"stageManualTaskHomeReview", "acceptManualTaskHomeReview"} <= called  # called here, and only here
+    assert "cancelManualTaskHomeReview" in (package / "advisor_home.py").read_text(encoding="utf-8")
+    stores = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store)}
+    assert stores <= {"saved", "root", "ledger", "consecutive_rejections", "expected_identity", "info", "logic", "facade",
+                      "node"}  # never writes a Home record, validation flag or cached key
+    apply_home = next(n for n in ast.walk(ast.parse(SERVICE_SOURCE.read_text(encoding="utf-8")))
+                      if isinstance(n, ast.FunctionDef) and n.name == "_do_apply_home")
+    home_calls = {n.func.attr for n in ast.walk(apply_home) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    assert home_calls == {"_require_current_home", "revalidate", "_active", "get"}
 
 
 def test_the_storing_call_exists_only_inside_apply_and_save():

@@ -5636,6 +5636,26 @@ class DENTORobotWorkflowFacade:
         except Exception:
             return None
 
+    def taskHomeJointIdentity(self) -> dict:
+        """Read-only: the accepted, monitored and displayed J1–J5 vectors (SI) that the Task Home accept path compares.
+
+        Each entry is a canonical five-joint mapping or ``None`` when that source is unavailable. It changes
+        nothing and never moves the robot (S6-ADVISOR-GUI-01 consent-gated Home revalidation).
+        """
+
+        monitored = displayed = None
+        reader = getattr(self._bridge, "monitored_joint_positions_si", None)
+        try:
+            monitored = self._manual_task_home_review_vector(reader()) if callable(reader) else None
+        except Exception:
+            monitored = None
+        try:
+            state = self.currentRobotState().joint_positions_si
+            displayed = self._manual_task_home_review_vector({name: state[name] for name in JOINT_NAMES})
+        except Exception:
+            displayed = None
+        return {"accepted": self._manual_task_home_accepted_positions(), "monitored": monitored, "displayed": displayed}
+
     @staticmethod
     def _manual_task_home_non_home_identity(identity) -> dict[str, str]:
         keys = ("branch_id", "base", "trajectory", "robot_profile", "collision_audit", "limits")
