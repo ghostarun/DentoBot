@@ -1,7 +1,7 @@
 """Input-identity capture for the advisor session (S6-ADVISOR-GUI-01), moved out of ``advisor_service``.
 
-A plain mixin of the session: it reads the production logic/facade/node records the session already holds
-and never writes anything. Behaviour is unchanged by the move (module line budget only).
+A plain mixin of the session: it reads production records and tracks run-local expected input identity.
+It never writes production state or authority.
 """
 
 from __future__ import annotations
@@ -14,6 +14,54 @@ from dentobot_workflow import feasibility_advisor as fa
 
 
 class AdvisorIdentityMixin:
+    def _trial_identity_issues(self) -> list:
+        """Refuse foreign input drift before another trial or restore owner runs."""
+
+        if self._home is None:
+            return []
+        try:
+            current = self._stable_identity(self._capture_input_identity())
+            expected = self._stable_identity(self._trial_identity)
+            changed = sorted(k for k in set(current) | set(expected) if current.get(k) != expected.get(k))
+        except Exception as exc:
+            return [f"trial input identity could not be read: {exc}"[:250]]
+        return ["trial input identity changed outside an advisor owner: " + ", ".join(changed)] if changed else []
+
+    @staticmethod
+    def _unchanged_scene_sources(scene, step):
+        rows = []
+        for row in (scene or {}).get("objects") or ():
+            if step == "apply_barrier" and row.get("source_role") == "mouth-barrier":
+                continue
+            rows.append({k: v for k, v in row.items() if step != "apply_base" or k not in (
+                "outgoing_fingerprint", "outgoing_bounds_base_link_mm")})
+        return rows
+
+    def _advance_trial_identity(self, step: str) -> None:
+        """Attribute only known fields changed by a successful configuration owner."""
+
+        if self._home is None:
+            return
+        current = self._capture_input_identity()
+        before, after = self._stable_identity(self._trial_identity), self._stable_identity(current)
+        allowed = {"apply_base": {"saved_base", "audited_scene_sources", "collision_audit_status"},
+                   "apply_barrier": {"mouth_barrier", "audited_scene_sources", "collision_audit_status"},
+                   "apply_opening": {"audited_scene_sources", "collision_audit_status"}}.get(step, set())
+        if step == "apply_opening":
+            # Preparation changes at the requested opening; all other source/environment fields stay exact.
+            before = {**before, "source_environment": dict(before.get("source_environment") or {})}
+            after = {**after, "source_environment": dict(after.get("source_environment") or {})}
+            before["source_environment"].pop("jaw_configuration_fingerprint", None)
+            after["source_environment"].pop("jaw_configuration_fingerprint", None)
+        changed = sorted(k for k in set(before) | set(after)
+                         if k not in allowed and before.get(k) != after.get(k))
+        if step in ("apply_base", "apply_barrier") and self._unchanged_scene_sources(
+                before.get("audited_scene_sources"), step) != self._unchanged_scene_sources(after.get("audited_scene_sources"), step):
+            changed.append("unrelated audited scene sources")
+        if changed:
+            raise home_mod.HomeRevalidationRefused("immutable input identity changed during " + step + ": " + ", ".join(changed))
+        self._trial_identity = current
+
     def _ctx_matrix(self, transform_node):
         import numpy as np
         import vtk

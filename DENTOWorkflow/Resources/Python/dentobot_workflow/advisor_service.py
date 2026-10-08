@@ -287,6 +287,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         self._saved_home_identity: dict = {}
         self.branch_id = ""
         self._base_identity: dict = {}
+        self._trial_identity: dict = {}
         self._identity_available = False
         self._identity_error = ""
         self._session_identity = fa.fingerprint_of([id(self), self._started])
@@ -580,6 +581,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         self._restore_state = {**self.baseline, **self.original}
         try:
             self._base_identity = self._capture_input_identity()
+            self._trial_identity = self._base_identity
             self._identity_available = True
         except Exception as exc:
             self._base_identity = {
@@ -651,6 +653,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         return self._stable_identity(self._capture_input_identity(), source_only=True)
 
     def _enter_pause(self, current, name: str, message: str) -> StepEvent:
+        self._advance_trial_identity(name)
         self._pause = home_mod.OperatorPause(self.root)
         self._pause.enter(candidate=current.index, stage=current.stage, step=name, message=message,
                           frozen=self._source_identity())
@@ -689,6 +692,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                 self._pause.refused(self.message)
             return StepEvent("pause", self.message, stage=info.get("stage", ""), index=info.get("candidate", 0),
                              total=self.total_candidates(), issues=issues)
+        self._advance_trial_identity("apply_opening")  # explicit Connect republishes the frozen opening's scene
         self._pause.resumed()
         self._pause = None
         self.phase = RESTORING if info.get("stage") == "restore" else EVALUATING
@@ -840,6 +844,9 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                 current, name, "Task Home requires explicit 6.2 operator review before this trial step: "
                 + "; ".join(home_issues)[:400]
             )
+        identity_issues = self._trial_identity_issues()
+        if identity_issues:
+            return self._record_operator_review_block(current, name, "; ".join(identity_issues))
         if name in APPLY_STEPS or name in fa.EVALUATION_STEPS:
             immutable_issues = self._immutable_trial_setting_issues()
             if immutable_issues:
@@ -856,6 +863,8 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                     current.cursor += 1
             else:
                 note = getattr(self, "_do_" + name)(current)
+            if name in APPLY_STEPS:
+                self._advance_trial_identity(name)
         except Exception as exc:  # recorded, never hidden
             if isinstance(exc, _PauseForOperator):
                 try:
@@ -1345,7 +1354,11 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         current = _Current(0, "restore", self._restore_state, "restore", self.root / "restore", {}, [name])
         current.observed = self._restore_observed
         try:
+            issues = self._trial_identity_issues()
+            if issues:
+                raise home_mod.HomeRevalidationRefused("; ".join(issues))
             getattr(self, "_do_" + name)(current)
+            self._advance_trial_identity(name)
             if self._restore_observed.get("needs_rebuild"):
                 self.restore_issues.append(
                     f"{name}: PreparedBranch needs operator review; original opening could not be safely restored"
