@@ -390,7 +390,8 @@ def test_headed_motion_requires_exact_opt_in_and_native_preflight():
     assert ast.unparse(native_gate.test) == (
         "not allow_jog and (not draft_only) and (not invalid_draft_review) "
         "and (not joint_keyboard_opt_in) and (not workspace_diagnostic) and (not connect_only) "
-        "and (not offline_home_setup_opt_in) or native is None"
+        "and (not offline_home_setup_opt_in) and (not _exact_env_opt_in('DENTOBOT_HEADED_SESSION')) "
+        "or native is None"
     )
     assert "get_package_prefix" in SOURCE
     assert 're.fullmatch(r"[0-9a-fA-F]{64}", value)' in SOURCE
@@ -399,6 +400,56 @@ def test_headed_motion_requires_exact_opt_in_and_native_preflight():
     assert "EXPECTED_NATIVE_SOURCE_SHA256" not in SOURCE
     assert "EXPECTED_NATIVE_BINARY_SHA256" not in SOURCE
     assert re.search(r"['\"][0-9a-fA-F]{64}['\"]", SOURCE) is None
+
+
+def test_session_checkpoint_selects_connect_with_all_scenario_opt_ins_off():
+    run = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef) and node.name == "run"
+    )
+    gates = [
+        node for node in ast.walk(run)
+        if isinstance(node, ast.If)
+        and "offline_home_setup_opt_in" in ast.unparse(node.test)
+        and "allow_jog" in ast.unparse(node.test)
+    ]
+    assert len(gates) == 2  # the PARTIAL condition and its mirrored explanation
+
+    for gate in gates:
+        expression = compile(ast.Expression(gate.test), str(RUNNER), "eval")
+
+        def selected_session(enabled):
+            def exact_opt_in(name):
+                assert name == "DENTOBOT_HEADED_SESSION"
+                return enabled
+
+            return bool(eval(expression, {
+                "allow_jog": False,
+                "draft_only": False,
+                "invalid_draft_review": False,
+                "joint_keyboard_opt_in": False,
+                "workspace_diagnostic": False,
+                "connect_only": False,
+                "offline_home_setup_opt_in": False,
+                "native": object(),
+                "_exact_env_opt_in": exact_opt_in,
+            }))
+
+        assert selected_session(False) is True  # default-off remains no-connect
+        assert selected_session(True) is False  # explicit session reaches Connect + scene ack
+        if "native is None" in ast.unparse(gate.test):
+            context = {
+                "allow_jog": False,
+                "draft_only": False,
+                "invalid_draft_review": False,
+                "joint_keyboard_opt_in": False,
+                "workspace_diagnostic": False,
+                "connect_only": False,
+                "offline_home_setup_opt_in": False,
+                "native": None,
+                "_exact_env_opt_in": lambda _name: True,
+            }
+            assert eval(expression, context) is True  # session never bypasses native provenance
 
 
 def test_taskless_draft_opt_in_is_exact_and_excludes_motion_opt_ins(monkeypatch):
@@ -941,7 +992,10 @@ def test_per_sha_profile_binds_the_exact_published_commit_to_its_detached_worktr
     monkeypatch.setenv("DENTOBOT_HEADED_GIT_HEAD", sha)
     assert profile() == {
         "name": "per-sha", "branch": "DETACHED",
-        "host_root": "/home/light-tarun/dentobot/ros2_ws/src/DentoBot-visible-6dce03e04ecf",
+        "host_root": "/home/tarun/dentobot/ros2_ws/src/DentoBot-visible-6dce03e04ecf",
+        "host_root_aliases": (
+            "/home/light-tarun/dentobot/ros2_ws/src/DentoBot-visible-6dce03e04ecf",
+        ),
         "container_root": "/workspace/ros2_ws/src/DentoBot-visible-6dce03e04ecf",
     }
     for bad in ("", "6dce03e", sha.upper(), sha[:39] + "g", sha + "0"):
@@ -951,6 +1005,45 @@ def test_per_sha_profile_binds_the_exact_published_commit_to_its_detached_worktr
     monkeypatch.delenv("DENTOBOT_HEADED_GIT_HEAD")
     with pytest.raises(RuntimeError, match="40 lowercase hexadecimal"):
         profile()
+
+
+def test_per_sha_checkout_evidence_accepts_exact_host_roots_and_rejects_foreign(monkeypatch):
+    sha = "6dce03e04ecf901a05dd3c821def9dd2865d2462"
+    monkeypatch.setenv("DENTOBOT_HEADED_PROVENANCE_MODE", "per-sha")
+    monkeypatch.setenv("DENTOBOT_HEADED_GIT_HEAD", sha)
+    monkeypatch.setenv("DENTOBOT_HEADED_GIT_BRANCH", "DETACHED")
+    monkeypatch.setenv("DENTOBOT_HEADED_GIT_STATUS_SHA256", "a" * 64)
+
+    profile = _extract_helper(
+        "_checkout_profile",
+        {"os": os, "re": re, "CHECKOUT_PROFILES": _module_constant("CHECKOUT_PROFILES")},
+    )
+    selected = profile()
+    checkout_evidence = _extract_helper("_checkout_evidence", {
+        "_checkout_profile": profile,
+        "os": os,
+        "re": re,
+        "Path": Path,
+        "ROOT": Path(selected["container_root"]),
+        "SOURCE_FILES": (),
+        "_sha256_file": lambda _path: "f" * 64,
+        "__file__": str(RUNNER),
+    })
+
+    accepted_roots = (selected["host_root"], *selected["host_root_aliases"])
+    for root in accepted_roots:
+        monkeypatch.setenv("DENTOBOT_HEADED_HOST_CHECKOUT_ROOT", root)
+        evidence = checkout_evidence()
+        assert evidence["container_checkout_root"] == selected["container_root"]
+        assert evidence["host_git_preflight"]["checkout_root"] == root
+        assert evidence["host_git_preflight"]["head_commit"] == sha
+
+    monkeypatch.setenv(
+        "DENTOBOT_HEADED_HOST_CHECKOUT_ROOT",
+        "/home/tarun/dentobot/ros2_ws/src/DentoBot-visible-unrelated",
+    )
+    with pytest.raises(RuntimeError, match="unexpected checkout root"):
+        checkout_evidence()
 
 
 def test_runner_routes_guarded_scenarios_through_one_production_click_owner():

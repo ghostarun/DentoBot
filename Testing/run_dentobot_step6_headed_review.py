@@ -637,10 +637,11 @@ def _checkout_evidence() -> dict[str, object]:
         raise LookupError("Host Git preflight is missing: " + ", ".join(missing))
 
     container_root = ROOT.resolve()
-    if host_root != profile["host_root"]:
+    accepted_host_roots = {profile["host_root"], *profile.get("host_root_aliases", ())}
+    if host_root not in accepted_host_roots:
         raise RuntimeError(
             "Host wrapper reported an unexpected checkout root: "
-            f"{host_root}; expected {profile['host_root']}."
+            f"{host_root}; expected one of {sorted(accepted_host_roots)}."
         )
     if str(container_root) != profile["container_root"]:
         raise RuntimeError(
@@ -676,7 +677,7 @@ def _checkout_evidence() -> dict[str, object]:
     }
 
 
-def _checkout_profile() -> dict[str, str]:
+def _checkout_profile() -> dict[str, object]:
     mode = os.environ.get("DENTOBOT_HEADED_PROVENANCE_MODE", "renovation")
     if mode == "per-sha":
         # S6-ADVISOR-GUI-01 (2026-10-08): the exact origin-published commit checked out detached under the
@@ -687,7 +688,8 @@ def _checkout_profile() -> dict[str, str]:
         name = f"DentoBot-visible-{commit[:12]}"
         return {
             "name": mode, "branch": "DETACHED",
-            "host_root": f"/home/light-tarun/dentobot/ros2_ws/src/{name}",
+            "host_root": f"/home/tarun/dentobot/ros2_ws/src/{name}",
+            "host_root_aliases": (f"/home/light-tarun/dentobot/ros2_ws/src/{name}",),
             "container_root": f"/workspace/ros2_ws/src/{name}",
         }
     if mode not in CHECKOUT_PROFILES:
@@ -3905,6 +3907,7 @@ def run() -> int:
             and not workspace_diagnostic
             and not connect_only
             and not offline_home_setup_opt_in
+            and not _exact_env_opt_in("DENTOBOT_HEADED_SESSION")
         ) or native is None:
             reasons = []
             if (
@@ -3915,6 +3918,7 @@ def run() -> int:
                 and not workspace_diagnostic
                 and not connect_only
                 and not offline_home_setup_opt_in
+                and not _exact_env_opt_in("DENTOBOT_HEADED_SESSION")
             ):
                 reasons.append(
                     "No guarded-jog, taskless-draft, invalid-draft, joint-keyboard, workspace-diagnostic, connect-only, or offline-Home setup opt-in is enabled."
