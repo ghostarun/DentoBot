@@ -578,7 +578,7 @@ def test_a_runtime_acknowledgement_that_is_lost_is_not_hidden_by_the_stable_iden
 
     world.logic.collisionSceneAuditRecord = lost_ack
     ok_after, reason = s._identity_matches_baseline()
-    assert ok_before and not ok_after and "audited scene" in reason
+    assert ok_before and not ok_after and "audited_scene_sources" in reason
 
 
 def test_a_changed_audit_base_binding_is_not_hidden_by_the_stable_identity(tmp_path):
