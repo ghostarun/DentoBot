@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import sys
 import time
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
@@ -92,9 +94,31 @@ def joints_equal_saved(snapshot: Mapping, tolerance: float = 1.0e-12) -> list:
         vector = (snapshot.get("joints_si") or {}).get(source)
         if not vector or set(vector) != set(saved):
             issues.append(f"{source} unavailable")
-        elif max(abs(float(vector[n]) - float(saved[n])) for n in saved) > tolerance:
-            issues.append(f"{source} differs from the saved Home")
+        else:
+            try:
+                values = [float(v) for v in (*vector.values(), *saved.values())]
+                if not all(math.isfinite(v) for v in values):
+                    raise ValueError("non-finite joint")
+                if max(abs(float(vector[n]) - float(saved[n])) for n in saved) > tolerance:
+                    issues.append(f"{source} differs from the saved Home")
+            except (TypeError, ValueError, OverflowError):
+                issues.append(f"{source} unavailable (invalid joint value)")
     return issues if saved else ["no saved Task Home"]
+
+
+def retain_command_failure(logic, facade, node, *, steps, before, guards, path, failure) -> dict:
+    """Keep the first command failure, owner counts and restoration evidence even when the command raises."""
+
+    result = {"steps": steps, "before": before, "after": None, "guards": {k: g.report() for k, g in guards.items()},
+              "first_failure": f"{type(failure).__name__}: {failure}"[:400]}
+    try:
+        result["after"] = invariant_snapshot(logic, facade, node, label="after-failed-command")
+        result["invariant_diff"] = snapshot_diff(before, result["after"], allow=EXPECTED_AUTHORITY_DRIFT)
+        result["joint_issues_after"] = joints_equal_saved(result["after"])
+    except Exception as exc:
+        result["after_snapshot_error"] = f"{type(exc).__name__}: {exc}"[:300]
+    Path(path).write_text(json.dumps(result, indent=2, default=str), encoding="utf-8")
+    return result
 
 
 class OwnerGuard:
@@ -104,10 +128,14 @@ class OwnerGuard:
         self.target = target
         self.calls: dict = {}
         self._originals: dict = {}
-        for name in tuple(refuse):
-            self._wrap(name, refuse=True)
-        for name in tuple(count):
-            self._wrap(name, refuse=False)
+        try:
+            for name in tuple(refuse):
+                self._wrap(name, refuse=True)
+            for name in tuple(count):
+                self._wrap(name, refuse=False)
+        except Exception:
+            self.restore()
+            raise
 
     def _wrap(self, name: str, *, refuse: bool) -> None:
         original = getattr(self.target, name)
@@ -161,11 +189,15 @@ class Timeline:
 def instrument_session(session, widget, timeline: Timeline) -> Callable:
     """Stamp every ``session.step()`` (before, with the sub-step label, and after) and the Cancel handler entry.
 
-    Returns an ``undo`` callable. The wrappers only observe; they never alter results or timing decisions.
+    The Cancel signal already captures its bound handler, so an instance monkeypatch would miss real clicks.
+    A temporary Python profile hook stamps entry into that exact handler's code and chains the previous hook.
+    Returns an ``undo`` callable; neither observation changes results or timing decisions.
     """
 
     original_step = session.step
     original_cancel = widget._advisorOnCancel
+    cancel_code = getattr(original_cancel, "__func__", original_cancel).__code__
+    previous_profile = sys.getprofile()
 
     def step():
         label = session.progress()
@@ -178,16 +210,18 @@ def instrument_session(session, widget, timeline: Timeline) -> Callable:
         timeline.stamp("step_event", event=getattr(event, "kind", ""), message=str(getattr(event, "message", ""))[:160])
         return event
 
-    def cancel():
-        timeline.stamp("cancel_handler_entry", phase=session.phase)
-        return original_cancel()
+    def profile(frame, event, arg):
+        if event == "call" and frame.f_code is cancel_code:
+            timeline.stamp("cancel_handler_entry", phase=session.phase)
+        if previous_profile is not None:
+            previous_profile(frame, event, arg)
 
     session.step = step
-    widget._advisorOnCancel = cancel
+    sys.setprofile(profile)
 
     def undo():
         session.step = original_step
-        widget._advisorOnCancel = original_cancel
+        sys.setprofile(previous_profile)
 
     return undo
 
@@ -216,4 +250,8 @@ def cancel_latency(rows: Iterable[Mapping], helper: Mapping) -> dict:
         result["delivery_delay_ms"] = round((handler["mono_ns"] - helper["t_send_after_ns"]) / 1e6, 3)
         if restore_start is not None:
             result["cancel_to_restore_start_ms"] = round((restore_start["mono_ns"] - handler["mono_ns"]) / 1e6, 3)
+        done = next((r for r in rows if r["kind"] == "step_event" and r.get("event") == "done"
+                     and r["mono_ns"] >= handler["mono_ns"]), None)
+        if done is not None:
+            result["cancel_to_done_ms"] = round((done["mono_ns"] - handler["mono_ns"]) / 1e6, 3)
     return result

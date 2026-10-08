@@ -2,6 +2,7 @@
 
 import json
 import sys
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -87,14 +88,48 @@ def test_timeline_is_flushed_per_line_and_instrumentation_only_observes(tmp_path
     cancelled = []
     widget = SimpleNamespace(_advisorOnCancel=lambda: cancelled.append(1) or "cancelled")
     original_step = session.step
+    bound_cancel_slot = widget._advisorOnCancel  # Qt captured this before instrumentation was installed
+    previous_profile = sys.getprofile()
     undo = probe.instrument_session(session, widget, timeline)
-    assert session.step().kind == "step" and widget._advisorOnCancel() == "cancelled" and cancelled == [1]
+    assert session.step().kind == "step" and bound_cancel_slot() == "cancelled" and cancelled == [1]
     rows = [json.loads(line) for line in (tmp_path / "t" / "timeline.jsonl").read_text().splitlines()]  # readable while open
     assert [r["kind"] for r in rows] == ["step_start", "step_end", "step_event", "cancel_handler_entry"]
     assert rows[0]["step"] == "diagnose · p1_route" and all(rows[i]["mono_ns"] <= rows[i + 1]["mono_ns"] for i in range(3))
     undo()
+    assert sys.getprofile() is previous_profile
     assert session.step is original_step and widget._advisorOnCancel() == "cancelled"
     timeline.close()
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf"), "invalid"])
+def test_invalid_joint_values_cannot_pass_probe_equality(value):
+    before = snap()
+    before["joints_si"]["monitored"]["j1"] = value
+    assert probe.joints_equal_saved(before) == ["monitored unavailable (invalid joint value)"]
+
+
+def test_a_partial_guard_installation_is_undone_when_an_owner_is_missing():
+    target = SimpleNamespace(connect=lambda: "original")
+    original = target.connect
+    with pytest.raises(AttributeError):
+        probe.OwnerGuard(target, refuse=("connect", "absent"))
+    assert target.connect is original and target.connect() == "original"
+
+
+def test_failure_evidence_keeps_the_cause_and_counts_when_after_snapshot_is_unavailable(tmp_path):
+    target = SimpleNamespace(connect=lambda: None)
+    guard = probe.OwnerGuard(target, refuse=("connect",))
+    with pytest.raises(RuntimeError):
+        target.connect()
+    path = tmp_path / "failure.json"
+    result = probe.retain_command_failure(None, None, None, steps={"restore_issues": ["unknown"]},
+                                         before={"home_revision": 1}, guards={"facade": guard}, path=path,
+                                         failure=RuntimeError("first causal error"))
+    assert result["first_failure"] == "RuntimeError: first causal error"
+    assert result["guards"]["facade"]["connect"]["refused"] == 1
+    assert result["after"] is None and "after_snapshot_error" in result
+    assert json.loads(path.read_text()) == result
+    guard.restore()
 
 
 def test_cancel_latency_separates_the_independent_input_from_the_handler_and_the_covering_step():

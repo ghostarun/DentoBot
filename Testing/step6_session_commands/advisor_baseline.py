@@ -84,6 +84,10 @@ except BaseException as failure:
     except Exception as capture_error:
         steps["failure_capture_error"] = str(capture_error)[:200]
     steps["first_failure"] = f"{type(failure).__name__}: {failure}"[:400]
+    result = probe.retain_command_failure(
+        logic, facade, parameter_node, steps=steps, before=before,
+        guards={"facade": guard_facade, "logic": guard_logic},
+        path=evidence_dir / f"{stamp}-failure.json", failure=failure)
     raise
 finally:
     gate_timer.stop()
@@ -97,6 +101,11 @@ diff = probe.snapshot_diff(before, after, allow=probe.EXPECTED_AUTHORITY_DRIFT)
 (evidence_dir / f"{stamp}-snapshots.json").write_text(json.dumps({"before": before, "after": after, "diff": diff}, indent=2), encoding="utf-8")
 result = {"steps": steps, "guards": {"facade": guard_facade.report(), "logic": guard_logic.report()},
           "invariant_diff": diff, "joint_issues_after": probe.joints_equal_saved(after)}
+result["baseline_success"] = (steps.get("outcome") == "found" and not steps.get("restore_issues")
+                              and len(steps.get("records", [])) == 1
+                              and steps["records"][0].get("result") in ("pass", "warning"))
+if not result["baseline_success"]:
+    _capture(report, evidence_dir, run_id, "advisor-A-first-outcome-failure")
 if modals:
     raise RuntimeError("run A met an unexpected sensitive-stage review gate (declined, retained): " + json.dumps(modals))
 if guard_facade.refused_total() or guard_logic.refused_total():

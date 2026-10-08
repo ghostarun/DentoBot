@@ -103,6 +103,10 @@ def main(argv=None) -> int:
                 break
             time.sleep(0.1)
         time.sleep(float(arm["offset_sec"]))
+        still_open = last_open_step(read_rows(Path(arm["timeline"])))
+        if (not should_fire(still_open, arm) or still_open.get("mono_ns") != open_step["mono_ns"]):
+            result["error"] = "the armed step finished before input; no click was sent"
+            return 2
         env = dict(os.environ, DISPLAY=args.display)
         subprocess.run(["xdotool", "mousemove", str(arm["x"]), str(arm["y"])], env=env, check=True, timeout=10)
         result["t_send_before_ns"] = time.monotonic_ns()

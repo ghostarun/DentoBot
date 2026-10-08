@@ -105,6 +105,10 @@ except BaseException as failure:
     except Exception as capture_error:
         steps["failure_capture_error"] = str(capture_error)[:200]
     steps["first_failure"] = f"{type(failure).__name__}: {failure}"[:400]
+    result = probe.retain_command_failure(
+        logic, facade, parameter_node, steps=steps, before=before,
+        guards={"facade": guard_facade, "logic": guard_logic},
+        path=evidence_dir / f"{stamp}-failure.json", failure=failure)
     raise
 finally:
     gate_timer.stop()
@@ -118,6 +122,14 @@ diff = probe.snapshot_diff(before, after, allow=probe.EXPECTED_AUTHORITY_DRIFT)
 (evidence_dir / f"{stamp}-snapshots.json").write_text(json.dumps({"before": before, "after": after, "diff": diff}, indent=2), encoding="utf-8")
 result = {"steps": steps, "guards": {"facade": guard_facade.report(), "logic": guard_logic.report()},
           "invariant_diff": diff, "joint_issues_after": probe.joints_equal_saved(after)}
+helper_path = session_dir / "cancel-helper.json"
+receipt_deadline = time.monotonic() + 5.0
+while not helper_path.exists() and time.monotonic() < receipt_deadline:
+    _process_events(0.1)  # the external sender finishes its own receipt after the click; no replacement input
+helper_result = json.loads(helper_path.read_text()) if helper_path.exists() else {}
+result["external_cancel"] = helper_result
+if not helper_result.get("sent") or steps.get("outcome") != "cancelled":
+    raise RuntimeError("no externally cancelled trial was demonstrated; retained outcome is not a Cancel measurement")
 if modals:
     raise RuntimeError("run B met an unexpected sensitive-stage review gate (declined, retained): " + json.dumps(modals))
 if steps["fallback_inprocess_cancel"]:
