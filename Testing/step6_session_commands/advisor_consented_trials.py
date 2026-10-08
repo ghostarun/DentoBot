@@ -142,6 +142,8 @@ timeline_rows = [json.loads(line) for line in (session_dir / "advisor-B-timeline
 if helper_result.get("sent"):
     result["cancel_latency"] = probe.cancel_latency(timeline_rows, helper_result)
     (session_dir / "advisor-B-cancel-latency.json").write_text(json.dumps(result["cancel_latency"], indent=2), encoding="utf-8")
+if helper_result.get("sent") and not result["cancel_latency"].get("measurement_complete"):
+    raise RuntimeError("external Cancel measurement is incomplete: handler/covering-step/restore/done stamps are required")
 if not helper_result.get("sent") or steps.get("outcome") != "cancelled":
     raise RuntimeError("no externally cancelled trial was demonstrated; retained outcome is not a Cancel measurement")
 if modals:

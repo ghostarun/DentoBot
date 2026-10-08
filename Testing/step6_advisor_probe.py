@@ -230,7 +230,8 @@ def cancel_latency(rows: Iterable[Mapping], helper: Mapping) -> dict:
     """Combine the in-process timeline with the independent external input stamps.
 
     ``helper`` carries the external process' ``t_send_before_ns``/``t_send_after_ns`` (same CLOCK_MONOTONIC).
-    Reports the delivery delay to the actual handler, the step interval that covered the input and the restore start.
+    The send command brackets the actual input: report a delay interval, never a negative delivery delay.
+    Retain the raw stamps and require the handler, covering step, restore and done for a complete measurement.
     """
 
     rows = list(rows)
@@ -245,13 +246,22 @@ def cancel_latency(rows: Iterable[Mapping], helper: Mapping) -> dict:
     restore_start = next((r for r in rows if r["kind"] == "step_start" and r.get("phase") == "restoring"
                           and handler is not None and r["mono_ns"] >= handler["mono_ns"]), None)
     result = {"sent_before_ns": helper["t_send_before_ns"], "sent_after_ns": helper["t_send_after_ns"],
-              "handler_ns": handler["mono_ns"] if handler else None, "covering_step": covering}
+              "handler_ns": handler["mono_ns"] if handler else None, "covering_step": covering,
+              "measurement_complete": False}
     if handler is not None:
-        result["delivery_delay_ms"] = round((handler["mono_ns"] - helper["t_send_after_ns"]) / 1e6, 3)
+        lower = (handler["mono_ns"] - helper["t_send_after_ns"]) / 1e6
+        upper = (handler["mono_ns"] - helper["t_send_before_ns"]) / 1e6
+        result["delivery_delay_bounds_ms"] = [round(max(0.0, lower), 3), round(upper, 3)]
+        result["handler_during_send"] = lower < 0
+        if lower >= 0:
+            result["delivery_delay_ms"] = round(lower, 3)  # lower bound, not an exact input timestamp
+        result["send_window_ms"] = round((helper["t_send_after_ns"] - helper["t_send_before_ns"]) / 1e6, 3)
         if restore_start is not None:
             result["cancel_to_restore_start_ms"] = round((restore_start["mono_ns"] - handler["mono_ns"]) / 1e6, 3)
         done = next((r for r in rows if r["kind"] == "step_event" and r.get("event") == "done"
                      and r["mono_ns"] >= handler["mono_ns"]), None)
         if done is not None:
             result["cancel_to_done_ms"] = round((done["mono_ns"] - handler["mono_ns"]) / 1e6, 3)
+        result["measurement_complete"] = (covering is not None and restore_start is not None and done is not None
+                                          and helper["t_send_after_ns"] >= helper["t_send_before_ns"])
     return result

@@ -68,6 +68,7 @@ def test_the_dialog_commands_never_approve_a_stage_and_keep_consent_explicit():
     trials = (COMMANDS / "advisor_consented_trials.py").read_text(encoding="utf-8")
     assert trials.count('state["consentBox"].checked = True') == 1 and "fallback_inprocess_cancel" in trials
     assert 'state["startButton"].click()' not in trials and "found" in trials  # continues from Run A's open FOUND dialog
+    assert 'get("measurement_complete")' in trials and "external Cancel measurement is incomplete" in trials
     assert "NO independent" in trials  # a fallback in-process Cancel fails the measurement instead of replacing it
     assert '"createOrUpdateStep6CaseJawOpening"' in trials and '"setStep6MouthBarrierTuning"' in trials  # refused
 

@@ -147,3 +147,19 @@ def test_cancel_latency_separates_the_independent_input_from_the_handler_and_the
     assert result["cancel_to_restore_start_ms"] == pytest.approx((41 * s - 40 * s - 5_000_000) / 1e6)
     # no handler yet (the click is still queued): no latency is invented
     assert "delivery_delay_ms" not in probe.cancel_latency(rows[:2], helper)
+
+
+def test_cancel_handler_during_the_send_window_reports_bounds_and_missing_handler_is_incomplete():
+    helper = {"t_send_before_ns": 100_000_000, "t_send_after_ns": 120_000_000}
+    rows = [{"kind": "step_start", "mono_ns": 90_000_000, "phase": "evaluating", "step": "diagnose · p1_route"},
+            {"kind": "step_end", "mono_ns": 104_000_000},
+            {"kind": "cancel_handler_entry", "mono_ns": 105_000_000},
+            {"kind": "step_start", "mono_ns": 125_000_000, "phase": "restoring"},
+            {"kind": "step_event", "mono_ns": 150_000_000, "event": "done"}]
+    measured = probe.cancel_latency(rows, helper)
+    assert measured["delivery_delay_bounds_ms"] == [0.0, 5.0]
+    assert measured["handler_during_send"] and "delivery_delay_ms" not in measured
+    assert measured["measurement_complete"] and measured["send_window_ms"] == 20.0
+    missing = probe.cancel_latency([r for r in rows if r["kind"] != "cancel_handler_entry"], helper)
+    assert not missing["measurement_complete"] and missing["handler_ns"] is None
+    assert not probe.cancel_latency(rows[:-1], helper)["measurement_complete"]
