@@ -1174,6 +1174,68 @@
       "entrypoint": "Testing/step6_frame_sync_export.py",
       "command_template": "Only under a separately approved, serialized simulation session, choose a de-identified source case copy and fresh data/dentobot-runs/YYYY-MM-DD/S6-FRAME-SYNC-01-<UTC-start>/ directory. First invoke test_DENTOWorkflowFrameSyncKnownTransforms in a separate offline Slicer fixture session with DENTOBOT_FRAME_SYNC_FIXTURE and DENTOBOT_FRAME_SYNC_EVIDENCE_DIR configured; it loads an isolated scene, never the operator's live scene. Then use production owners to establish the reviewed upper and lower targets at at least two distinct openings each, a Base translation/yaw, branch switch and save/reopen. Do not automate acceptance or motion. In each unchanged acknowledged case state: export_scene(namespace, case_dir/'slicer-export'); read-only python3 Testing/moveit_scene_dump.py --out <fresh case_dir/native-dump> in the sourced domain-73 container; analyse_scene(native_dump, slicer_export); kinematics_rows(namespace, states) with explicit SI states preentry, entry, drilling_end; collision_agreement({...namespace, 'acm': captured acm.json, 'scene_snapshot': captured scene-dump.json, 'phase': state_name}, joints, source_bodies(namespace)) per state. Save full returned JSON, explicit joint vectors, case/branch/target/opening/Base identity, source/code/native hashes and matched-state visuals under that case_dir. Bodies must include template, lip slab, cheek walls, selected target and neighbours, with exact audit IDs. Capture identities before/after and refuse changed scene inputs. No launch or command in this entry is authorized by matrix selection alone. Stop at every GUI result for Tarun's verdict and at the first unresolved layer disagreement; no automatic retries or geometry/policy changes. No hardware.",
       "pass_condition": "L3 offline known-transform fixture regression passes; captured coverage proves upper and lower targets, >=2 openings EACH, translated/yawed Base, branch switch and save/reopen. In EVERY case L2 matches EVERY native world object ID, vertex/triangle counts and sampled two-way exact surface Hausdorff <=0.05 mm; no missing, unsupported or skipped object. L4 all preentry/entry/drilling_end rows PASS at existing 0.01 mm / 0.01 degree tolerances. L5 every required link/body pair has complete authoritative same-state validity, current zero padding/unit scale and matching URDF identity, effective ACM and no disagreement, missing/truncated or unexamined contacts; intended terminal burr/target contact explicitly labelled. Retained identities must be stable and matched-state visuals/operator verdict recorded. Otherwise the case is NOT accepted. Agreement is not collision-free motion proof. Native production mesh gate remains deferred phase2."
+    },
+    {
+      "id": "pure.step6_advisor_session_host",
+      "execution_kind": "host_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [
+        "static.git_diff_check"
+      ],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "host_pure",
+      "entrypoint": "Testing/test_step6_advisor_session_commands_source.py",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q Testing/test_step6_advisor_probe.py Testing/test_step6_advisor_session_commands_source.py Testing/test_step6_video_sanity.py Testing/test_step6_advisor_gui.py",
+      "pass_condition": "Scoped host regressions pass for default-off consent, untouched unexpected modal, invariant snapshots, actual captured handler observation and complete external timing bounds; synthetic pixel checks fail closed. No native/runtime/recording/human-consent proof."
+    },
+    {
+      "id": "runtime.step6_advisor_baseline_session",
+      "execution_kind": "slicer_ros_moveit_headed",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "static.step6_pycompile",
+        "static.git_diff_check",
+        "pure.screen_recorder",
+        "pure.step6_advisor_session_host",
+        "build.slicer_ros2_if_changed"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 2400,
+      "evidence_level": "simulation_runtime_headed",
+      "entrypoint": "Testing/step6_session_commands/advisor_baseline.py",
+      "command_template": "NOT_RUNTIME_VERIFIED. Compose existing recorded headed runbook, exact origin-published clean per-SHA source/native/case parity, private Xvfb + record_slicer_screen.py, and run_dentobot_step6_headed_review.py with DENTOBOT_HEADED_SESSION=1 and all jog/Base/Home bootstrap/scenario/save opt-ins OFF. Submit advisor_precheck.py then advisor_baseline.py atomically one at a time through existing step6_session_driver inbox, using the separately approved run-local wrapper. Baseline checkbox remains OFF; no Base/Home trial. Preserve screenshot/video/raw diagnostic/owner/restore evidence, untouched unexpected modal and manual verdict stop; no automatic Run B. Native build, container start, resource release and active/idle limits must be named in the concrete request. Never infer approval from matrix selection.",
+      "pass_condition": "One real GUI baseline found with exactly one PASS/WARNING candidate and confirmed original-state restoration, saved=accepted=monitored=displayed joints1e-12, prohibited-owner counts0, exact loaded/source/native/case provenance and usable actual video/pixel metrics + screenshots/diagnostics. Safe blocked/no-solution is honest PARTIAL/STOP, not successful configuration proof. Unexpected modal remains untouched and dispatch stops. Tarun verdict required; no feature/clinical acceptance."
+    },
+    {
+      "id": "runtime.step6_advisor_consented_trial_cancel",
+      "execution_kind": "slicer_ros_moveit_headed",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "pure.step6_advisor_session_host",
+        "runtime.step6_advisor_baseline_session"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 900,
+      "evidence_level": "simulation_runtime_headed",
+      "entrypoint": "Testing/step6_session_commands/advisor_consented_trials.py",
+      "command_template": "NOT_RUNTIME_VERIFIED. Separate explicit continuation only after baseline manual verdict. Reuse open FOUND/restored dialog, advisor_consented_trials.py + step6_advisor_probe.py + external advisor_cancel_helper.py on the same monotonic clock/display. Explicitly name programmatic checkbox consent/More and failing600s in-process Cancel fallback; no human-consent inference. External helper outside Slicer in container requires actual xinput/xdotool availability/access and mapped run paths; no substitutions. Production Base/Home owners permit SAME-joints consented trial and original-state restoration; opening/barrier/Connect owners prohibited, sensitive modal untouched. Stop at result/manual verdict; no retries after unknown commit.",
+      "pass_condition": "Actual Base/Home trial and restore owner evidence, unchanged finite saved joints1e-12, exact source/case/scene identity, no foreign drift, complete external send interval/receipt + actual handler/covering-step/restore/done timestamps and confirmed original-state restoration. Missing helper/hook/receipt, fallback, refusal, unknown outcome, blocked restore or unusable video fails requested measurement. Scripted consent proves code path only. Operator verdict/threshold acceptance separate."
     }
   ]
 }
