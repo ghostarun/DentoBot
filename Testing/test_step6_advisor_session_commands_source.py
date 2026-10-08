@@ -50,15 +50,15 @@ def test_the_precheck_is_read_only_and_stops_instead_of_repairing():
 def test_the_dialog_commands_never_approve_a_stage_and_keep_consent_explicit():
     for name in ("advisor_baseline", "advisor_consented_trials"):
         source = (COMMANDS / f"{name}.py").read_text(encoding="utf-8")
-        assert "DENTOBOTStep6AdvisorGateSkipButton" in source and "GateEvaluateButton" not in source
+        assert "DENTOBOTStep6AdvisorGateSkipButton" not in source and "GateEvaluateButton" not in source
         assert "advisor-UNEXPECTED-GATE" in source and "unexpected sensitive-stage review gate" in source  # retained FAIL
         gate = ast.parse(source)
         watcher = next(n for n in ast.walk(gate) if isinstance(n, ast.FunctionDef) and n.name == "unexpected_gate")
-        # Abort intent is issued before the safe Skip dismissal; another candidate must not run after an unexpected gate.
-        calls = [n for n in ast.walk(watcher) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)]
-        cancel = next(n for n in calls if n.func.attr == "cancel")
-        skip = next(n for n in calls if n.func.attr == "click")
-        assert cancel.lineno < skip.lineno
+        # A watcher captures and stops its timer without modifying the modal or session.
+        calls = [n.func.attr for n in ast.walk(watcher) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)]
+        assert not {"click", "cancel", "accept", "reject", "close"}.intersection(calls)
+        assert "stop" in calls and "write_text" in calls
+        assert "STOP_UNEXPECTED_MODAL" in source
         assert 'state["consentBox"].checked is False' in source  # default OFF is asserted before anything else
         assert 'state["closeButton"].click()' not in source  # the dialog stays open for the operator's verdict
         assert "-FAILURE" in source and "first_failure" in source  # the first causal failure is captured and recorded

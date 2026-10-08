@@ -569,6 +569,7 @@ def test_dialog_source_builds_an_unchecked_consent_box_whose_label_carries_the_e
                        "advisor_home": SimpleNamespace(CONSENT_TEXT=CONSENT_TEXT)}
     label_text = eval(compile(ast.Expression(body=label.args[0]), "consentLabel", "eval"), label_namespace)
     assert CONSENT_TEXT in label_text
+    assert "preserves a VALID branch" in label_text and "branch review instead" in label_text
 
 
 def test_consent_box_can_be_ticked_only_before_a_search_starts_or_before_keep_searching():

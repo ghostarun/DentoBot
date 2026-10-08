@@ -25,20 +25,28 @@ modals = []
 
 
 def unexpected_gate():
-    """A sensitive-stage review gate is NOT part of this run: capture it, then dismiss it only through the dialog's own
-    safe default ("Skip this stage") after requesting cancellation, so only restoration may follow. The run fails."""
+    """Capture the first unexpected gate and leave the modal untouched for the operator's verdict.
 
+    The command remains blocked in the modal's event loop. The external supervisor must treat the retained
+    unexpected-gate file as a stop, submit no further commands, and preserve the owned session for review.
+    No consent, Skip, cancellation or dismissal is injected by this watcher.
+    """
     modal = qt.QApplication.activeModalWidget()
     if modal is not None and str(modal.objectName) == "DENTOBOTStep6AdvisorGateMessageBox":
+        gate_timer.stop()
         modals.append({"utc": _utc_now(), "title": str(modal.windowTitle), "text": str(modal.text)[:300]})
+        timeline.stamp("unexpected_gate_stop")
+        payload = {"status": "STOP_UNEXPECTED_MODAL", "modal": modals[-1], "before": before,
+                   "guards": {"facade": guard_facade.report(), "logic": guard_logic.report()}}
+        path = evidence_dir / f"{stamp}-unexpected-gate.json"
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         try:
-            _capture(report, evidence_dir, run_id, f"advisor-UNEXPECTED-GATE-{len(modals)}")
+            _capture(report, evidence_dir, run_id, "advisor-UNEXPECTED-GATE-1")
+            payload["at_stop"] = probe.invariant_snapshot(logic, facade, parameter_node, label="unexpected-gate")
+        except Exception as capture_error:
+            payload["capture_error"] = str(capture_error)[:200]
         finally:
-            widget._advisorState["session"].cancel()
-            timeline.stamp("unexpected_gate_abort")
-            for button in modal.findChildren(qt.QPushButton):
-                if str(button.objectName) == "DENTOBOTStep6AdvisorGateSkipButton":
-                    button.click()
+            path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 gate_timer = qt.QTimer()
@@ -109,7 +117,7 @@ result["baseline_success"] = (steps.get("outcome") == "found" and not steps.get(
 if not result["baseline_success"]:
     _capture(report, evidence_dir, run_id, "advisor-A-first-outcome-failure")
 if modals:
-    raise RuntimeError("run A met an unexpected sensitive-stage review gate (declined, retained): " + json.dumps(modals))
+    raise RuntimeError("run A met an unexpected sensitive-stage review gate (untouched, retained): " + json.dumps(modals))
 if guard_facade.refused_total() or guard_logic.refused_total():
     raise RuntimeError("a forbidden owner was attempted during run A: " + json.dumps(result["guards"]))
 if diff["unexpected"] or result["joint_issues_after"]:

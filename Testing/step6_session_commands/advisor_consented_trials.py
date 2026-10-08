@@ -3,7 +3,7 @@
 # Base trial (production Base stage/accept) with the production Home revalidation of the UNCHANGED saved joints -> an
 # independently timed Cancel during that trial's P1 Diagnose row (sent by Testing/advisor_cancel_helper.py outside Slicer)
 # -> restore through the normal owners and a fresh revalidation of the original joints.
-# Never approves a sensitive stage (gates are skipped). connect/disconnect and the opening/barrier owners are refused.
+# Never approves a sensitive stage (unexpected gates remain untouched). connect/disconnect and the opening/barrier owners are refused.
 # If the external helper never fires within the bound, an in-process Cancel is issued and flagged "not independent".
 import json
 import step6_advisor_probe as probe
@@ -27,20 +27,28 @@ modals = []
 
 
 def unexpected_gate():
-    """A sensitive-stage review gate is NOT part of this run: capture it, then dismiss it only through the dialog's own
-    safe default ("Skip this stage") after requesting cancellation, so only restoration may follow. The run fails."""
+    """Capture the first unexpected gate and leave the modal untouched for the operator's verdict.
 
+    The command remains blocked in the modal's event loop. The external supervisor must treat the retained
+    unexpected-gate file as a stop, submit no further commands, and preserve the owned session for review.
+    No consent, Skip, cancellation or dismissal is injected by this watcher.
+    """
     modal = qt.QApplication.activeModalWidget()
     if modal is not None and str(modal.objectName) == "DENTOBOTStep6AdvisorGateMessageBox":
+        gate_timer.stop()
         modals.append({"utc": _utc_now(), "title": str(modal.windowTitle), "text": str(modal.text)[:300]})
+        timeline.stamp("unexpected_gate_stop")
+        payload = {"status": "STOP_UNEXPECTED_MODAL", "modal": modals[-1], "before": before,
+                   "guards": {"facade": guard_facade.report(), "logic": guard_logic.report()}}
+        path = evidence_dir / f"{stamp}-unexpected-gate.json"
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         try:
-            _capture(report, evidence_dir, run_id, f"advisor-UNEXPECTED-GATE-{len(modals)}")
+            _capture(report, evidence_dir, run_id, "advisor-UNEXPECTED-GATE-1")
+            payload["at_stop"] = probe.invariant_snapshot(logic, facade, parameter_node, label="unexpected-gate")
+        except Exception as capture_error:
+            payload["capture_error"] = str(capture_error)[:200]
         finally:
-            widget._advisorState["session"].cancel()
-            timeline.stamp("unexpected_gate_abort")
-            for button in modal.findChildren(qt.QPushButton):
-                if str(button.objectName) == "DENTOBOTStep6AdvisorGateSkipButton":
-                    button.click()
+            path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def pump_until(predicate, bound_sec, label):
@@ -137,7 +145,7 @@ if helper_result.get("sent"):
 if not helper_result.get("sent") or steps.get("outcome") != "cancelled":
     raise RuntimeError("no externally cancelled trial was demonstrated; retained outcome is not a Cancel measurement")
 if modals:
-    raise RuntimeError("run B met an unexpected sensitive-stage review gate (declined, retained): " + json.dumps(modals))
+    raise RuntimeError("run B met an unexpected sensitive-stage review gate (untouched, retained): " + json.dumps(modals))
 if steps["fallback_inprocess_cancel"]:
     raise RuntimeError("the independent cancel helper did not fire: an in-process Cancel ended the search, so NO independent "
                        "Cancel-latency measurement was obtained (outcome retained, not substituted)")
