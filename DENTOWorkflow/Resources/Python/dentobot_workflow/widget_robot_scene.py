@@ -1193,6 +1193,7 @@ class RobotSceneWidgetMixin:
             self._parameterNode.step6CaseJawTransform
         ):
             try:
+                self._parameterNode.step6CaseJawTargetGapMm = float(value)  # the commit solves from the node
                 self.logic.previewCaseFoundationOpening(self._parameterNode, value)
                 self.logic.commitCaseFoundationOpeningPreview(self._parameterNode)
             except (RuntimeError, ValueError) as exc:
