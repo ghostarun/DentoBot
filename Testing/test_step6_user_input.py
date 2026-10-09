@@ -266,10 +266,16 @@ def make_qt(env):
     style_names = SimpleNamespace(
         SE_CheckBoxIndicator="indicator", SE_CheckBoxContents="contents",
         SE_RadioButtonIndicator="radio-indicator", SE_RadioButtonContents="radio-contents",
+        CC_SpinBox="spinbox-control", SC_SpinBoxUp="spinbox-up", SC_SpinBoxDown="spinbox-down",
     )
+
+    class QStyleOptionSpinBox:
+        pass
+
     return SimpleNamespace(
         QApplication=FakeQApplication(env), QPoint=QPoint, QFrame=QFrame, QLabel=QLabel,
         Qt=flags, QStyle=style_names, QStyleOptionButton=QStyleOptionButton,
+        QStyleOptionSpinBox=QStyleOptionSpinBox,
     )
 
 
@@ -1292,18 +1298,32 @@ class FakeArea:
     def height(self):
         return self._h
 
+    def x(self):
+        return self._x
+
+    def y(self):
+        return self._y
+
     def center(self):
         return FakePoint(self._x + self._w // 2, self._y + self._h // 2)
 
 
 class FakeStyle:
-    """Answers subElementRect from a table: element name -> (x, y, w, h); absent means an empty rect."""
+    """Answers Qt sub-element/sub-control geometry from tables; absent means an empty rect."""
 
-    def __init__(self, areas):
+    def __init__(self, areas, *, subcontrols=None, events=None):
         self._areas = areas
+        self._subcontrols = {} if subcontrols is None else subcontrols
+        self.events = events
 
     def subElementRect(self, element, option, widget):
         spec = self._areas.get(element)
+        return FakeArea(*spec) if spec else FakeArea(0, 0, 0, 0)
+
+    def subControlRect(self, control, option, subcontrol, widget):
+        if self.events is not None:
+            self.events.append("geometry")
+        spec = self._subcontrols.get(subcontrol)
         return FakeArea(*spec) if spec else FakeArea(0, 0, 0, 0)
 
 
@@ -1491,3 +1511,158 @@ def test_uinput_mode_reaches_a_hidden_tab_page_with_the_same_real_tab_press(tab_
     assert [entry.get("navigation") for entry in entries] == ["tab", None]
     assert all(entry["mode"] == "uinput" for entry in entries)
     assert world.target.clicks == 0
+
+
+class SpinArrowBackend(FakeBackend):
+    """Apply a spinbox step only when a real left-button release hits a style arrow point."""
+
+    def __init__(self, env, spinbox, *, up_point, down_point, step_on_click=True, **kwargs):
+        super().__init__(env, **kwargs)
+        self.spinbox = spinbox
+        self.up_point = up_point
+        self.down_point = down_point
+        self.step_on_click = step_on_click
+
+    def button(self, button, pressed):
+        super().button(button, pressed)
+        if button != 1 or pressed or not self.step_on_click:
+            return
+        value = float(self.spinbox.value)
+        step = float(self.spinbox.singleStep)
+        if self.position == self.up_point:
+            self.spinbox.value = min(float(self.spinbox.maximum), value + step)
+        elif self.position == self.down_point:
+            self.spinbox.value = max(float(self.spinbox.minimum), value - step)
+
+
+def _spinbox_arrow_world(harness, monkeypatch, *, dpr=1.0, value=40.0, visible=True, enabled=True,
+                         step_on_click=True):
+    target, env, _unused = harness(cls="QDoubleSpinBox", x=300, y=400, width=100, height=40,
+                                   dpr=dpr, visible=visible, enabled=enabled)
+    target._inherits.add("QAbstractSpinBox")
+    target.value = float(value)
+    target.singleStep = 1.0
+    target.minimum = 20.0
+    target.maximum = 60.0
+    target.decimals = 1
+    target.wrapping = False
+    target.initStyleOption = lambda option: None
+    up_rect, down_rect = (80, 4, 15, 12), (80, 22, 15, 12)
+    events = []
+    target._style = FakeStyle({}, subcontrols={"spinbox-up": up_rect, "spinbox-down": down_rect}, events=events)
+
+    def physical_for(rect):
+        point = target.mapToGlobal(FakeArea(*rect).center())
+        return (round(point.x() * dpr), round(point.y() * dpr))
+
+    backend = SpinArrowBackend(env, target, up_point=physical_for(up_rect), down_point=physical_for(down_rect),
+                               step_on_click=step_on_click)
+    monkeypatch.setattr(ui, "get_backend", lambda: backend)
+    monkeypatch.setattr(ui, "get_uinput_backend", lambda: backend)
+    return target, env, backend, events
+
+
+@pytest.mark.parametrize("up, expected, arrow_point", [
+    (True, 41.0, (580, 615)),
+    (False, 39.0, (580, 642)),
+])
+def test_spinbox_arrow_click_scrolls_before_style_geometry_and_logs_verified_real_press(
+        harness, monkeypatch, tmp_path, up, expected, arrow_point):
+    target, env, backend, events = _spinbox_arrow_world(harness, monkeypatch, dpr=1.5)
+    scroll = FakeScrollArea("settingsScroll", parent=target.parent())
+    target._parent = scroll
+    original_ensure = scroll.ensureWidgetVisible
+
+    def ensure_visible(widget, *margins):
+        events.append("scroll")
+        original_ensure(widget, *margins)
+
+    scroll.ensureWidgetVisible = ensure_visible
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    record = ui.spinbox_arrow_click(target, up, f"Opening target gap {'up' if up else 'down'}",
+                                    mode="xtest", evidence=ledger)
+
+    assert scroll.ensure_calls == [(target, ())]
+    assert events.index("scroll") < events.index("geometry")
+    assert backend.events[0] == ("move", *arrow_point)  # centre of Qt's selected sub-control at DPR 1.5
+    assert ("button", 1, True) in backend.events and ("button", 1, False) in backend.events
+    assert target.value == expected and target.clicks == 0
+    assert record["attempted"] is True and record["press_sent"] is True and record["delivered"] is True
+    assert record["arrow"] == ("up" if up else "down")
+    assert record["value_before"] == 40.0 and record["value_after"] == expected
+    saved = json.loads(ledger.read_text().splitlines()[0])
+    assert saved["action"] == "spinbox arrow click" and saved["delivered_utc"]
+    assert saved["x_activation"]["hit_test"] == "pass"
+
+
+@pytest.mark.parametrize("kwargs, message", [
+    ({"visible": False}, "control is not visible"),
+    ({"enabled": False}, "control is disabled"),
+])
+def test_spinbox_arrow_preflight_refusal_is_logged_without_geometry_or_input(
+        harness, monkeypatch, tmp_path, kwargs, message):
+    target, env, backend, events = _spinbox_arrow_world(harness, monkeypatch, **kwargs)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+
+    with pytest.raises(ui.UserInputError, match=message):
+        ui.spinbox_arrow_click(target, True, "Opening target gap up", mode="xtest", evidence=ledger)
+
+    saved = json.loads(ledger.read_text().splitlines()[0])
+    assert saved["attempted"] is True and saved["delivered"] is False
+    assert saved["press_attempted"] is False and saved["press_sent"] is False and saved["refused"]
+    assert events == [] and backend.events == [] and target.value == 40.0
+
+
+def test_spinbox_arrow_refuses_missing_style_geometry_before_loading_pointer_backend(
+        harness, monkeypatch, tmp_path):
+    target, env, backend, events = _spinbox_arrow_world(harness, monkeypatch)
+    target._style._subcontrols = {}
+    monkeypatch.setattr(ui, "get_backend", lambda: pytest.fail("missing arrow geometry must refuse before input"))
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+
+    with pytest.raises(ui.UserInputError, match="has no usable style geometry"):
+        ui.spinbox_arrow_click(target, False, "Opening target gap down", mode="xtest", evidence=ledger)
+
+    saved = json.loads(ledger.read_text().splitlines()[0])
+    assert saved["delivered"] is False and saved["press_attempted"] is False
+    assert "style geometry" in saved["refused"] and target.value == 40.0
+    assert events == ["geometry"] and backend.events == []
+
+
+def test_spinbox_arrow_no_value_change_is_recorded_as_refused_without_a_second_press(
+        harness, monkeypatch, tmp_path):
+    target, env, backend, _events = _spinbox_arrow_world(harness, monkeypatch, step_on_click=False)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+
+    with pytest.raises(ui.UserInputError, match="did not produce the expected value step"):
+        ui.spinbox_arrow_click(target, False, "Opening target gap down", mode="xtest", evidence=ledger)
+
+    saved = json.loads(ledger.read_text().splitlines()[0])
+    assert saved["attempted"] is True and saved["press_attempted"] is True and saved["press_sent"] is True
+    assert saved["delivered"] is False and saved["value_before"] == 40.0 and saved["value_after"] == 40.0
+    assert backend.events.count(("button", 1, True)) == 1 and backend.events.count(("button", 1, False)) == 1
+
+
+def test_spinbox_arrow_uinput_uses_only_uinput_and_logs_a_pointer_refusal(
+        harness, monkeypatch, tmp_path):
+    target, env, backend, _events = _spinbox_arrow_world(harness, monkeypatch)
+    monkeypatch.setattr(ui, "get_backend", lambda: pytest.fail("uinput mode must not use XTest pointer path"))
+    monkeypatch.setattr(ui, "get_uinput_backend", lambda: backend)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    record = ui.spinbox_arrow_click(target, True, "Opening target gap up", mode="uinput", evidence=ledger)
+    assert record["mode"] == "uinput" and record["delivered"] is True and target.value == 41.0
+
+    class RefusingUinput(SpinArrowBackend):
+        def move(self, x, y):
+            self.events.append(("move", int(x), int(y)))
+            raise ui.UserInputError("uinput pointer could not reach the arrow")
+
+    refusing = RefusingUinput(env, target, up_point=backend.up_point, down_point=backend.down_point)
+    monkeypatch.setattr(ui, "get_uinput_backend", lambda: refusing)
+    with pytest.raises(ui.UserInputError, match="could not reach the arrow"):
+        ui.spinbox_arrow_click(target, False, "Opening target gap down", mode="uinput", evidence=ledger)
+
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
+    assert rows[0]["delivered"] is True
+    assert rows[1]["delivered"] is False and "could not reach" in rows[1]["refused"]
+    assert not any(event[0] == "button" for event in refusing.events)

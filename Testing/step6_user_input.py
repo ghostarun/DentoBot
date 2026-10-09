@@ -46,6 +46,7 @@ from __future__ import annotations
 import atexit
 import ctypes
 import json
+import math
 import os
 import re
 import struct
@@ -60,6 +61,9 @@ MODES = ("xtest", "demo", "qt_click", "uinput")
 DELIVERY_TIMEOUT_SEC = 3.0
 X_POLL_TIMEOUT_SEC = 1.5
 X_ACTIVATION_ATTEMPTS = 2
+SPINBOX_ARROW_HOVER_SEC = 0.4
+SPINBOX_ARROW_PRESS_SEC = 0.25
+SPINBOX_ARROW_DELIVERY_TIMEOUT_SEC = 3.0
 DEMO_APPROACH_SEC = 0.9
 DEMO_PRE_CLICK_SEC = 1.5
 DEMO_POST_CLICK_SEC = 0.8
@@ -1352,6 +1356,164 @@ def user_click(widget, label: str, *, mode: str, evidence=None, direct_navigatio
         checkable=checkable, checked_before=checked["before"], checked_after=checked["after"],
         navigated_before_press=_navigation_summary(navigations),
     )
+    _append_evidence(evidence, record)
+    return record
+
+
+def spinbox_arrow_click(spinbox, up: bool, label: str, *, mode: str, evidence=None) -> dict:
+    """Press one QAbstractSpinBox arrow with real pointer input and verify its value step.
+
+    ``xtest`` and ``demo`` use XTest. ``uinput`` uses the uinput pointer and never
+    falls back to XTest or a Qt click. ``qt_click`` is refused because a spinbox
+    arrow is a sub-control, not a QAbstractButton. The spinbox is preflighted
+    (including scroll-into-view) before style geometry is read. Every attempt,
+    refusal and verified delivery is appended to the usual user-input ledger.
+    """
+    direction = "up" if bool(up) else "down"
+    record = _record(spinbox, label, mode, action="spinbox arrow click", navigation=None,
+                     attempted=True, arrow=direction, press_sent=False)
+    overlay = None
+    pressed = False
+    click_attempted = False
+    value_before = None
+    value_after = None
+    expected_value = None
+    press_sent = False
+    logical = None
+    physical = None
+    dpr = None
+    x_activation: dict = {}
+    scrolled = []
+
+    try:
+        if mode not in ("xtest", "demo", "uinput"):
+            raise UserInputError(f"{label}: spinbox arrow needs real pointer input; mode {mode!r} is not allowed")
+
+        qt, slicer = _runtime()
+        scrolled = _preflight(spinbox, label)
+        _raise_and_activate(spinbox, slicer)
+
+        if not _inherits(spinbox, "QAbstractSpinBox"):
+            raise UserInputError(f"{label}: {_class_name(spinbox)} is not a QAbstractSpinBox")
+        option_type = getattr(qt, "QStyleOptionSpinBox", None)
+        init_style_option = getattr(spinbox, "initStyleOption", None)
+        if not callable(option_type) or not callable(init_style_option):
+            raise UserInputError(f"{label}: Qt spinbox style geometry is unavailable")
+        option = option_type()
+        init_style_option(option)
+        style = spinbox.style()
+        subcontrol = qt.QStyle.SC_SpinBoxUp if up else qt.QStyle.SC_SpinBoxDown
+        arrow_rect = style.subControlRect(qt.QStyle.CC_SpinBox, option, subcontrol, spinbox)
+        if arrow_rect is None or int(arrow_rect.width()) <= 0 or int(arrow_rect.height()) <= 0:
+            raise UserInputError(f"{label}: the spinbox {direction} arrow has no usable style geometry")
+
+        value_before = float(_value(spinbox, "value"))
+        single_step = abs(float(_value(spinbox, "singleStep")))
+        minimum = float(_value(spinbox, "minimum"))
+        maximum = float(_value(spinbox, "maximum"))
+        if not all(math.isfinite(value) for value in (value_before, single_step, minimum, maximum)):
+            raise UserInputError(f"{label}: spinbox value, step or range is not finite")
+        if single_step <= 0 or minimum > maximum:
+            raise UserInputError(f"{label}: spinbox step or range is invalid")
+        if bool(_value(spinbox, "wrapping")):
+            raise UserInputError(f"{label}: wrapping spinboxes are not supported for a verified arrow step")
+        candidate = value_before + (single_step if up else -single_step)
+        expected_value = min(maximum, candidate) if up else max(minimum, candidate)
+        try:
+            decimals = max(0, int(_value(spinbox, "decimals")))
+        except (AttributeError, TypeError, ValueError):
+            decimals = 6
+        tolerance = max(1e-6, 0.01 * (10.0 ** -decimals))
+        expected_delta = expected_value - value_before
+        if abs(expected_delta) <= tolerance:
+            raise UserInputError(f"{label}: the spinbox {direction} arrow is at its value limit ({value_before})")
+
+        point = spinbox.mapToGlobal(arrow_rect.center())
+        logical = (int(point.x()), int(point.y()))
+        dpr = _device_pixel_ratio(qt, point)
+        physical = (round(logical[0] * dpr), round(logical[1] * dpr))
+        record.update(value_before=value_before, single_step=single_step, expected_delta=expected_delta,
+                      expected_value=expected_value,
+                      arrow_rect_local=[int(arrow_rect.x()), int(arrow_rect.y()),
+                                        int(arrow_rect.width()), int(arrow_rect.height())],
+                      logical_xy=list(logical), physical_xy=list(physical), device_pixel_ratio=dpr,
+                      scrolled_areas=scrolled)
+
+        backend = pointer_backend(mode)
+        start = backend.pointer()
+        target = _native_window(_value(spinbox, "window"), label)
+        x_activation["target_window"] = _hex(target)
+        if mode == "demo":
+            began = _NOW()
+            overlay = _Overlay(qt, spinbox, f"Clicking {direction} arrow: {label}")
+            overlay.show()
+            _animate(backend, start, physical, DEMO_APPROACH_SEC)
+            _pump_until(began + DEMO_PRE_CLICK_SEC)
+            overlay.hide()
+            overlay = None
+        _x_activate_and_confirm(backend, spinbox, slicer, target, physical, label, x_activation)
+        found = qt.QApplication.widgetAt(qt.QPoint(*logical))
+        if not _is_widget_or_descendant(found, spinbox):
+            raise UserInputError(f"{label}: arrow point is covered by {_describe(found)}")
+
+        _pump_until(_NOW() + SPINBOX_ARROW_HOVER_SEC)
+        click_attempted = True
+        pressed = True  # release is attempted even if the backend raises during press
+        backend.button(1, True)
+        press_sent = True
+        _pump_until(_NOW() + SPINBOX_ARROW_PRESS_SEC)
+        backend.button(1, False)
+        pressed = False
+        delivered = _wait_for(
+            lambda: abs(float(_value(spinbox, "value")) - expected_value) <= tolerance,
+            SPINBOX_ARROW_DELIVERY_TIMEOUT_SEC,
+        )
+        value_after = float(_value(spinbox, "value"))
+        if not delivered:
+            raise UserInputError(f"{label}: real {direction}-arrow click did not produce the expected value step "
+                                 f"({value_before} -> {value_after}, expected {expected_value}); no retry sent")
+        if mode == "demo":
+            began = _NOW()
+            overlay = _Overlay(qt, spinbox, f"Clicked {direction} arrow: {value_before} → {value_after}")
+            overlay.show()
+            _pump_until(began + DEMO_POST_CLICK_SEC)
+            overlay.hide()
+            overlay = None
+            _pump_until(_NOW() + DEMO_HOLD_SEC)
+    except UserInputError as refusal:
+        if pressed:
+            try:
+                backend.button(1, False)
+                pressed = False
+            except Exception as release_error:
+                record["release_error"] = f"{type(release_error).__name__}: {release_error}"
+        record.update(delivered=False, refused=str(refusal), press_attempted=click_attempted,
+                      press_sent=press_sent, value_before=value_before, value_after=value_after,
+                      x_activation=x_activation, scrolled_areas=scrolled)
+        _append_evidence(evidence, record)
+        raise
+    except Exception as exc:
+        if pressed:
+            try:
+                backend.button(1, False)
+                pressed = False
+            except Exception as release_error:
+                record["release_error"] = f"{type(release_error).__name__}: {release_error}"
+        refusal = UserInputError(f"{label}: spinbox arrow click failed ({type(exc).__name__}: {exc}); "
+                                 "no fallback or retry sent")
+        record.update(delivered=False, refused=str(refusal), press_attempted=click_attempted,
+                      press_sent=press_sent, value_before=value_before, value_after=value_after,
+                      x_activation=x_activation, scrolled_areas=scrolled)
+        _append_evidence(evidence, record)
+        raise refusal from exc
+    finally:
+        if overlay is not None:
+            overlay.hide()
+
+    record.update(delivered=True, press_attempted=True, press_sent=True, before=value_before,
+                  after=value_after, value_before=value_before, value_after=value_after,
+                  actual_delta=value_after - value_before,
+                  delivered_utc=utc_now(), x_activation=x_activation)
     _append_evidence(evidence, record)
     return record
 
