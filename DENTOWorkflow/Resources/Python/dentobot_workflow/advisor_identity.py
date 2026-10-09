@@ -12,6 +12,10 @@ from collections.abc import Mapping
 from dentobot_workflow import advisor_home as home_mod
 from dentobot_workflow import feasibility_advisor as fa
 
+# Legacy Step 6 case jaw landmarks are optional: a case with no landmarks node is identified by this fixed value.
+# Landmarks are only a fallback when auto opening fails; creating them later changes the identity (stale).
+ABSENT_JAW_LANDMARKS_IDENTITY = "absent:v1"
+
 
 class AdvisorIdentityMixin:
     def _trial_identity_issues(self) -> list:
@@ -186,6 +190,10 @@ class AdvisorIdentityMixin:
             key: (foundation.get(key) if isinstance(foundation, Mapping) else getattr(foundation, key, None))
             for key in source_fields
         }
+        if source_environment.get("jaw_landmarks_fingerprint") == "":
+            # The Case Foundation snapshot reports an empty landmark fingerprint only when no landmarks node exists
+            # (a partial node raises there). Bind that explicit absence; a missing field (None) still fails closed.
+            source_environment["jaw_landmarks_fingerprint"] = ABSENT_JAW_LANDMARKS_IDENTITY
         home_identity = self._home_record_identity(home)
         base_matrix = self._ctx_matrix(node.robotBaseTransform)
         policy = self.facade.jointPlanningPolicy()

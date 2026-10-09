@@ -204,7 +204,9 @@ def classify_setup_issue(text: str) -> tuple:
 @dataclass
 class SetupIssue:
     message: str
-    severity: str = "blocking"  # blocking: the search cannot start; advisory: the search applies it itself
+    # blocking: the search cannot start; blocks_apply: the search runs but Apply & Save / checkpoint reuse are refused;
+    # advisory: the search applies it itself
+    severity: str = "blocking"
     fix_id: str = ""
     fix_label: str = ""
 
@@ -536,6 +538,19 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
             severity = "blocking" if text.startswith("Task Home not validated") else "advisory"
             issues.append(SetupIssue(text, severity=severity, fix_id=fix[0] if fix else "",
                                      fix_label=fix[1] if fix else ""))
+        try:  # the same input-identity gate that prepare() and apply_and_save() enforce must be visible here too
+            self._capture_input_identity()
+        except Exception as exc:
+            reason = str(exc)[:300]
+            fix = classify_setup_issue(reason)
+            if self._home_consent is not None:
+                issues.append(SetupIssue("Task Home revalidation consent needs a complete input identity (restore "
+                                         "verification and Continue depend on it): " + reason, severity="blocking",
+                                         fix_id=fix[0] if fix else "", fix_label=fix[1] if fix else ""))
+            else:
+                issues.append(SetupIssue("Apply & Save to branch and checkpoint reuse need a complete input identity: " + reason,
+                                         severity="blocks_apply", fix_id=fix[0] if fix else "",
+                                         fix_label=fix[1] if fix else ""))
         return issues
 
     # ---- lifecycle --------------------------------------------------------------
