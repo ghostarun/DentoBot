@@ -307,6 +307,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         self.planning_policy: dict = {}  # production policy captured at prepare(); immutable for this search
         self.planning_policy_source = ""
         self.saved_base = None
+        self._original_confirmation = ""  # the operator's Task confirmation before any search (F8)
         self._base_snapshot: dict | None = None  # the accepted Base identity captured at search start (F1 restore)
         self.saved_home: dict | None = None
         self._saved_home_identity: dict = {}
@@ -602,6 +603,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         policy = self.planning_policy
         self.saved_base = self._ctx_matrix(node.robotBaseTransform)
         self._base_snapshot = self._capture_base_snapshot()
+        self._original_confirmation = self._confirmed_task_fingerprint()
         self.saved_home = dict(zip(home.joint_names, home.joint_positions_si))
         self._saved_home_identity = self._home_record_identity(home)
         if self._home_consent is not None:
@@ -1171,24 +1173,6 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         self._require_current_home(candidate_step="candidate evaluation" if not restoring else "baseline restoration")
         return "saved Task Home identity and existing validation remain current"
 
-    def _do_apply_confirm(self, current):
-        # A trial Base change clears the confirmation; a restore re-confirms, and must land on the exact snapshot the
-        # search started from (the confirmed-task snapshot binds the Base fingerprint and the saved Home).
-        expected = str((self._base_snapshot or {}).get("confirmed_task_fingerprint") or "") if current.stage == "restore" else ""
-        if expected and self._confirmed_task_fingerprint() == expected:
-            return "original task confirmation is already current"
-        result = self.facade.confirmTask()
-        current.observed["confirm"] = [bool(result.success), str(result.code), str(result.message)[:300]]
-        if not result.success:
-            raise RuntimeError("Task was not confirmed: " + str(result.message)[:200])
-        if expected and self._confirmed_task_fingerprint() != expected:
-            raise RuntimeError("the restored task confirmation differs from the original")
-        return "task confirmed"
-
-    def _confirmed_task_fingerprint(self) -> str:
-        record = self.logic.confirmedTaskRecord(self.node)
-        return str(getattr(record, "snapshot_fingerprint", "") or "") if record is not None else ""
-
     # ---- evaluation steps ------------------------------------------------------------------
     def _barrier_issues(self, state) -> list:
         import dentobot_workflow.mouth_portal as mp
@@ -1457,6 +1441,9 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         return StepEvent("restore", STEP_TITLES[name].replace("applying", "restoring"))
 
     def _finish_restore(self) -> StepEvent:
+        drift = self._confirmation_restore_issue()
+        if drift:
+            self.restore_issues.append(drift)
         if not self.restore_issues:
             try:
                 import numpy as np
@@ -1578,6 +1565,8 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
             raise PermissionError("The search is still running.")
         if self.restore_issues:
             raise PermissionError("Baseline restoration is incomplete; review 6.1-6.3 before saving.")
+        if self._operator_confirmation_drift():
+            raise PermissionError("Apply & Save refused: " + self._operator_confirmation_drift())
         if self.outcome == BLOCKED or self._operator_review_block:
             raise PermissionError("Apply & Save is unavailable until the required operator review is complete.")
         home_issues = self._home_currentness_issues()

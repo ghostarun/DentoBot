@@ -7872,6 +7872,10 @@ class DENTORobotWorkflowFacade:
             self.invalidateMotionPlan()
             return RobotActionResult(False, "saved_workspace_revalidation_failed", str(exc))
 
+    def clearTaskConfirmation(self, reason: str) -> None:
+        """Return the Task confirmation to unconfirmed through the production invalidation owner (the Base is not staled)."""
+        self._logic.invalidateStep6TaskConfirmation(self._require_context(), str(reason))
+
     def confirmTask(self) -> RobotActionResult:
         try:
             parameter_node = self._require_context()

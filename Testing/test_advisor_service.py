@@ -1577,3 +1577,126 @@ def test_the_advisor_dialog_reads_the_unconfirmed_restore_latch_and_refreshes_it
     assert "latch = self._advisorRestoreLatch()" in source and "self._advisorShowRestoreUnconfirmed(latch)" in source
     assert "setAdvisorRestoreUnconfirmed" in source
     assert "self._advisorShowSetup()  # the table shows the live blockers" in source
+
+
+# S6-ADVISOR-GUI-01 F8: a search may confirm the Task for its trials; restore returns the operator's confirmation to
+# exactly its pre-search state on every end (found, exhausted, cancelled, blocked), and Apply never relies on a search-made one.
+def _confirming_world(*, original="", confirm_value="fp-search", **kwargs):
+    """A World whose Task confirmation is stateful: a candidate confirms, the restore check clears or verifies, Apply reads it."""
+    world = World(**kwargs)
+    state = {"confirmed": original, "confirms": 0}
+
+    def record(_node):
+        return SimpleNamespace(snapshot_fingerprint=state["confirmed"]) if state["confirmed"] else None
+
+    def invalidate(_node, reason, *, makeBaseStale=False):
+        state["confirmed"] = ""
+        state.setdefault("reasons", []).append(reason)
+
+    def confirm():
+        state["confirmed"] = confirm_value
+        state["confirms"] += 1
+        return SimpleNamespace(success=True, code="task_confirmed", message="Confirmed one immutable Step 6 task snapshot.")
+
+    world.logic.confirmedTaskRecord = record
+    world.logic.invalidateStep6TaskConfirmation = invalidate
+    world.facade.confirmTask = confirm
+    world.facade.clearTaskConfirmation = lambda reason: invalidate(None, reason)
+    world.confirm_state = state
+    return world
+
+
+_OPENING_PASSES = lambda v: {"stroke": v["opening"] >= 40.5}
+
+
+def test_an_empty_original_confirmation_is_cleared_when_the_search_finds_a_candidate(tmp_path):
+    world = _confirming_world(original="", oracle=_OPENING_PASSES)
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, approve=("opening",), decline=("base_yaw",))
+    assert world.confirm_state["confirms"] >= 1  # the candidate confirmed for its trial
+    assert s.outcome == svc.FOUND and s.restore_issues == []
+    assert world.confirm_state["confirmed"] == ""  # cleared by the restore check, through the production owner
+    assert world.confirm_state.get("reasons") == ["advisor restore: no operator confirmation before search"]
+
+
+def test_an_empty_original_confirmation_is_cleared_when_the_search_is_exhausted(tmp_path):
+    world = _confirming_world(original="", oracle=lambda v: {"stroke": False})
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, approve=("opening",), decline=("base_yaw",))
+    assert s.outcome == svc.EXHAUSTED and s.restore_issues == []
+    assert world.confirm_state["confirmed"] == ""
+
+
+def test_an_empty_original_confirmation_is_cleared_when_the_search_is_cancelled_mid_trial(tmp_path):
+    world = _confirming_world(original="", oracle=_OPENING_PASSES)
+    s = session(world, tmp_path)
+    s.prepare()
+
+    def cancel_once_a_trial_has_confirmed(sess, _event):
+        if world.confirm_state["confirms"] >= 1:
+            sess.cancel()
+
+    drive(s, approve=("opening",), decline=("base_yaw",), on_step=cancel_once_a_trial_has_confirmed)
+    assert s.outcome == svc.CANCELLED and s.restore_issues == []
+    assert world.confirm_state["confirmed"] == ""
+
+
+def test_an_empty_original_confirmation_is_cleared_when_the_search_is_blocked(tmp_path):
+    world = _confirming_world(original="", oracle=lambda v: {"stroke": False}, stale_home_on_base_change=True)
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, decline=("opening", "base_yaw"))
+    assert s.outcome == svc.BLOCKED and s.restore_issues == []
+    assert world.confirm_state["confirmed"] == ""
+
+
+def test_a_present_original_confirmation_is_unchanged_by_a_search(tmp_path):
+    world = _confirming_world(original="fp-operator", confirm_value="fp-operator", oracle=_OPENING_PASSES)
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, approve=("opening",), decline=("base_yaw",))
+    assert s.outcome == svc.FOUND and s.restore_issues == []
+    assert world.confirm_state["confirmed"] == "fp-operator"
+
+
+def test_a_confirmation_that_differs_from_the_original_is_an_unconfirmed_restore(tmp_path):
+    world = _confirming_world(original="fp-operator", confirm_value="fp-other", oracle=_OPENING_PASSES)
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, approve=("opening",), decline=("base_yaw",))
+    assert any("Task confirmation" in issue for issue in s.restore_issues), s.restore_issues
+    assert world.restore_latch and "Task confirmation" in world.restore_latch  # F7: blocks across reopen
+    with pytest.raises(PermissionError, match="Baseline restoration is incomplete"):
+        s.apply_and_save(acknowledged=["mouth opening"])
+
+
+def test_apply_refuses_when_the_only_task_confirmation_came_from_the_search(tmp_path):
+    world = _confirming_world(original="", oracle=_OPENING_PASSES)
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, approve=("opening",), decline=("base_yaw",))
+    assert s.outcome == svc.FOUND and s.restore_issues == []
+    world.confirm_state["confirmed"] = "fp-search"  # the search's confirmation is what is in scene
+    with pytest.raises(PermissionError, match="not the operator's own from before the search"):
+        s.apply_and_save(acknowledged=["mouth opening"])
+    assert world.stored == []
+
+
+def test_apply_refuses_when_the_confirmation_changed_after_a_search_with_an_operator_confirmation(tmp_path):
+    world = _confirming_world(original="fp-operator", confirm_value="fp-operator", oracle=_OPENING_PASSES)
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, approve=("opening",), decline=("base_yaw",))
+    world.confirm_state["confirmed"] = "fp-search"
+    with pytest.raises(PermissionError, match="operator's own"):
+        s.apply_and_save(acknowledged=["mouth opening"])
+
+
+def test_the_setup_table_is_rebuilt_when_a_search_finishes_not_left_as_it_was_at_the_dialog_open():
+    source = (PYTHON / "dentobot_workflow" / "widget_step6_advisor.py").read_text(encoding="utf-8")
+    finish = source[source.index("    def _advisorFinish(self) -> None:"):]
+    finish = finish[:finish.index("    # ---- the ONLY storing path")]
+    assert "self._advisorShowSetup()" in finish
+    assert finish.index("self._advisorShowSetup()") < finish.index('self._advisorSetButtons("done")')

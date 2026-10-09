@@ -718,6 +718,7 @@ class Step6AdvisorWidgetMixin:
                 + (_(" Needs your review: %1.").replace("%1", ", ".join(review)) if review else "")
             )
         state["errorRecovery"] = None
+        self._advisorShowSetup()  # the setup rows reflect the state the search left (F8/finding 2)
         self._advisorSetButtons("done")
 
     # ---- the ONLY storing path: the operator's click ---------------------------------------------------

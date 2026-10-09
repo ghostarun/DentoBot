@@ -325,3 +325,45 @@ class AdvisorIdentityMixin:
             clearer = getattr(self.facade, "clearAdvisorRestoreUnconfirmed", None)
             if callable(clearer):
                 clearer()
+
+    # ---- operator Task confirmation (S6-ADVISOR-GUI-01 F8) ----------------------------------------------
+    # A candidate may confirm the task for its trial (temporary machinery). The search must never leave the
+    # operator's confirmation different from what it was before the search.
+    def _confirmed_task_fingerprint(self) -> str:
+        record = self.logic.confirmedTaskRecord(self.node)
+        return str(getattr(record, "snapshot_fingerprint", "") or "") if record is not None else ""
+
+    def _do_apply_confirm(self, current):
+        if current.stage == "restore":
+            if not self._original_confirmation:  # nothing was confirmed before the search: cleared by the restore check
+                return "no operator confirmation before the search (cleared by the restore check)"
+            if self._confirmed_task_fingerprint() == self._original_confirmation:
+                return "original task confirmation is already current"
+        result = self.facade.confirmTask()
+        current.observed["confirm"] = [bool(result.success), str(result.code), str(result.message)[:300]]
+        if not result.success:
+            raise RuntimeError("Task was not confirmed: " + str(result.message)[:200])
+        if current.stage == "restore" and self._confirmed_task_fingerprint() != self._original_confirmation:
+            raise RuntimeError("the restored task confirmation differs from the original")
+        return "task confirmed"
+
+    def _confirmation_restore_issue(self) -> str:
+        """Every search end: the confirmation is exactly the pre-search state ("" when so, else the unconfirmed-restore reason)."""
+        try:
+            if not self._original_confirmation and self._confirmed_task_fingerprint():
+                self.facade.clearTaskConfirmation("advisor restore: no operator confirmation before search")
+            current = self._confirmed_task_fingerprint()
+        except Exception as exc:
+            return "the Task confirmation could not be restored: " + str(exc)[:200]
+        if current != self._original_confirmation:
+            return ("the Task confirmation after the search (%s) is not the one before it (%s)"
+                    % (current[:12] or "none", self._original_confirmation[:12] or "none"))
+        return ""
+
+    def _operator_confirmation_drift(self) -> str:
+        """Read-only, for Apply & Save: "" when the confirmation is the operator's own pre-search state."""
+        current = self._confirmed_task_fingerprint()
+        if current == self._original_confirmation:
+            return ""
+        return ("the Task confirmation (%s) is not the operator's own from before the search (%s); "
+                "only the operator's Confirm Task can provide it" % (current[:12] or "none", self._original_confirmation[:12] or "none"))
