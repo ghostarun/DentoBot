@@ -150,6 +150,12 @@ class FakeWidget:
         self._inherits = {cls, "QWidget", "QObject"}
         if cls == "ctkCollapsibleButton":
             self._inherits.add("ctkCollapsibleButton")
+        self.checkable = False
+        self.checked = False
+        self._style = None
+
+    def style(self):
+        return self._style if self._style is not None else FakeStyle({})
 
     @property
     def rect(self):
@@ -253,9 +259,17 @@ def make_qt(env):
     class QPoint(FakePoint):
         pass
 
+    class QStyleOptionButton:
+        def initFrom(self, widget):
+            self.initialised_from = widget
+
+    style_names = SimpleNamespace(
+        SE_CheckBoxIndicator="indicator", SE_CheckBoxContents="contents",
+        SE_RadioButtonIndicator="radio-indicator", SE_RadioButtonContents="radio-contents",
+    )
     return SimpleNamespace(
         QApplication=FakeQApplication(env), QPoint=QPoint, QFrame=QFrame, QLabel=QLabel,
-        Qt=flags,
+        Qt=flags, QStyle=style_names, QStyleOptionButton=QStyleOptionButton,
     )
 
 
@@ -1249,20 +1263,138 @@ def test_tab_navigation_source_has_no_direct_index_assignment_or_click_fallback(
     assert "currentIndex =" not in source and "setCurrentIndex" not in source
 
 
-def test_check_box_is_pressed_on_its_indicator_not_on_the_empty_centre_of_its_row(harness, monkeypatch, tmp_path):
-    target, env, backend = harness(cls="QCheckBox", x=300, y=400, width=1000, height=30)
-    target.clicked = ArgSignal()  # QCheckBox.clicked(bool): the slot receives the checked state
-    class BoolBackend(FakeBackend):
-        def button(self, button, pressed):
-            self.events.append(("button", int(button), bool(pressed)))
-            if not pressed:
-                self.env.target.clicked.emit(True)
-    backend_bool = BoolBackend(env)
-    monkeypatch.setattr(ui, "get_backend", lambda: backend_bool)
+class FakeArea:
+    """A style sub-element rectangle in widget-local coordinates."""
+
+    def __init__(self, x, y, width, height):
+        self._x, self._y, self._w, self._h = x, y, width, height
+
+    def width(self):
+        return self._w
+
+    def height(self):
+        return self._h
+
+    def center(self):
+        return FakePoint(self._x + self._w // 2, self._y + self._h // 2)
+
+
+class FakeStyle:
+    """Answers subElementRect from a table: element name -> (x, y, w, h); absent means an empty rect."""
+
+    def __init__(self, areas):
+        self._areas = areas
+
+    def subElementRect(self, element, option, widget):
+        spec = self._areas.get(element)
+        return FakeArea(*spec) if spec else FakeArea(0, 0, 0, 0)
+
+
+class BoolBackend(FakeBackend):
+    """Release emits clicked(bool) like QCheckBox; ``toggle`` flips the checked state first, as Qt does."""
+
+    def __init__(self, env, *, toggle=True, **kwargs):
+        super().__init__(env, **kwargs)
+        self.toggle = toggle
+
+    def button(self, button, pressed):
+        self.events.append(("button", int(button), bool(pressed)))
+        if not pressed and self.emit_on_release:
+            if self.toggle:
+                self.env.target.checked = not self.env.target.checked
+            self.env.target.clicked.emit(bool(self.env.target.checked))
+
+
+class RaisingSignal(ArgSignal):
+    """A production slot that raises: PythonQt reports it through the interpreter's excepthook."""
+
+    def emit(self, *args):
+        super().emit(*args)
+        sys.excepthook(RuntimeError, RuntimeError("production handler failed"), None)
+
+
+def _check_box(harness, monkeypatch, *, areas, checked=False, toggle=True, **kwargs):
+    target, env, _backend = harness(cls="QCheckBox", x=300, y=400, width=1000, height=30, **kwargs)
+    target.clicked = ArgSignal()
+    target.checkable = True
+    target.checked = checked
+    target._style = FakeStyle(areas)
+    backend = BoolBackend(env, toggle=toggle)
+    monkeypatch.setattr(ui, "get_backend", lambda: backend)
+    return target, backend
+
+
+def test_check_box_is_pressed_on_its_style_indicator_not_on_the_empty_centre_of_its_row(harness, monkeypatch, tmp_path):
+    target, backend = _check_box(harness, monkeypatch, areas={"indicator": (4, 8, 14, 14)})
     ledger = tmp_path / "session" / "user-input-ledger.jsonl"
     record = ui.user_click(target, "I consent to Task Home revalidation", mode="xtest", evidence=ledger)
     assert record["delivered"] is True
-    assert record["physical_xy"] == [308, 415]  # the indicator: 300 + 8, row centre y 415
-    assert ("move", 308, 415) in backend_bool.events
-    assert ("move", 500, 415) not in backend_bool.events  # not the centre of the 1000 px row
-    assert target.clicks == 0
+    assert record["physical_xy"] == [311, 415]  # indicator centre: 300 + 4 + 7, row y 400 + 8 + 7
+    assert ("move", 311, 415) in backend.events
+    assert ("move", 500, 415) not in backend.events  # not the centre of the 1000 px row
+    assert record["checkable"] is True and record["checked_before"] is False and record["checked_after"] is True
+
+
+def test_check_box_without_an_indicator_is_pressed_on_its_text_area(harness, monkeypatch, tmp_path):
+    target, backend = _check_box(harness, monkeypatch, areas={"contents": (20, 0, 200, 30)})
+    record = ui.user_click(target, "I consent to Task Home revalidation", mode="xtest")
+    assert record["physical_xy"] == [420, 415]  # text area centre: 300 + 20 + 100, y 400 + 15
+
+
+def test_check_box_with_no_indicator_or_text_area_is_refused_without_pressing(harness, monkeypatch, tmp_path):
+    target, backend = _check_box(harness, monkeypatch, areas={})
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    with pytest.raises(ui.UserInputError, match="no indicator or label area to press"):
+        ui.user_click(target, "I consent to Task Home revalidation", mode="xtest", evidence=ledger)
+    assert backend.events == []
+    assert json.loads(ledger.read_text().splitlines()[-1])["delivered"] is False
+
+
+def test_checkable_control_whose_state_does_not_change_is_refused_and_recorded_undelivered(harness, monkeypatch, tmp_path):
+    target, backend = _check_box(harness, monkeypatch, areas={"indicator": (4, 8, 14, 14)}, toggle=False)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    with pytest.raises(ui.UserInputError, match=r"clicked, but the checked state stayed False"):
+        ui.user_click(target, "I consent to Task Home revalidation", mode="xtest", evidence=ledger)
+    row = json.loads(ledger.read_text().splitlines()[-1])
+    assert row["delivered"] is False and row["checked_before"] is False and row["checked_after"] is False
+
+
+def test_slot_that_raises_during_the_press_makes_the_press_fail_and_is_recorded(harness, monkeypatch, tmp_path):
+    target, backend = _check_box(harness, monkeypatch, areas={"indicator": (4, 8, 14, 14)})
+    hook_before = sys.excepthook
+    target.clicked = RaisingSignal()  # the probe runs, then the production slot raises
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    with pytest.raises(ui.UserInputError, match=r"not delivered; a slot raised during the press \(RuntimeError: production handler failed\)"):
+        ui.user_click(target, "I consent to Task Home revalidation", mode="xtest", evidence=ledger)
+    row = json.loads(ledger.read_text().splitlines()[-1])
+    assert row["delivered"] is False
+    assert row["signal_errors"] == ["RuntimeError: production handler failed"]
+    assert target.checked is True  # the state did toggle; the press is still not recorded as delivered
+    assert sys.excepthook is hook_before  # the capture hook is restored after the press
+
+
+def test_probe_failure_in_the_clicked_slot_is_not_recorded_as_delivered(harness, monkeypatch, tmp_path):
+    target, backend = _check_box(harness, monkeypatch, areas={"indicator": (4, 8, 14, 14)})
+    real = ui.utc_now
+    calls = {"n": 0}
+
+    def flaky():  # the first call is the probe's; it fails once
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("probe write failed")
+        return real()
+
+    monkeypatch.setattr(ui, "utc_now", flaky)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    with pytest.raises(ui.UserInputError, match=r"not delivered; the clicked probe failed \(RuntimeError: probe write failed\)"):
+        ui.user_click(target, "I consent to Task Home revalidation", mode="xtest", evidence=ledger)
+    row = json.loads(ledger.read_text().splitlines()[-1])
+    assert row["delivered"] is False and row["signal_errors"] == ["RuntimeError: probe write failed"]
+
+
+def test_checkable_control_that_toggles_is_delivered_with_its_before_and_after_state(harness, monkeypatch, tmp_path):
+    target, backend = _check_box(harness, monkeypatch, areas={"indicator": (4, 8, 14, 14)})
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    record = ui.user_click(target, "I consent to Task Home revalidation", mode="xtest", evidence=ledger)
+    assert record["delivered"] is True and record["signal_errors"] == []
+    assert json.loads(ledger.read_text().splitlines()[-1])["checked_after"] is True

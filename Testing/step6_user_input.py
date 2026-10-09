@@ -42,6 +42,7 @@ import ctypes
 import json
 import os
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -213,24 +214,32 @@ def _device_pixel_ratio(qt, point) -> float:
     return dpr
 
 
-CHECK_INDICATOR_X_PX = 8  # a user presses the check box itself (its indicator), inside Qt's click rect
+def _press_point(widget, qt, label: str):
+    """Local point a user presses. A check box or radio button is pressed on its indicator.
 
-
-def _press_point(widget, qt):
-    """Local point a user presses: the centre, or for a check box/radio button its indicator.
-
-    A wide QCheckBox spans its whole row, but Qt only hit-tests the indicator and its label text
-    (SE_CheckBoxClickRect), so the centre of the row is empty space and a click there does nothing.
+    A wide QCheckBox spans its whole row, but Qt only hit-tests its indicator and label text
+    (SE_CheckBoxClickRect), so the centre of the row is empty space. The indicator comes from
+    the widget's style (SE_CheckBoxIndicator / SE_RadioButtonIndicator); the text area
+    (SE_CheckBoxContents / SE_RadioButtonContents) is the fallback. Neither means no press.
     """
-    rect = _value(widget, "rect")
     if _inherits(widget, "QCheckBox") or _inherits(widget, "QRadioButton"):
-        return qt.QPoint(int(rect.left()) + CHECK_INDICATOR_X_PX, int(rect.center().y()))
-    return rect.center()
+        check = _inherits(widget, "QCheckBox")
+        elements = ((qt.QStyle.SE_CheckBoxIndicator, qt.QStyle.SE_CheckBoxContents) if check
+                    else (qt.QStyle.SE_RadioButtonIndicator, qt.QStyle.SE_RadioButtonContents))
+        option = qt.QStyleOptionButton()
+        option.initFrom(widget)
+        style = widget.style()
+        for element in elements:
+            area = style.subElementRect(element, option, widget)
+            if area is not None and int(area.width()) > 0 and int(area.height()) > 0:
+                return area.center()
+        raise UserInputError(f"{label}: the check box has no indicator or label area to press")
+    return _value(widget, "rect").center()
 
 
 def _target(widget, qt, label: str) -> tuple[tuple[int, int], float, tuple[int, int]]:
     """Return (logical global press point, devicePixelRatio, physical X pixel)."""
-    point = widget.mapToGlobal(_press_point(widget, qt))
+    point = widget.mapToGlobal(_press_point(widget, qt, label))
     logical = (int(point.x()), int(point.y()))
     dpr = _device_pixel_ratio(qt, point)
     physical = (round(logical[0] * dpr), round(logical[1] * dpr))
@@ -806,7 +815,10 @@ def user_click(widget, label: str, *, mode: str, evidence=None, direct_navigatio
 
     ``xtest`` and ``demo`` raise ``UserInputError`` and never call ``click()`` when the control
     is unreachable, its window is not activated and hit at X level, Qt reports another widget
-    on top, or the press is not delivered. Each refusal is also written to the ledger.
+    on top, or the press is not delivered. A press is delivered only when the clicked signal
+    reached this probe and no slot raised during the press. For a checkable control (check box,
+    radio button) the checked state must also change. Each refusal is also written to the ledger
+    with ``delivered: false``.
 
     Before the press, a hidden control on a non-current tab page is reached by real tab presses
     (see ``_ensure_reachable``). ``direct_navigation(widget, reason)`` is the caller's optional
@@ -826,12 +838,26 @@ def user_click(widget, label: str, *, mode: str, evidence=None, direct_navigatio
     overlay = None
     connected = False
     clicked_signal = None
-    delivered = {"utc": None}
+    probe = {"utc": None, "errors": []}
+    hook = {"previous": None, "errors": []}
     navigations: list[dict] = []
+    checkable = bool(_value(widget, "checkable"))
+    checked = {"before": None, "after": None}
 
     def on_clicked(*_args):  # a QCheckBox's clicked signal passes its checked state
-        if delivered["utc"] is None:
-            delivered["utc"] = utc_now()
+        try:
+            if probe["utc"] is None:
+                probe["utc"] = utc_now()
+        except Exception as exc:  # the probe never reports a delivery it did not record
+            probe["errors"].append(f"{type(exc).__name__}: {exc}")
+
+    def capture_exception(exc_type, exc, traceback):  # an exception raised by any slot during the press
+        hook["errors"].append(f"{getattr(exc_type, '__name__', exc_type)}: {exc}")
+        if hook["previous"] is not None:
+            hook["previous"](exc_type, exc, traceback)
+
+    def signal_errors() -> list:
+        return list(probe["errors"]) + list(hook["errors"])
 
     try:
         navigations = _ensure_reachable(widget, label, mode=mode, evidence=evidence, qt=qt,
@@ -843,6 +869,8 @@ def user_click(widget, label: str, *, mode: str, evidence=None, direct_navigatio
         start = backend.pointer()
         target = _native_window(_value(widget, "window"), label)
         x_activation["target_window"] = _hex(target)
+        if checkable:
+            checked["before"] = bool(_value(widget, "checked"))
         if mode == "demo":
             began = _NOW()
             overlay = _Overlay(qt, widget, f"Clicking: {label}")
@@ -858,12 +886,22 @@ def user_click(widget, label: str, *, mode: str, evidence=None, direct_navigatio
         clicked_signal = widget.clicked
         clicked_signal.connect(on_clicked)
         connected = True
+        hook["previous"] = sys.excepthook
+        sys.excepthook = capture_exception
         backend.button(1, True)
         _pump_until(_NOW() + PRESS_HOLD_SEC)
         backend.button(1, False)
-        if not _wait_for(lambda: delivered["utc"] is not None, DELIVERY_TIMEOUT_SEC):
+        if not _wait_for(lambda: probe["utc"] is not None or bool(probe["errors"]), DELIVERY_TIMEOUT_SEC):
             raise UserInputError(f"{label}: real click not delivered (no clicked signal within "
                                  f"{DELIVERY_TIMEOUT_SEC:.0f} s)")
+        if probe["errors"]:
+            raise UserInputError(f"{label}: not delivered; the clicked probe failed ({probe['errors'][0]})")
+        if hook["errors"]:
+            raise UserInputError(f"{label}: not delivered; a slot raised during the press ({hook['errors'][0]})")
+        if checkable:
+            checked["after"] = bool(_value(widget, "checked"))
+            if checked["after"] == checked["before"]:
+                raise UserInputError(f"{label}: clicked, but the checked state stayed {checked['before']}")
         if mode == "demo":
             overlay = _Overlay(qt, widget, f"Clicked: {label}")
             overlay.show()
@@ -874,9 +912,14 @@ def user_click(widget, label: str, *, mode: str, evidence=None, direct_navigatio
     except UserInputError as refusal:
         _append_evidence(evidence, _record(widget, label, mode, delivered=False,
                                            refused=str(refusal), x_activation=x_activation,
+                                           signal_errors=signal_errors(), checkable=checkable,
+                                           checked_before=checked["before"], checked_after=checked["after"],
                                            navigated_before_press=_navigation_summary(navigations)))
         raise
     finally:
+        if hook["previous"] is not None:
+            sys.excepthook = hook["previous"]
+            hook["previous"] = None
         if connected:
             clicked_signal.disconnect(on_clicked)
         if overlay is not None:
@@ -886,7 +929,8 @@ def user_click(widget, label: str, *, mode: str, evidence=None, direct_navigatio
         widget, label, mode,
         physical_xy=list(physical), logical_xy=list(logical), device_pixel_ratio=dpr,
         pointer_start_xy=list(start), scrolled_areas=scrolled, delivered=True,
-        delivered_utc=delivered["utc"], x_activation=x_activation,
+        delivered_utc=probe["utc"], x_activation=x_activation, signal_errors=signal_errors(),
+        checkable=checkable, checked_before=checked["before"], checked_after=checked["after"],
         navigated_before_press=_navigation_summary(navigations),
     )
     _append_evidence(evidence, record)
