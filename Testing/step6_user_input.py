@@ -30,18 +30,25 @@ Modes (env ``DENTOBOT_HEADED_INPUT``):
 * ``xtest`` (default for new runs): real XTest input, no pacing overlay.
 * ``demo``: ``xtest`` plus a pointer glide, a highlight frame and a caption, and
   pauses so a screen recording shows which control was pressed and its result.
+* ``uinput``: the same preconditions and X-level checks as ``xtest``, but the pointer is
+  moved and the button pressed through a kernel absolute pointer (uinput). Use it where the
+  compositor ignores XTest motion (GNOME Wayland with rootless Xwayland). Every move is
+  verified with XQueryPointer and corrected at most ``POINTER_CORRECTIONS`` times, then
+  refused. See the uinput section below.
 * ``qt_click`` (legacy only): ``QAbstractButton.click()`` exactly as before.
 
-``xtest`` and ``demo`` never fall back to ``click()``: every failure raises
-``UserInputError`` and the control is not pressed.
+``xtest``, ``demo`` and ``uinput`` never fall back to ``click()`` or to another pointer
+path: every failure raises ``UserInputError`` and the control is not pressed.
 """
 
 from __future__ import annotations
 
+import atexit
 import ctypes
 import json
 import os
 import re
+import struct
 import sys
 import time
 from datetime import datetime, timezone
@@ -49,7 +56,7 @@ from pathlib import Path
 
 ENV_VAR = "DENTOBOT_HEADED_INPUT"
 DEFAULT_MODE = "xtest"
-MODES = ("xtest", "demo", "qt_click")
+MODES = ("xtest", "demo", "qt_click", "uinput")
 DELIVERY_TIMEOUT_SEC = 3.0
 X_POLL_TIMEOUT_SEC = 1.5
 X_ACTIVATION_ATTEMPTS = 2
@@ -366,6 +373,12 @@ class XTestBackend:
         xlib.XFetchName.restype = c.c_int
         xlib.XFree.argtypes = [c.c_void_p]
         xlib.XFree.restype = c.c_int
+        xlib.XDefaultScreen.argtypes = [c.c_void_p]
+        xlib.XDefaultScreen.restype = c.c_int
+        xlib.XDisplayWidth.argtypes = [c.c_void_p, c.c_int]
+        xlib.XDisplayWidth.restype = c.c_int
+        xlib.XDisplayHeight.argtypes = [c.c_void_p, c.c_int]
+        xlib.XDisplayHeight.restype = c.c_int
         xtst.XTestQueryExtension.argtypes = [c.c_void_p] + [c.POINTER(c.c_int)] * 4
         xtst.XTestQueryExtension.restype = c.c_int
         xtst.XTestFakeMotionEvent.argtypes = [c.c_void_p, c.c_int, c.c_int, c.c_int, c.c_ulong]
@@ -400,6 +413,12 @@ class XTestBackend:
     def pointer(self) -> tuple[int, int]:
         _child, x, y = self._query_pointer(self._root)
         return x, y
+
+    def desktop_size(self) -> tuple[int, int]:
+        """Size of the X root window, which spans every monitor, in X pixels."""
+        screen = int(self._x.XDefaultScreen(self._display))
+        return (int(self._x.XDisplayWidth(self._display, screen)),
+                int(self._x.XDisplayHeight(self._display, screen)))
 
     def pointer_chain(self) -> list[int]:
         """Windows under the pointer from the top-level down to the deepest (XQueryPointer descent).
@@ -506,6 +525,399 @@ def get_backend():
     return _BACKEND
 
 
+# --- uinput: a kernel absolute pointer for compositors that ignore XTest motion ---------------
+#
+# On GNOME Wayland (rootless Xwayland) the compositor does not apply XTest pointer motion, so
+# the XTest path cannot place the pointer. ``uinput`` mode creates a virtual absolute pointer in
+# the kernel (ABS_X/ABS_Y over the X root, BTN_LEFT, INPUT_PROP_POINTER), which the compositor
+# treats like a physical pointer. Every move is verified at X level with XQueryPointer. A miss
+# gets at most POINTER_CORRECTIONS corrective moves, then UserInputError. Nothing falls back to
+# XTest, XWarpPointer or click().
+#
+# The device is created in this process when /dev/uinput opens here. When it cannot (the
+# DentoBot container has no uinput device), DENTOBOT_UINPUT_RELAY_DIR names a run-root directory
+# served by a host helper (Testing/step6_uinput_helper.py) that owns the device. The helper only
+# executes the absolute values the harness computes, and the harness verifies the result itself.
+
+UINPUT_PATH = "/dev/uinput"
+UINPUT_RELAY_ENV = "DENTOBOT_UINPUT_RELAY_DIR"
+UINPUT_ABS_MAX = 65535
+UINPUT_DEVICE_NAME = "dentobot-step6-absolute-pointer"
+UINPUT_SETTLE_SEC = 1.0         # after UI_DEV_CREATE, so the compositor enumerates the device
+POINTER_TOLERANCE_PX = 2        # X root pixels between the target and the verified position
+POINTER_CORRECTIONS = 3         # corrective moves after the first move, then refusal
+POINTER_SETTLE_SEC = 0.5        # how long the X pointer may take to reach one move
+POINTER_SETTLE_STEP_SEC = 0.02
+RELAY_POLL_SEC = 0.005
+RELAY_READY_TIMEOUT_SEC = 15.0
+RELAY_RESPONSE_TIMEOUT_SEC = 3.0
+
+EV_SYN, EV_KEY, EV_ABS = 0x00, 0x01, 0x03
+SYN_REPORT = 0x00
+ABS_X, ABS_Y = 0x00, 0x01
+BTN_LEFT = 0x110
+INPUT_PROP_POINTER = 0x00
+BUS_VIRTUAL = 0x06
+_UINPUT_VENDOR = 0x1209  # pid.codes test vendor; the device name identifies this device
+_UINPUT_PRODUCT = 0x0001
+_IOC_NONE, _IOC_WRITE = 0, 1
+_EVENT_FORMAT = "@llHHi"        # struct input_event on LP64 Linux: timeval, type, code, value
+_SETUP_FORMAT = "=HHHH80sI"     # struct uinput_setup: input_id, name[80], ff_effects_max
+_ABS_SETUP_FORMAT = "=Hxx6i"    # struct uinput_abs_setup: code, then input_absinfo (six __s32)
+
+
+def _ioc(direction: int, nr: int, size: int) -> int:
+    """Linux _IOC(direction, 'U', nr, size) for the uinput ioctls."""
+    return (direction << 30) | (size << 16) | (ord("U") << 8) | nr
+
+
+UI_DEV_CREATE = _ioc(_IOC_NONE, 1, 0)                                # 0x5501
+UI_DEV_DESTROY = _ioc(_IOC_NONE, 2, 0)                               # 0x5502
+UI_DEV_SETUP = _ioc(_IOC_WRITE, 3, struct.calcsize(_SETUP_FORMAT))   # 0x405c5503
+UI_ABS_SETUP = _ioc(_IOC_WRITE, 4, struct.calcsize(_ABS_SETUP_FORMAT))  # 0x401c5504
+UI_SET_EVBIT = _ioc(_IOC_WRITE, 100, 4)                              # 0x40045564
+UI_SET_KEYBIT = _ioc(_IOC_WRITE, 101, 4)                             # 0x40045565
+UI_SET_ABSBIT = _ioc(_IOC_WRITE, 103, 4)                             # 0x40045567
+UI_SET_PROPBIT = _ioc(_IOC_WRITE, 110, 4)                            # 0x4004556e
+
+
+def encode_event(event_type: int, code: int, value: int) -> bytes:
+    """One ``struct input_event``. The kernel stamps the time, so the timeval is zero."""
+    return struct.pack(_EVENT_FORMAT, 0, 0, int(event_type), int(code), int(value))
+
+
+def decode_events(payload: bytes) -> list[tuple[int, int, int]]:
+    """(type, code, value) of every ``struct input_event`` in ``payload``."""
+    size = struct.calcsize(_EVENT_FORMAT)
+    if len(payload) % size:
+        raise ValueError(f"{len(payload)} bytes is not a whole number of input events")
+    return [struct.unpack_from(_EVENT_FORMAT, payload, offset)[2:] for offset in range(0, len(payload), size)]
+
+
+def encode_abs_move(x: int, y: int) -> bytes:
+    return (encode_event(EV_ABS, ABS_X, x) + encode_event(EV_ABS, ABS_Y, y)
+            + encode_event(EV_SYN, SYN_REPORT, 0))
+
+
+def encode_button(pressed: bool) -> bytes:
+    return encode_event(EV_KEY, BTN_LEFT, 1 if pressed else 0) + encode_event(EV_SYN, SYN_REPORT, 0)
+
+
+def absolute_value(pixel: int, extent: int) -> int:
+    """Absolute pointer value of root pixel ``pixel`` on an axis of ``extent`` pixels.
+
+    The X root spans every monitor, so one range covers the whole logical desktop, including a
+    monitor placed at a non-zero origin. Pixel 0 maps to 0 and pixel extent-1 to UINPUT_ABS_MAX.
+    """
+    pixel = int(pixel)
+    if extent < 1 or not 0 <= pixel < extent:
+        raise UserInputError(f"pixel {pixel} is outside the desktop (extent {extent})")
+    if extent == 1:
+        return 0
+    return round(pixel * UINPUT_ABS_MAX / (extent - 1))
+
+
+def absolute_step(error_px: int, extent: int) -> int:
+    """Absolute units that move the pointer by ``error_px`` root pixels on an axis of ``extent``."""
+    if extent <= 1:
+        return 0
+    return round(int(error_px) * UINPUT_ABS_MAX / (extent - 1))
+
+
+def _clamp_absolute(value: int) -> int:
+    return min(max(int(value), 0), UINPUT_ABS_MAX)
+
+
+def _within(observed, target, tolerance: int = POINTER_TOLERANCE_PX) -> bool:
+    return abs(observed[0] - target[0]) <= tolerance and abs(observed[1] - target[1]) <= tolerance
+
+
+def _fcntl_ioctl(fd, request, arg):
+    import fcntl  # Linux only; imported here so the module still loads on other hosts
+
+    return fcntl.ioctl(fd, request, arg)
+
+
+class UinputDevice:
+    """A uinput virtual absolute pointer, created with raw ioctls (no third-party module).
+
+    The owner calls ``close`` (which destroys the kernel device); ``close`` is also registered
+    at exit. ``ioctl``, ``open_fn``, ``write_fn`` and ``close_fn`` are injection points for host
+    tests. Opening /dev/uinput needs membership of the ``input`` group on the DentoBot hosts.
+    """
+
+    def __init__(self, *, path=UINPUT_PATH, ioctl=None, open_fn=None, write_fn=None, close_fn=None):
+        self._path = path
+        self._ioctl = ioctl or _fcntl_ioctl
+        self._open = open_fn or os.open
+        self._write = write_fn or os.write
+        self._close = close_fn or os.close
+        self._fd = None
+
+    def create(self) -> None:
+        if self._fd is not None:
+            raise UserInputError("the uinput pointer already exists")
+        try:
+            fd = self._open(self._path, os.O_WRONLY | os.O_NONBLOCK)
+        except OSError as exc:
+            raise UserInputError(
+                f"cannot open {self._path}: {exc} (the user must be in group input)"
+            ) from exc
+        try:
+            for event_type in (EV_SYN, EV_KEY, EV_ABS):
+                self._ioctl(fd, UI_SET_EVBIT, event_type)
+            self._ioctl(fd, UI_SET_KEYBIT, BTN_LEFT)
+            for code in (ABS_X, ABS_Y):
+                self._ioctl(fd, UI_SET_ABSBIT, code)
+            self._ioctl(fd, UI_SET_PROPBIT, INPUT_PROP_POINTER)
+            for code in (ABS_X, ABS_Y):
+                # code, then absinfo: value, minimum, maximum, fuzz, flat, resolution
+                self._ioctl(fd, UI_ABS_SETUP, struct.pack(_ABS_SETUP_FORMAT, code, 0, 0, UINPUT_ABS_MAX, 0, 0, 0))
+            name = UINPUT_DEVICE_NAME.encode("ascii")
+            setup = struct.pack(_SETUP_FORMAT, BUS_VIRTUAL, _UINPUT_VENDOR, _UINPUT_PRODUCT, 1, name, 0)
+            self._ioctl(fd, UI_DEV_SETUP, setup)
+            self._ioctl(fd, UI_DEV_CREATE, 0)
+        except OSError as exc:
+            self._close(fd)
+            raise UserInputError(f"cannot create the uinput pointer on {self._path}: {exc}") from exc
+        self._fd = fd
+
+    def _emit(self, payload: bytes) -> None:
+        if self._fd is None:
+            raise UserInputError("the uinput pointer is not created")
+        try:
+            self._write(self._fd, payload)
+        except OSError as exc:
+            raise UserInputError(f"uinput write failed: {exc}") from exc
+
+    def abs_move(self, x: int, y: int) -> None:
+        for value in (x, y):
+            if type(value) is not int or not 0 <= value <= UINPUT_ABS_MAX:
+                raise UserInputError(f"absolute value {value!r} is outside 0..{UINPUT_ABS_MAX}")
+        self._emit(encode_abs_move(x, y))
+
+    def button(self, pressed: bool) -> None:
+        self._emit(encode_button(bool(pressed)))
+
+    def close(self) -> None:
+        if self._fd is None:
+            return
+        fd, self._fd = self._fd, None
+        try:
+            self._ioctl(fd, UI_DEV_DESTROY, 0)
+        except OSError as exc:
+            raise UserInputError(f"cannot destroy the uinput pointer: {exc}") from exc
+        finally:
+            self._close(fd)
+
+
+def write_atomic_json(path, payload) -> None:
+    """Write JSON in one step (temporary name, then rename) so a reader never sees a partial file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(payload, sort_keys=True, default=str), encoding="utf-8")
+    os.replace(temporary, path)
+
+
+class RelayTransport:
+    """Pointer requests to the host helper that owns the uinput device, exchanged in ``root``.
+
+    The harness writes ``requests/<name>.json`` and waits for ``responses/<name>.json``. The helper
+    writes ``ready.json`` once the device exists, or ``failed.json`` if it could not create it.
+    Names sort by time, so a restarted harness continues on the same relay.
+    """
+
+    def __init__(self, root, *, ready_timeout_sec=None, response_timeout_sec=None):
+        self._root = Path(root)
+        self._count = 0
+        self._response_timeout = (RELAY_RESPONSE_TIMEOUT_SEC if response_timeout_sec is None
+                                  else float(response_timeout_sec))
+        ready = self._wait_for_ready(RELAY_READY_TIMEOUT_SEC if ready_timeout_sec is None
+                                     else float(ready_timeout_sec))
+        if ready.get("abs_max") != UINPUT_ABS_MAX:
+            raise UserInputError(f"uinput helper reports abs_max {ready.get('abs_max')!r}; "
+                                 f"expected {UINPUT_ABS_MAX}")
+
+    def _wait_for_ready(self, timeout: float) -> dict:
+        deadline = _NOW() + timeout
+        while True:
+            failed = self._root / "failed.json"
+            if failed.is_file():
+                raise UserInputError("uinput helper could not create the pointer: "
+                                     + str(_read_json(failed).get("error")))
+            ready = self._root / "ready.json"
+            if ready.is_file():
+                return _read_json(ready)
+            if _NOW() >= deadline:
+                raise UserInputError(f"uinput helper is not ready after {timeout:.0f} s ({ready} is missing)")
+            _SLEEP(RELAY_POLL_SEC)
+
+    def _send(self, op: str, **fields) -> None:
+        self._count += 1
+        name = f"{time.time_ns():020d}-{os.getpid():07d}-{self._count:06d}.json"
+        write_atomic_json(self._root / "requests" / name, {"op": op, "name": name, "utc": utc_now(), **fields})
+        response_path = self._root / "responses" / name
+        deadline = _NOW() + self._response_timeout
+        while not response_path.is_file():
+            if _NOW() >= deadline:
+                raise UserInputError(f"uinput helper did not answer {op} {name} within "
+                                     f"{self._response_timeout:.0f} s")
+            _SLEEP(RELAY_POLL_SEC)
+        response = _read_json(response_path)
+        if not response.get("ok"):
+            raise UserInputError(f"uinput helper refused {op}: {response.get('error')}")
+
+    def abs_move(self, x: int, y: int) -> None:
+        self._send("abs_move", x=int(x), y=int(y))
+
+    def button(self, pressed: bool) -> None:
+        self._send("button", button=1, pressed=bool(pressed))
+
+
+def _read_json(path) -> dict:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise UserInputError(f"cannot read the uinput relay file {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise UserInputError(f"the uinput relay file {path} is not a JSON object")
+    return payload
+
+
+class UinputPointer:
+    """Moves and clicks a uinput pointer and verifies every move at X level.
+
+    ``transport`` provides ``abs_move(x, y)`` and ``button(pressed)``: a UinputDevice in this
+    process, or a RelayTransport. ``observe()`` returns the X root pointer (x, y) from
+    XQueryPointer. ``desktop`` is the X root size, which covers every monitor.
+    """
+
+    def __init__(self, transport, observe, desktop):
+        width, height = int(desktop[0]), int(desktop[1])
+        if width < 1 or height < 1:
+            raise UserInputError(f"the X root reports an empty desktop {width}x{height}")
+        self._transport = transport
+        self._observe = observe
+        self._width, self._height = width, height
+        self.verified = None   # (x, y) of the last move that landed within tolerance
+        self.last_move = None  # evidence of the last move, for the ledger
+
+    def move(self, x, y) -> dict:
+        x, y = int(x), int(y)
+        if not (0 <= x < self._width and 0 <= y < self._height):
+            raise UserInputError(f"target ({x}, {y}) is outside the desktop {self._width}x{self._height}")
+        self.verified = None
+        ax, ay = absolute_value(x, self._width), absolute_value(y, self._height)
+        attempts = []
+        for correction in range(POINTER_CORRECTIONS + 1):
+            self._transport.abs_move(ax, ay)
+            observed = self._settle((x, y))
+            attempts.append({"abs_xy": [ax, ay], "observed_xy": list(observed)})
+            if _within(observed, (x, y)):
+                self.verified = (x, y)
+                self.last_move = {"target_xy": [x, y], "attempts": attempts, "landed": True}
+                return self.last_move
+            if correction < POINTER_CORRECTIONS:
+                ax = _clamp_absolute(ax + absolute_step(x - observed[0], self._width))
+                ay = _clamp_absolute(ay + absolute_step(y - observed[1], self._height))
+        self.last_move = {"target_xy": [x, y], "attempts": attempts, "landed": False}
+        raise UserInputError(
+            f"pointer did not reach ({x}, {y}) after {POINTER_CORRECTIONS} corrective uinput moves; "
+            f"it is at {tuple(attempts[-1]['observed_xy'])} (tolerance {POINTER_TOLERANCE_PX} px)"
+        )
+
+    def _settle(self, target):
+        began = _NOW()
+        observed = tuple(self._observe())
+        while not _within(observed, target) and _NOW() - began < POINTER_SETTLE_SEC:
+            _SLEEP(POINTER_SETTLE_STEP_SEC)
+            observed = tuple(self._observe())
+        return observed
+
+    def button(self, button, pressed) -> None:
+        if type(button) is not int or button != 1:
+            raise UserInputError(f"uinput mode presses only the left button (1); got {button!r}")
+        if pressed:
+            if self.verified is None:
+                raise UserInputError("no verified pointer position before the press; no press sent")
+            observed = tuple(self._observe())
+            if not _within(observed, self.verified):
+                raise UserInputError(f"pointer is at {observed}, not at the verified {self.verified}; "
+                                     "no press sent")
+        self._transport.button(bool(pressed))
+
+
+class UinputBackend:
+    """XTestBackend for window and pointer queries; motion and buttons go through a UinputPointer."""
+
+    def __init__(self, xbackend, pointer: UinputPointer):
+        self._x = xbackend
+        self._pointer = pointer
+
+    def pointer(self) -> tuple[int, int]:
+        return self._x.pointer()
+
+    def pointer_chain(self) -> list[int]:
+        return self._x.pointer_chain()
+
+    def active_window(self) -> int:
+        return self._x.active_window()
+
+    def window_name(self, window: int) -> str:
+        return self._x.window_name(window)
+
+    def activate_window(self, window: int) -> None:
+        self._x.activate_window(window)
+
+    @property
+    def last_move(self):
+        return self._pointer.last_move
+
+    def move(self, x: int, y: int) -> None:
+        self._pointer.move(x, y)
+
+    def button(self, button: int, pressed: bool) -> None:
+        self._pointer.button(button, pressed)
+
+
+_UINPUT_BACKEND = None
+
+
+def _close_at_exit(device: UinputDevice) -> None:
+    try:
+        device.close()
+    except Exception as exc:  # the process is exiting: report the failure, do not raise
+        print(f"uinput pointer close failed: {exc}", file=sys.stderr)
+
+
+def get_uinput_backend() -> UinputBackend:
+    """The uinput backend for this process, built once: relay to the host helper, or a local device."""
+    global _UINPUT_BACKEND
+    if _UINPUT_BACKEND is None:
+        xbackend = get_backend()
+        desktop = xbackend.desktop_size()
+        relay_dir = os.environ.get(UINPUT_RELAY_ENV, "").strip()
+        if relay_dir:
+            transport = RelayTransport(relay_dir)
+        else:
+            device = UinputDevice()
+            device.create()
+            atexit.register(_close_at_exit, device)
+            _SLEEP(UINPUT_SETTLE_SEC)
+            transport = device
+        pointer = UinputPointer(transport, observe=xbackend.pointer, desktop=desktop)
+        _UINPUT_BACKEND = UinputBackend(xbackend, pointer)
+    return _UINPUT_BACKEND
+
+
+def pointer_backend(mode: str):
+    """The backend that moves the pointer and presses buttons for ``mode``."""
+    if mode == "uinput":
+        return get_uinput_backend()
+    return get_backend()
+
+
 def _hex(value) -> str:
     return f"0x{int(value):x}"
 
@@ -538,8 +950,12 @@ def _poll_hit_test(backend, target: int, physical) -> dict:
         chain = list(backend.pointer_chain())
         hit = pointer == target_xy and target in chain
         if hit or _NOW() >= deadline:
-            return {"hit": bool(hit), "pointer_xy": pointer, "chain": chain,
-                    "elapsed_sec": round(_NOW() - began, 3)}
+            result = {"hit": bool(hit), "pointer_xy": pointer, "chain": chain,
+                      "elapsed_sec": round(_NOW() - began, 3)}
+            move = getattr(backend, "last_move", None)  # uinput only: the verified move's record
+            if move is not None:
+                result["move"] = move
+            return result
 
 
 def _x_activate_and_confirm(backend, widget, slicer, target: int, physical, label: str,
@@ -558,14 +974,17 @@ def _x_activate_and_confirm(backend, widget, slicer, target: int, physical, labe
         backend.activate_window(target)
         _pump_once()
         last = _poll_hit_test(backend, target, physical)
-        evidence["attempts"].append({
+        record = {
             "attempt": attempt,
             "hit": last["hit"],
             "pointer_xy": list(last["pointer_xy"]),
             "chain": [_hex(window) for window in last["chain"]],
             "elapsed_sec": last["elapsed_sec"],
             "active_window_after": _hex(backend.active_window()),
-        })
+        }
+        if "move" in last:
+            record["uinput_move"] = last["move"]
+        evidence["attempts"].append(record)
         if last["hit"]:
             evidence["hit_test"] = "pass"
             return
@@ -693,7 +1112,7 @@ def _navigate_tab(tab_widget, index: int, *, owner_label: str, mode: str, eviden
         logical = (int(point.x()), int(point.y()))
         dpr = _device_pixel_ratio(qt, point)
         physical = (round(logical[0] * dpr), round(logical[1] * dpr))
-        backend = get_backend()
+        backend = pointer_backend(mode)
         start = backend.pointer()
         target = _native_window(_value(tab_widget, "window"), label)
         x_activation["target_window"] = _hex(target)
@@ -865,7 +1284,7 @@ def user_click(widget, label: str, *, mode: str, evidence=None, direct_navigatio
         scrolled = _preflight(widget, label)
         _raise_and_activate(widget, slicer)
         logical, dpr, physical = _target(widget, qt, label)
-        backend = get_backend()
+        backend = pointer_backend(mode)
         start = backend.pointer()
         target = _native_window(_value(widget, "window"), label)
         x_activation["target_window"] = _hex(target)
