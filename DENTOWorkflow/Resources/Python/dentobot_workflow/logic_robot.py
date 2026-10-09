@@ -200,10 +200,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotOverlayLogicMixin, RobotPla
             self.setRobotBaseMountLocked(parameterNode, False)
             parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
             parameterNode.step6BasePlacementSource = "restored-before-step6a-review"
-            parameterNode.step6BasePlacementRevision = max(
-                0,
-                int(parameterNode.step6BasePlacementRevision),
-            ) + 1
+            self.issueStep6BasePlacementRevision(parameterNode)
             self.invalidateStep6TaskConfirmation(
                 parameterNode,
                 _("Case Foundation preparation is incomplete after branch activation."),
@@ -281,7 +278,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotOverlayLogicMixin, RobotPla
             parameterNode.robotBaseMountLocked = True
             parameterNode.step6BasePlacementStatus = status.value
             parameterNode.step6BasePlacementSource = str(snapshot.get("source") or "")
-            parameterNode.step6BasePlacementRevision = int(snapshot["revision"])
+            self.recordStep6BasePlacementRevision(parameterNode, int(snapshot["revision"]))
         finally:
             parameterNode.EndModify(was_modifying)
         base_transform.SetAttribute(
@@ -395,9 +392,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotOverlayLogicMixin, RobotPla
             parameterNode.step6BasePlacementSource = (
                 QUARANTINED_CIRCULAR_BASE_SOURCE
             )
-            parameterNode.step6BasePlacementRevision = max(
-                0, int(parameterNode.step6BasePlacementRevision)
-            ) + 1
+            self.issueStep6BasePlacementRevision(parameterNode)
         finally:
             parameterNode.EndModify(was_modifying)
         base_transform.SetAttribute("DENTOBOT.PlacementWarning", message)
@@ -442,9 +437,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotOverlayLogicMixin, RobotPla
                 parameterNode.step6BasePlacementSource = (
                     MANUAL_SIMULATION_BASE_SOURCE if locked else "operator-unlocked"
                 )
-                parameterNode.step6BasePlacementRevision = max(
-                    0, int(parameterNode.step6BasePlacementRevision)
-                ) + 1
+                self.issueStep6BasePlacementRevision(parameterNode)
             if state_changed:
                 self.invalidateStep6TaskConfirmation(
                     parameterNode,
@@ -1198,9 +1191,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotOverlayLogicMixin, RobotPla
                     parameterNode.robotBaseMountLocked
                     or base_status is not BasePlacementStatus.STALE
                 ):
-                    parameterNode.step6BasePlacementRevision = max(
-                        0, int(parameterNode.step6BasePlacementRevision)
-                    ) + 1
+                    self.issueStep6BasePlacementRevision(parameterNode)
                 parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
                 parameterNode.robotBaseMountLocked = False
         finally:

@@ -563,6 +563,14 @@ def test_base_lock_publishes_complete_review_evidence_before_parameter_notificat
         _applyRobotBaseMountInteractionState=lambda *_args: None,
     )
     lock = namespace["setRobotBaseMountLocked"]
+    from types import MethodType
+
+    revision_owner = ("issueStep6BasePlacementRevision", "recordStep6BasePlacementRevision",
+                      "step6BasePlacementRevisionHighWater")
+    exec(compile(ast.fix_missing_locations(ast.Module(body=_base_owner_functions(revision_owner), type_ignores=[])),
+                 "<base-lock-revision-owner>", "exec"), namespace)
+    for name in revision_owner:  # the high-water owner lives in the Case Foundation mixin
+        setattr(logic, name, MethodType(namespace[name], logic))
     lock(logic, node, True)
     assert notifications == [(True, "ProvisionalLocked", MANUAL_SIMULATION_BASE_SOURCE, {
         "authority": "ManualSimulationBaseReviewed",
@@ -602,23 +610,42 @@ class _BaseIdentityTransform:
             self.attributes[name] = str(value)
 
 
-def _base_identity_host(*method_names):
-    """The real RobotLogicMixin base-identity methods (read from logic_robot.py by AST) on a small host."""
+_BASE_OWNER_CLASSES = (
+    ("dentobot_workflow/logic_robot.py", "RobotLogicMixin"),
+    ("dentobot_workflow/logic_case_foundation.py", "CaseFoundationLogicMixin"),
+)
 
+
+def _base_owner_functions(method_names):
+    """Production base-owner methods read by AST from the mixins that DENTOWorkflow composes into the logic class."""
+
+    functions = []
+    for relative, class_name in _BASE_OWNER_CLASSES:
+        source = (HELPER_DIRECTORY / relative).read_text()
+        owner = next(node for node in ast.parse(source).body
+                     if isinstance(node, ast.ClassDef) and node.name == class_name)
+        functions += [node for node in owner.body if isinstance(node, ast.FunctionDef) and node.name in method_names]
+    assert {node.name for node in functions} == set(method_names), "missing production method"
+    return functions
+
+
+def _base_owner_namespace():
     from DENTOStep6State import BasePlacementStatus, MANUAL_SIMULATION_BASE_SOURCE, fingerprint, normalize_base_status
 
-    source = (HELPER_DIRECTORY / "dentobot_workflow/logic_robot.py").read_text()
-    robot_class = next(node for node in ast.parse(source).body
-                       if isinstance(node, ast.ClassDef) and node.name == "RobotLogicMixin")
-    functions = [node for node in robot_class.body if isinstance(node, ast.FunctionDef) and node.name in method_names]
-    assert {node.name for node in functions} == set(method_names), "missing production method"
-    namespace = {
+    return {
         "BasePlacementStatus": BasePlacementStatus,
         "MANUAL_SIMULATION_BASE_SOURCE": MANUAL_SIMULATION_BASE_SOURCE,
         "normalize_base_status": normalize_base_status,
         "fingerprint": fingerprint,
         "_": lambda text: text,
     }
+
+
+def _base_identity_host(*method_names):
+    """The real base-identity methods (read from the production source by AST) on a small host."""
+
+    functions = _base_owner_functions(method_names)
+    namespace = _base_owner_namespace()
     exec(compile(ast.fix_missing_locations(ast.Module(body=functions, type_ignores=[])),
                  "<base-identity>", "exec"), namespace)
     base = _BaseIdentityTransform(np.eye(4).tolist())
@@ -662,8 +689,7 @@ _MOVED_POSE = [[1.0, 0.0, 0.0, 5.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0],
 
 
 def test_user_base_edit_through_the_lock_owners_still_bumps_the_revision_and_changes_the_identity():
-    host, node, base = _base_identity_host("setRobotBaseMountLocked", "robotBaseFingerprint",
-                                           "robotBasePoseFingerprint")
+    host, node, base = _base_identity_host(*_BASE_REVISION_METHODS)
     captured = _base_identity_snapshot(host, node, base)
     host.setRobotBaseMountLocked(node, False)
     base.matrix = _BaseIdentityMatrix(_MOVED_POSE)
@@ -673,8 +699,7 @@ def test_user_base_edit_through_the_lock_owners_still_bumps_the_revision_and_cha
 
 
 def test_exact_base_identity_restore_reinstates_the_captured_revision_status_and_fingerprint():
-    host, node, base = _base_identity_host("setRobotBaseMountLocked", "robotBaseFingerprint",
-                                           "robotBasePoseFingerprint", "restoreStep6BaseIdentity")
+    host, node, base = _base_identity_host(*_BASE_REVISION_METHODS)
     captured = _base_identity_snapshot(host, node, base)
     host.setRobotBaseMountLocked(node, False)  # the advisor trial: unlock, pose change, lock
     base.matrix = _BaseIdentityMatrix(_MOVED_POSE)
@@ -693,10 +718,133 @@ def test_exact_base_identity_restore_reinstates_the_captured_revision_status_and
 
 
 def test_exact_base_identity_restore_refuses_an_unlocked_snapshot_or_a_fingerprint_mismatch():
-    host, node, base = _base_identity_host("setRobotBaseMountLocked", "robotBaseFingerprint",
-                                           "robotBasePoseFingerprint", "restoreStep6BaseIdentity")
+    host, node, base = _base_identity_host(*_BASE_REVISION_METHODS)
     captured = _base_identity_snapshot(host, node, base)
     with pytest.raises(ValueError, match="not locked"):
         host.restoreStep6BaseIdentity(node, {**captured, "locked": False})
     with pytest.raises(ValueError, match="does not match"):
         host.restoreStep6BaseIdentity(node, {**captured, "base_fingerprint": "other"})
+
+
+_BASE_REVISION_METHODS = (
+    "setRobotBaseMountLocked", "robotBaseFingerprint", "robotBasePoseFingerprint", "restoreStep6BaseIdentity",
+    "step6BasePlacementRevisionHighWater", "recordStep6BasePlacementRevision", "issueStep6BasePlacementRevision",
+)
+_MOVED_POSE_TWO = [[1.0, 0.0, 0.0, 9.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+_IDENTITY_POSE = np.eye(4).tolist()
+
+
+def _operator_base_edit(host, node, base, matrix):
+    """A Base edit through the production owners: unlock (one issue), move, lock (one issue)."""
+
+    host.setRobotBaseMountLocked(node, False)
+    base.matrix = _BaseIdentityMatrix(matrix)
+    host.setRobotBaseMountLocked(node, True)
+
+
+def _persisted_attributes(node):
+    """What the MRML parameter node keeps for the Base identity: every value stored as text."""
+
+    return {
+        "robotBaseMountLocked": str(bool(node.robotBaseMountLocked)),
+        "step6BasePlacementStatus": node.step6BasePlacementStatus,
+        "step6BasePlacementSource": node.step6BasePlacementSource,
+        "step6BasePlacementRevision": str(node.step6BasePlacementRevision),
+        "step6BasePlacementHighWater": str(node.step6BasePlacementHighWater),
+    }
+
+
+def _reopened_node(base, attributes):
+    return SimpleNamespace(
+        robotBaseTransform=base,
+        robotBaseMountLocked=attributes["robotBaseMountLocked"] == "True",
+        step6BasePlacementStatus=attributes["step6BasePlacementStatus"],
+        step6BasePlacementSource=attributes["step6BasePlacementSource"],
+        step6BasePlacementRevision=int(attributes["step6BasePlacementRevision"]),
+        step6BasePlacementHighWater=int(attributes["step6BasePlacementHighWater"]),
+        StartModify=lambda: 0,
+        EndModify=lambda _old: None,
+    )
+
+
+def test_trial_then_exact_restore_keeps_the_captured_revision_and_the_next_edit_never_reissues_one():
+    host, node, base = _base_identity_host(*_BASE_REVISION_METHODS)
+    node.step6BasePlacementHighWater = 37
+    captured = _base_identity_snapshot(host, node, base)
+    _operator_base_edit(host, node, base, _MOVED_POSE)  # the advisor trial issues 38 and 39
+    assert (node.step6BasePlacementRevision, node.step6BasePlacementHighWater) == (39, 39)
+
+    host.setRobotBaseMountLocked(node, False)  # the reinstatement unlocks first: issues 40
+    base.matrix = _BaseIdentityMatrix(_IDENTITY_POSE)
+    host.restoreStep6BaseIdentity(node, captured)
+
+    assert node.step6BasePlacementRevision == 37
+    assert host.robotBaseFingerprint(node) == captured["base_fingerprint"]  # Task Home is fresh again
+    assert node.step6BasePlacementHighWater == 40  # the restore never lowers the mark
+
+    _operator_base_edit(host, node, base, _MOVED_POSE_TWO)  # the next real user edit
+    assert node.step6BasePlacementRevision == 42  # above every issued number, not 38
+    assert node.step6BasePlacementHighWater == 42
+    assert host.robotBaseFingerprint(node) != captured["base_fingerprint"]  # Task Home is stale
+
+
+def test_high_water_mark_survives_save_and_reopen_like_the_revision():
+    host, node, base = _base_identity_host(*_BASE_REVISION_METHODS)
+    node.step6BasePlacementHighWater = 37
+    captured = _base_identity_snapshot(host, node, base)
+    _operator_base_edit(host, node, base, _MOVED_POSE)
+    host.setRobotBaseMountLocked(node, False)
+    base.matrix = _BaseIdentityMatrix(_IDENTITY_POSE)
+    host.restoreStep6BaseIdentity(node, captured)
+    saved = _persisted_attributes(node)
+    assert saved["step6BasePlacementRevision"] == "37" and saved["step6BasePlacementHighWater"] == "40"
+
+    reopened = _reopened_node(base, saved)
+    assert host.robotBaseFingerprint(reopened) == captured["base_fingerprint"]
+    _operator_base_edit(host, reopened, base, _MOVED_POSE_TWO)
+    assert reopened.step6BasePlacementRevision == 42  # the mark came back with the scene, so no reuse after reopen
+
+
+def test_absent_high_water_mark_in_an_older_case_defaults_to_the_current_revision():
+    host, node, base = _base_identity_host(*_BASE_REVISION_METHODS)
+    assert not hasattr(node, "step6BasePlacementHighWater")  # a case saved before the field existed
+    node.step6BasePlacementRevision = 7
+    assert host.step6BasePlacementRevisionHighWater(node) == 7
+    _operator_base_edit(host, node, base, _MOVED_POSE)
+    assert (node.step6BasePlacementRevision, node.step6BasePlacementHighWater) == (9, 9)
+
+
+def test_user_edits_without_the_advisor_issue_the_same_consecutive_revisions_as_before():
+    host, node, base = _base_identity_host(*_BASE_REVISION_METHODS)
+    revisions = []
+    for offset in (1.0, 2.0, 3.0):
+        matrix = [[1.0, 0.0, 0.0, offset], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+        _operator_base_edit(host, node, base, matrix)
+        revisions.append(node.step6BasePlacementRevision)
+    assert revisions == [39, 41, 43]  # unlock and lock each issue one; nothing skipped or repeated
+
+
+def test_every_base_revision_write_in_production_goes_through_the_high_water_owner():
+    offenders = []
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self, path):
+            self.path, self.stack = path, []
+
+        def visit_FunctionDef(self, node):
+            self.stack.append(node.name)
+            self.generic_visit(node)
+            self.stack.pop()
+
+        def visit_Assign(self, node):
+            for target in node.targets:
+                if isinstance(target, ast.Attribute) and target.attr == "step6BasePlacementRevision":
+                    if not self.stack or self.stack[-1] != "recordStep6BasePlacementRevision":
+                        offenders.append(f"{self.path.name}:{node.lineno}")
+            self.generic_visit(node)
+
+    sources = [path for path in HELPER_DIRECTORY.rglob("*.py") if "archive" not in path.parts]
+    for path in sources:
+        _Visitor(path).visit(ast.parse(path.read_text(encoding="utf-8")))
+    assert offenders == []
+

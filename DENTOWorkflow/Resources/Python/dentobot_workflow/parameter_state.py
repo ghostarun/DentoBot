@@ -122,6 +122,8 @@ class DENTOWorkflowParameterNode:
     step6BasePlacementStatus: str = "Unlocked"
     step6BasePlacementSource: str = "operator-unlocked"
     step6BasePlacementRevision: int = 0
+    # Highest Base revision ever issued in this case; never decreases, so a restored revision is never reissued.
+    step6BasePlacementHighWater: int = 0
     step6ForeheadProxyWidthMm: float = 140.0
     step6ForeheadProxyHeightMm: float = 85.0
     step6ForeheadProxyDepthMm: float = 28.0

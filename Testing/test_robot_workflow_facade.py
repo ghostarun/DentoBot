@@ -7436,11 +7436,19 @@ class RevisionFakeLogic(FakeLogic):
         self.audit_content_changes = False
         self._audit_counter = 0
 
+    @staticmethod
+    def _issue_revision(parameter_node):
+        # Mirrors the production high-water owner (logic_robot.issueStep6BasePlacementRevision).
+        issued = max(int(parameter_node.step6BasePlacementRevision),
+                     int(getattr(parameter_node, "step6BasePlacementHighWater", 0) or 0)) + 1
+        parameter_node.step6BasePlacementRevision = issued
+        parameter_node.step6BasePlacementHighWater = issued
+
     def setRobotBaseMountLocked(self, parameter_node, locked):
         changed = bool(parameter_node.robotBaseMountLocked) != bool(locked)
         super().setRobotBaseMountLocked(parameter_node, locked)
         if changed:
-            parameter_node.step6BasePlacementRevision += 1
+            self._issue_revision(parameter_node)
             parameter_node.step6BasePlacementStatus = "ProvisionalLocked" if locked else "Unlocked"
             parameter_node.step6BasePlacementSource = "ManualSimulationBase" if locked else "operator-unlocked"
 
@@ -7464,6 +7472,8 @@ class RevisionFakeLogic(FakeLogic):
         parameter_node.step6BasePlacementStatus = snapshot["status"]
         parameter_node.step6BasePlacementSource = snapshot["source"]
         parameter_node.step6BasePlacementRevision = int(snapshot["revision"])
+        parameter_node.step6BasePlacementHighWater = max(
+            int(snapshot["revision"]), int(getattr(parameter_node, "step6BasePlacementHighWater", 0) or 0))
         base = parameter_node.robotBaseTransform
         base.SetAttribute(self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE, snapshot["authority"])
         if self.robotBaseFingerprint(parameter_node) != snapshot["base_fingerprint"]:
@@ -7510,6 +7520,7 @@ def make_identity_facade():
     parameter_node.step6BasePlacementStatus = "ProvisionalLocked"
     parameter_node.step6BasePlacementSource = "ManualSimulationBase"
     parameter_node.step6BasePlacementRevision = 37
+    parameter_node.step6BasePlacementHighWater = 37
     parameter_node.step6CollisionSceneAuditJson = ""
     logic.syncStep6MoveItPlanningScene(parameter_node)  # the audit of the original accepted Base
     facade._runtime_validated_task_home_key = facade._task_home_runtime_key(logic.taskHomeRecord(parameter_node))
@@ -7576,3 +7587,19 @@ def test_reinstatement_is_refused_while_base_acceptance_is_uncertain_and_without
     result = facade.reinstateManualBaseIdentity(snapshot)
     assert result.code == "ros_required" and not result.success
     assert node.step6BasePlacementRevision == 38
+
+
+def test_next_user_edit_after_an_exact_reinstatement_never_reissues_a_trial_revision():
+    facade, node, logic, _bridge = make_identity_facade()
+    snapshot = facade.manualBaseIdentitySnapshot()
+    assert facade.unlockBase().success  # trial: issues 38
+    assert facade.stageManualBaseReview(_manual_base_test_matrix(5.0)).success
+    assert facade.acceptManualBaseReview().success  # trial: issues 39
+    assert facade.reinstateManualBaseIdentity(snapshot).success  # unlock issues 40, revision back to 37
+    assert node.step6BasePlacementRevision == 37 and node.step6BasePlacementHighWater == 40
+
+    assert facade.unlockBase().success  # the next real user edit: issues 41 ...
+    assert facade.stageManualBaseReview(_manual_base_test_matrix(3.0)).success
+    assert facade.acceptManualBaseReview().success  # ... and 42, never 38
+    assert node.step6BasePlacementRevision == 42 and node.step6BasePlacementHighWater == 42
+    assert logic.robotBaseFingerprint(node) != snapshot["base_fingerprint"]  # Task Home is stale

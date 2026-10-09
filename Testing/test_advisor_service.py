@@ -1130,6 +1130,7 @@ class BaseIdentityModel:
     def __init__(self, world):
         self.w = world
         self.revision = self.ORIGINAL_REVISION
+        self.high_water = self.ORIGINAL_REVISION  # the production mark: issued revisions never repeat
         self.status, self.source = "ProvisionalLocked", "ManualSimulationBase"
         self.authority = "ManualSimulationBaseReviewed"
         self.confirmed = True
@@ -1150,6 +1151,10 @@ class BaseIdentityModel:
     def _audit_fp(self):
         return fa.fingerprint_of({"base": self.fingerprint(), "pose": self.pose()})
 
+    def _issue(self):
+        self.revision = max(self.revision, self.high_water) + 1
+        self.high_water = self.revision
+
     def _install(self):
         m, w = self, self.w
 
@@ -1158,7 +1163,7 @@ class BaseIdentityModel:
             if w.locked:
                 w.locked = False
                 m.status, m.source, m.authority = "Unlocked", "operator-unlocked", "ManualSimulationBaseUnreviewed"
-                m.revision += 1
+                m._issue()
                 m.confirmed = False
                 m.runtime_key_ok = False
             return ok()
@@ -1168,7 +1173,7 @@ class BaseIdentityModel:
             w.base.matrix = np.array(w.staged, dtype=float)
             w.locked = True
             m.status, m.source, m.authority = "ProvisionalLocked", "ManualSimulationBase", "ManualSimulationBaseReviewed"
-            m.revision += 1
+            m._issue()
             m.confirmed = False
             m.audit_fp = m._audit_fp()
             return ok()
@@ -1195,6 +1200,7 @@ class BaseIdentityModel:
             w.locked = True
             m.status, m.source, m.authority = snap["status"], snap["source"], snap["authority"]
             m.revision = int(snap["revision"])
+            m.high_water = max(m.high_water, m.revision)
             m.audit_fp = snap["collision_audit_fingerprint"]
             m.runtime_key_ok = bool(snap["runtime_task_home_key"]) and snap["task_home_key"] == "home-key-1"
             return ok()
@@ -1250,6 +1256,7 @@ def test_restore_after_a_consent_off_base_trial_reinstates_the_original_base_ide
     assert world.calls.count("reinstate") == 1
     assert np.allclose(world.base.matrix, SAVED_BASE, atol=1e-9)
     assert model.revision == BaseIdentityModel.ORIGINAL_REVISION and model.fingerprint() == original
+    assert model.high_water == BaseIdentityModel.ORIGINAL_REVISION + 3  # trial 38, 39; reinstatement unlock 40
     assert world.logic.taskHomeFreshnessIssues(world.node) == ()
     assert world.facade.taskHomeValidationGap(world.node) == ""
     assert model.confirmed
@@ -1317,3 +1324,19 @@ def test_cancel_during_a_candidate_before_its_base_moves_leaves_the_base_identit
     assert model.revision == BaseIdentityModel.ORIGINAL_REVISION
     assert "reinstate" not in world.calls and "base_accept" not in world.calls
     assert world.facade.taskHomeValidationGap(world.node) == ""
+
+
+def test_next_operator_edit_after_an_exact_restore_never_reissues_a_trial_revision(tmp_path):
+    world = World(oracle=lambda v: {"stroke": False})
+    model = BaseIdentityModel(world)
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, decline=("opening", "base_yaw"))
+    assert model.revision == BaseIdentityModel.ORIGINAL_REVISION and model.high_water == 40
+    edited = SAVED_BASE.copy()
+    edited[0, 3] += 3.0
+    assert world.facade.unlockBase().success  # issues 41
+    assert world.facade.stageManualBaseReview(edited.flatten().tolist()).success
+    assert world.facade.acceptManualBaseReview().success  # issues 42, never a trial number
+    assert model.revision == 42 and model.high_water == 42
+    assert world.logic.taskHomeFreshnessIssues(world.node)  # Task Home is stale

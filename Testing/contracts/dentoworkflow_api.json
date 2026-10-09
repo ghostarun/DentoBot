@@ -2374,6 +2374,7 @@
         "step6BasePlacementStatus",
         "step6BasePlacementSource",
         "step6BasePlacementRevision",
+        "step6BasePlacementHighWater",
         "step6ForeheadProxyWidthMm",
         "step6ForeheadProxyHeightMm",
         "step6ForeheadProxyDepthMm",
