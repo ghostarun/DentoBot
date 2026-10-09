@@ -1398,11 +1398,65 @@ def _popup_row_sample(combo, row: int, qt) -> dict:
     return sample
 
 
+# A QComboBox popup shows at most maxVisibleItems rows (Qt default 10). The 11th row of the stage combo
+# ("6 · Robot Placement") is below the visible list, so the list has to be scrolled with real wheel notches.
+POPUP_WHEEL_UP = 4
+POPUP_WHEEL_DOWN = 5
+POPUP_WHEEL_MAX_NOTCHES = 30
+
+
+def _scroll_popup_to_row(combo, row: int, *, backend, qt, dpr: float, step, label: str, mode: str,
+                         popup_window: int) -> int:
+    """Scroll the open popup list with real wheel notches until row ``row`` lies inside the popup.
+
+    The pointer is moved over the popup list first, and each notch is only sent while the popup window is in the
+    pointer chain. Returns the number of notches. Refuses loudly when the row never comes into the popup.
+    """
+    view = combo.view()
+    viewport = view.viewport()
+    notches = 0
+    began = _NOW()
+    moved = False
+    while True:
+        sample = _popup_row_sample(combo, row, qt)
+        if sample["inside"]:
+            if notches:
+                step("popup_scroll", notches=notches, rect=sample["rect"], box=sample["box"])
+            return notches
+        if not sample["valid"]:
+            if _NOW() - began >= POPUP_ROW_TIMEOUT_SEC:
+                return notches  # no geometry: the caller's stable-geometry wait refuses it with its own message
+            _pump_until(_NOW() + POPUP_STEP_SEC)  # the row's geometry may still be settling
+            continue
+        if notches >= POPUP_WHEEL_MAX_NOTCHES:
+            raise UserInputError(f"{label}: row {row} did not come into the popup after {notches} wheel "
+                                 f"notches (last {sample}); no row press sent")
+        if mode == "uinput":
+            raise UserInputError(f"{label}: row {row} is outside the visible popup list and the wheel is not sent "
+                                 "in uinput mode (it presses the left button only); use xtest mode")
+        if not moved:
+            centre = viewport.mapToGlobal(_value(viewport, "rect").center())
+            backend.move(round(int(centre.x()) * dpr), round(int(centre.y()) * dpr))
+            _pump_until(_NOW() + 0.1)
+            moved = True
+        chain = list(backend.pointer_chain())
+        if popup_window not in chain:
+            raise UserInputError(f"{label}: the pointer over the popup list is not in the popup window "
+                                 f"{_hex(popup_window)} (chain {[_hex(w) for w in chain]}); no wheel sent")
+        rect = view.visualRect(combo_row_index(combo, row))
+        below = int(rect.y()) > 0  # a row that is not inside lies either above the list top or below it
+        backend.button(POPUP_WHEEL_DOWN if below else POPUP_WHEEL_UP, True)
+        backend.button(POPUP_WHEEL_DOWN if below else POPUP_WHEEL_UP, False)
+        notches += 1
+        _pump_until(_NOW() + POPUP_STEP_SEC)
+
+
 def select_combo_item(combo, row: int, expected_text: str, *, mode: str, evidence=None) -> dict:
     """Select list row ``row`` of ``combo`` by real presses on its popup, and verify the result.
 
     The combo is opened by a real press. The row is pressed only when the popup is visible, the row
-    has a valid rect that is stable for POPUP_STABLE_SEC and lies inside the popup window, the
+    has a valid rect that is stable for POPUP_STABLE_SEC and lies inside the popup window (a row below the
+    visible list is first brought into the popup with real wheel notches over the list, xtest mode only), the
     pointer chain at the row contains the popup's X window, and Qt reports the popup list under
     the row. The press is held for SELECT_HOLD_SEC and released. The combo must then show ``row``
     with ``expected_text``, or UserInputError is raised. No programmatic selection is made.
@@ -1445,6 +1499,9 @@ def select_combo_item(combo, row: int, expected_text: str, *, mode: str, evidenc
         if not opened:
             raise UserInputError(f"{label}: the popup did not open after a real press; no row press sent")
         popup_window = int(combo.view().window().winId())
+        if not _popup_row_sample(combo, row, qt)["inside"]:
+            _scroll_popup_to_row(combo, row, backend=backend, qt=qt, dpr=dpr, step=step, label=label,
+                                 mode=mode, popup_window=popup_window)
         began = _NOW()
         last, stable_since, sample = None, None, None
         while True:
