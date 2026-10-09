@@ -284,6 +284,83 @@ def _mesh_polydata(vertices, triangles):
     return poly
 
 
+def _segment_distance(points, u, v):
+    """Distance from points (n, 3) to segments u-v (n, 3 each); a zero-length segment is a point."""
+    d = v - u
+    dd = np.einsum("ij,ij->i", d, d)
+    t = np.einsum("ij,ij->i", points - u, d) / np.where(dd > 0.0, dd, 1.0)
+    t = np.where(dd > 0.0, np.clip(t, 0.0, 1.0), 0.0)
+    return np.linalg.norm(points - (u + t[:, None] * d), axis=1)
+
+
+def point_triangle_distance(points, a, b, c):
+    """Exact unsigned distance (mm) from points (n, 3) to triangles (a, b, c), each (n, 3).
+
+    The closest point of a triangle is either the perpendicular foot inside a
+    non-degenerate face or lies on one of its three edges, so the minimum over
+    those candidates is exact. Zero-area faces contribute only their edges.
+    """
+    points, a, b, c = (np.asarray(x, float).reshape(-1, 3) for x in (points, a, b, c))
+    best = np.minimum(np.minimum(_segment_distance(points, a, b), _segment_distance(points, b, c)),
+                      _segment_distance(points, c, a))
+    ab, ac, ap = b - a, c - a, points - a
+    n = np.cross(ab, ac)
+    nn = np.einsum("ij,ij->i", n, n)
+    ab2, ac2 = np.einsum("ij,ij->i", ab, ab), np.einsum("ij,ij->i", ac, ac)
+    face = nn > (1e-9 ** 2) * ab2 * ac2  # sin(angle) > 1e-9: a usable face, not a sliver
+    d01 = np.einsum("ij,ij->i", ab, ac)
+    d20, d21 = np.einsum("ij,ij->i", ap, ab), np.einsum("ij,ij->i", ap, ac)
+    # Gram determinant equals |n|^2 (Lagrange identity); |n|^2 is used because
+    # ab2*ac2 - d01^2 cancels to zero for slivers that still pass the face test.
+    den = np.where(face, nn, 1.0)
+    v = (ac2 * d20 - d01 * d21) / den
+    w = (ab2 * d21 - d01 * d20) / den
+    inside = face & (v >= 0.0) & (w >= 0.0) & (v + w <= 1.0)
+    height = np.abs(np.einsum("ij,ij->i", ap, n)) / np.sqrt(np.where(face, nn, 1.0))
+    return np.where(inside, height, best)
+
+
+def nearest_surface_distance(points, vertices, triangles, *, initial_radius_mm: float = 0.25):
+    """Exact distance (mm) from each point to the nearest triangle of a mesh.
+
+    Candidates come from vtkCellLocator bounding-box queries, which never omit a
+    triangle whose box meets the query box. The radius doubles until the best exact
+    distance found lies inside it, so the answer equals the brute-force minimum.
+    vtkCellLocator.FindClosestPoint is not used: on zero-area faces it returns wrong,
+    finite distances (S6-FRAME-SYNC-01 L2, 2026-10-09: 12 of 34 objects reported
+    0.9-5.4 mm while the dumped surfaces agree to about 1e-5 mm).
+    """
+    import vtk
+
+    P = np.asarray(points, float).reshape(-1, 3)
+    V = np.asarray(vertices, float)
+    T = np.asarray(triangles, np.int64).reshape(-1, 3)
+    if len(T) == 0:
+        raise ValueError("nearest_surface_distance needs at least one triangle")
+    A, B, C = V[T[:, 0]], V[T[:, 1]], V[T[:, 2]]
+    locator = vtk.vtkCellLocator()
+    locator.SetDataSet(_mesh_polydata(V, T))
+    locator.BuildLocator()
+    ids = vtk.vtkIdList()
+    out = np.empty(len(P))
+    for k, p in enumerate(P):
+        radius = float(initial_radius_mm)
+        while True:
+            locator.FindCellsWithinBounds(
+                [p[0] - radius, p[0] + radius, p[1] - radius, p[1] + radius, p[2] - radius, p[2] + radius],
+                ids)
+            cells = np.array([ids.GetId(j) for j in range(ids.GetNumberOfIds())], dtype=np.int64)
+            found = np.inf
+            if len(cells):
+                found = float(point_triangle_distance(np.broadcast_to(p, (len(cells), 3)),
+                                                      A[cells], B[cells], C[cells]).min())
+            if found <= radius:
+                out[k] = found
+                break
+            radius = max(2.0 * radius, found if np.isfinite(found) else 0.0)
+    return out
+
+
 def mesh_surface_deviation(vertices_a, triangles_a, vertices_b, triangles_b) -> dict:
     """Mesh-level comparison of two surfaces in one frame (S6-AUDIT-D-01 check A).
 
@@ -291,20 +368,10 @@ def mesh_surface_deviation(vertices_a, triangles_a, vertices_b, triangles_b) -> 
     (closest point on the other mesh's triangles), so a decimated, shifted or
     different mesh with matching bounds is still detected.
     """
-    import vtk
-
     a, b = np.asarray(vertices_a, float), np.asarray(vertices_b, float)
 
     def one_way(points, vertices, triangles):
-        locator = vtk.vtkCellLocator()
-        locator.SetDataSet(_mesh_polydata(vertices, triangles))
-        locator.BuildLocator()
-        closest, cell, sub, d2 = [0.0, 0.0, 0.0], vtk.mutable(0), vtk.mutable(0), vtk.mutable(0.0)
-        out = np.empty(len(points))
-        for k, p in enumerate(points):
-            locator.FindClosestPoint(p.tolist(), closest, cell, sub, d2)
-            out[k] = math.sqrt(float(d2))
-        return out
+        return nearest_surface_distance(points, vertices, triangles)
 
     ab, ba = one_way(a, b, triangles_b), one_way(b, a, triangles_a)
 

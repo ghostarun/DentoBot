@@ -173,43 +173,14 @@ def _sample_points(vertices: np.ndarray, triangles: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(samples, dtype=np.float64)
 
 
-def _point_cloud_polydata(points: np.ndarray):
-    import vtk
-    from vtk.util.numpy_support import numpy_to_vtk, numpy_to_vtkIdTypeArray
-
-    polydata = vtk.vtkPolyData()
-    vtk_points = vtk.vtkPoints()
-    vtk_points.SetData(numpy_to_vtk(np.ascontiguousarray(points), deep=True))
-    polydata.SetPoints(vtk_points)
-    cells = np.empty((len(points), 2), dtype=np.int64)
-    cells[:, 0] = 1
-    cells[:, 1] = np.arange(len(points), dtype=np.int64)
-    verts = vtk.vtkCellArray()
-    verts.SetCells(len(points), numpy_to_vtkIdTypeArray(cells.ravel(), deep=True))
-    polydata.SetVerts(verts)
-    return polydata
-
-
 def _directed_distances(samples: np.ndarray, target_vertices: np.ndarray,
                         target_triangles: np.ndarray) -> np.ndarray:
-    import vtk
-    from vtk.util.numpy_support import vtk_to_numpy
-
-    target = frame_audit._mesh_polydata(target_vertices, target_triangles)
-    source = _point_cloud_polydata(samples)
-    distance = vtk.vtkDistancePolyDataFilter()
-    distance.SetInputData(0, source)
-    distance.SetInputData(1, target)
-    distance.SignedDistanceOff()
-    distance.ComputeSecondDistanceOff()  # Each direction is queried explicitly against a triangle surface.
-    distance.Update()
-    output = distance.GetOutput()
-    array = output.GetPointData().GetArray("Distance")
-    if array is None or output.GetNumberOfPoints() != len(samples):
-        raise ValueError("VTK distance filter did not return one distance per surface sample")
-    values = np.asarray(vtk_to_numpy(array), dtype=np.float64).reshape(-1)
+    # Exact point-to-triangle distances. The former vtkDistancePolyDataFilter path
+    # (vtkCellLocator.FindClosestPoint) returned wrong finite distances on zero-area
+    # faces, failing 12 of 34 objects whose meshes matched to about 1e-5 mm.
+    values = frame_audit.nearest_surface_distance(samples, target_vertices, target_triangles)
     if values.shape != (len(samples),) or not np.isfinite(values).all():
-        raise ValueError("VTK surface distances have an invalid shape or nonfinite values")
+        raise ValueError("surface distances have an invalid shape or nonfinite values")
     return values
 
 
