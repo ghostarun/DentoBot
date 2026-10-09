@@ -592,9 +592,10 @@ class FakeXServer:
     """
 
     def __init__(self, *, display=1, chain=(MAIN_WINDOW, MAIN_CHILD), names=None, legacy_names=None,
-                 window_manager=True, pointer=(640, 480)):
+                 window_manager=True, pointer=(640, 480), desktop=(1920, 1080)):
         self.calls = []
         self.display = display
+        self.desktop = tuple(desktop)  # X root size, the union of every monitor
         self.chain = list(chain)
         self.names = dict(names or {})
         self.legacy_names = dict(legacy_names or {})
@@ -639,6 +640,18 @@ class FakeXServer:
     def _flush(self, display):
         self.record("XFlush", display)
         return 1
+
+    def _default_screen(self, display):
+        self.record("XDefaultScreen", display)
+        return 0
+
+    def _display_width(self, display, screen):
+        self.record("XDisplayWidth", display, screen)
+        return self.desktop[0]
+
+    def _display_height(self, display, screen):
+        self.record("XDisplayHeight", display, screen)
+        return self.desktop[1]
 
     def _intern_atom(self, display, name, only_if_exists):
         self.record("XInternAtom", name.decode("ascii"))
@@ -720,6 +733,9 @@ class FakeXServer:
             "XGetWindowProperty": FakeCFunction(self._get_window_property),
             "XFetchName": FakeCFunction(self._fetch_name),
             "XFree": FakeCFunction(self._free),
+            "XDefaultScreen": FakeCFunction(self._default_screen),
+            "XDisplayWidth": FakeCFunction(self._display_width),
+            "XDisplayHeight": FakeCFunction(self._display_height),
         })
         xtst = FakeLibrary({
             "XTestQueryExtension": FakeCFunction(self._query_extension),
@@ -832,7 +848,8 @@ def test_real_xlib_exports_every_symbol_the_binding_uses_without_opening_a_displ
     except OSError:
         pytest.skip("libX11 or libXtst is not installed on this host")
     for name in ("XOpenDisplay", "XDefaultRootWindow", "XQueryPointer", "XFlush", "XInternAtom",
-                 "XSendEvent", "XRaiseWindow", "XGetWindowProperty", "XFetchName", "XFree"):
+                 "XSendEvent", "XRaiseWindow", "XGetWindowProperty", "XFetchName", "XFree",
+                 "XDefaultScreen", "XDisplayWidth", "XDisplayHeight"):
         assert hasattr(xlib, name), name
     for name in ("XTestQueryExtension", "XTestFakeMotionEvent", "XTestFakeButtonEvent"):
         assert hasattr(xtst, name), name
@@ -1398,3 +1415,79 @@ def test_checkable_control_that_toggles_is_delivered_with_its_before_and_after_s
     record = ui.user_click(target, "I consent to Task Home revalidation", mode="xtest", evidence=ledger)
     assert record["delivered"] is True and record["signal_errors"] == []
     assert json.loads(ledger.read_text().splitlines()[-1])["checked_after"] is True
+
+
+# --- uinput mode in user_click (S6-ADVISOR-GUI-01 harness) ----------------------------------
+
+def test_uinput_mode_presses_through_the_uinput_backend_and_confirms_delivery(harness, monkeypatch, tmp_path):
+    target, env, backend = harness()
+    monkeypatch.setattr(ui, "get_uinput_backend", lambda: backend)
+    monkeypatch.setattr(ui, "get_backend", lambda: pytest.fail("uinput mode must not use the XTest pointer path"))
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    record = ui.user_click(target, "Find Working Configuration", mode="uinput", evidence=ledger)
+    assert record["mode"] == "uinput" and record["delivered"] is True
+    assert backend.events[0] == ("move", 350, 420)
+    assert ("button", 1, True) in backend.events and ("button", 1, False) in backend.events
+    assert backend.events.index(("button", 1, True)) < backend.events.index(("button", 1, False))
+    assert target.clicks == 0 and target.clicked.slots == []
+    saved = json.loads(ledger.read_text().splitlines()[0])
+    assert saved["mode"] == "uinput" and saved["delivered_utc"]
+
+
+def test_uinput_refusal_is_loud_and_presses_nothing(harness, monkeypatch, tmp_path):
+    target, env, backend = harness()
+
+    class RefusingPointer(type(backend)):
+        def move(self, x, y):
+            self.events.append(("move", int(x), int(y)))
+            raise ui.UserInputError(f"pointer did not reach ({x}, {y}) after 3 corrective uinput moves; "
+                                    "it is at (5, 5) (tolerance 2 px)")
+
+    refusing = RefusingPointer(env)
+    monkeypatch.setattr(ui, "get_uinput_backend", lambda: refusing)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    with pytest.raises(ui.UserInputError, match="did not reach"):
+        ui.user_click(target, "Find Working Configuration", mode="uinput", evidence=ledger)
+    assert target.clicks == 0
+    assert refusing.events == [("move", 350, 420)]  # no button was sent
+    entry = json.loads(ledger.read_text().splitlines()[0])
+    assert entry["delivered"] is False and entry["mode"] == "uinput"
+    assert "did not reach" in entry["refused"]
+
+
+def test_uinput_move_evidence_is_kept_on_each_hit_test_attempt(harness, monkeypatch, tmp_path):
+    target, env, backend = harness()
+
+    class LoggingPointer(type(backend)):
+        last_move = None
+
+        def move(self, x, y):
+            super().move(x, y)
+            self.last_move = {"target_xy": [int(x), int(y)], "landed": True,
+                              "attempts": [{"abs_xy": [1, 2], "observed_xy": [int(x), int(y)]}]}
+
+    logging_backend = LoggingPointer(env)
+    monkeypatch.setattr(ui, "get_uinput_backend", lambda: logging_backend)
+    record = ui.user_click(target, "Find Working Configuration", mode="uinput", evidence=tmp_path / "ledger.jsonl")
+    first = record["x_activation"]["attempts"][0]
+    assert first["uinput_move"]["landed"] is True and first["uinput_move"]["target_xy"] == [350, 420]
+
+
+def test_xtest_mode_never_touches_the_uinput_backend(harness, monkeypatch, tmp_path):
+    target, env, backend = harness()
+    monkeypatch.setattr(ui, "get_uinput_backend", lambda: pytest.fail("xtest must not open uinput"))
+    record = ui.user_click(target, "Find Working Configuration", mode="xtest")
+    assert record["delivered"] is True
+    assert "uinput_move" not in record["x_activation"]["attempts"][0]
+
+
+def test_uinput_mode_reaches_a_hidden_tab_page_with_the_same_real_tab_press(tab_world, monkeypatch, tmp_path):
+    world = tab_world(current=0)
+    monkeypatch.setattr(ui, "get_uinput_backend", lambda: world.backend)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    record = ui.user_click(world.target, "Sync Collision Scene", mode="uinput", evidence=ledger)
+    assert world.tabs.currentIndex == 1 and record["delivered"] is True
+    entries = _entries(ledger)
+    assert [entry.get("navigation") for entry in entries] == ["tab", None]
+    assert all(entry["mode"] == "uinput" for entry in entries)
+    assert world.target.clicks == 0
