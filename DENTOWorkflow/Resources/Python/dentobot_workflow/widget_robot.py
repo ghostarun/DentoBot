@@ -1332,11 +1332,14 @@ class RobotWidgetMixin(
             self._updateStep6PlanningUi(result.message, error=not result.success)
             if result.success:
                 self._updateRobotPlacement()
+                # The branch status may still carry the restore's "Accept Base" notice; drop it now.
+                self._refreshStep6WorkingConfigurationStatus()
             else:
                 slicer.util.errorDisplay(result.message)
             return
         result = self._robotWorkflowFacade.lockBase()
         if result.success:
+            self._refreshStep6WorkingConfigurationStatus()
             try:
                 self._captureCaseFoundationSessionSnapshot()
             except Exception:
