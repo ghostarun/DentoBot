@@ -1356,5 +1356,148 @@ def user_click(widget, label: str, *, mode: str, evidence=None, direct_navigatio
     return record
 
 
+# --- combo rows: choose an item in a QComboBox popup by real presses ----------------------------
+#
+# The 6.0 "Active registry slot" combo is a tree-backed list: its model holds one top-level root
+# ('Scene') and the selectable items are that root's children. A list row therefore has to be
+# indexed under the combo's root index. Indexing it at the top level gives an invalid index, an
+# empty visual rect, and a press at the popup corner, which selects row 0 (2026-10-09 B2 run).
+
+POPUP_OPEN_TIMEOUT_SEC = 3.0
+POPUP_ROW_TIMEOUT_SEC = 3.0
+POPUP_STABLE_SEC = 0.3
+POPUP_STEP_SEC = 0.05
+SELECT_HOLD_SEC = 0.25
+SELECT_DELIVERY_TIMEOUT_SEC = 3.0
+
+
+def combo_row_index(combo, row: int):
+    """Model index of list row ``row`` of a QComboBox, under the combo's root index."""
+    index = combo.model().index(int(row), 0, combo.rootModelIndex())
+    if not index.isValid():
+        raise UserInputError(f"combo row {row} has no valid index under the combo's root")
+    return index
+
+
+def _popup_row_sample(combo, row: int, qt) -> dict:
+    """Geometry of list row ``row`` in the open popup: its rect, the popup box and the press point."""
+    view = combo.view()
+    container = view.window()
+    rect = view.visualRect(combo_row_index(combo, row))
+    origin = container.mapToGlobal(qt.QPoint(0, 0))
+    box = [int(origin.x()), int(origin.y()), int(container.width), int(container.height)]
+    sample = {"rect": [int(rect.x()), int(rect.y()), int(rect.width()), int(rect.height())], "box": box,
+              "valid": bool(rect.isValid()) and int(rect.width()) > 0 and int(rect.height()) > 0,
+              "inside": False, "global_xy": None}
+    if not sample["valid"]:
+        return sample
+    point = view.viewport().mapToGlobal(rect.center())
+    x, y = int(point.x()), int(point.y())
+    sample["global_xy"] = [x, y]
+    sample["inside"] = box[0] <= x < box[0] + box[2] and box[1] <= y < box[1] + box[3]
+    return sample
+
+
+def select_combo_item(combo, row: int, expected_text: str, *, mode: str, evidence=None) -> dict:
+    """Select list row ``row`` of ``combo`` by real presses on its popup, and verify the result.
+
+    The combo is opened by a real press. The row is pressed only when the popup is visible, the row
+    has a valid rect that is stable for POPUP_STABLE_SEC and lies inside the popup window, the
+    pointer chain at the row contains the popup's X window, and Qt reports the popup list under
+    the row. The press is held for SELECT_HOLD_SEC and released. The combo must then show ``row``
+    with ``expected_text``, or UserInputError is raised. No programmatic selection is made.
+    """
+    if mode not in ("xtest", "demo", "uinput"):
+        raise UserInputError(f"combo selection needs real pointer input; mode {mode!r} is not allowed")
+    qt, slicer = _runtime()
+    label = f"Select '{expected_text}' in {_object_name(combo) or _class_name(combo)}"
+    record = {"navigation": None, "action": "combo row selection", "label": label, "row": int(row),
+              "expected_text": expected_text, "mode": mode, "steps": []}
+
+    def step(name, **data):
+        record["steps"].append({"step": name, "utc": utc_now(), **data})
+
+    x_activation: dict = {}
+    try:
+        if not 0 <= int(row) < int(combo.count):
+            raise UserInputError(f"{label}: row {row} is outside the combo (count {int(combo.count)})")
+        model_text = str(combo.model().data(combo_row_index(combo, row)) or "")
+        if str(combo.itemText(int(row))) != expected_text or model_text != expected_text:
+            raise UserInputError(f"{label}: row {row} reads {str(combo.itemText(int(row)))!r}, "
+                                 f"model {model_text!r}; expected {expected_text!r}")
+        before = int(combo.currentIndex)
+        _preflight(combo, label)
+        _raise_and_activate(combo, slicer)
+        logical, dpr, physical = _target(combo, qt, label)
+        backend = pointer_backend(mode)
+        start = backend.pointer()
+        target = _native_window(_value(combo, "window"), label)
+        x_activation["target_window"] = _hex(target)
+        _x_activate_and_confirm(backend, combo, slicer, target, physical, label, x_activation)
+        found = qt.QApplication.widgetAt(qt.QPoint(*logical))
+        if not _is_widget_or_descendant(found, combo):
+            raise UserInputError(f"{label}: covered by {_describe(found)}")
+        backend.button(1, True)
+        _pump_until(_NOW() + PRESS_HOLD_SEC)
+        backend.button(1, False)
+        opened = _wait_for(lambda: bool(combo.view().isVisible()), POPUP_OPEN_TIMEOUT_SEC)
+        step("open_press", popup_visible=bool(opened), physical_xy=list(physical))
+        if not opened:
+            raise UserInputError(f"{label}: the popup did not open after a real press; no row press sent")
+        popup_window = int(combo.view().window().winId())
+        began = _NOW()
+        last, stable_since, sample = None, None, None
+        while True:
+            _pump_once()
+            sample = _popup_row_sample(combo, row, qt)
+            key = (tuple(sample["rect"]), tuple(sample["box"])) if sample["inside"] else None
+            if key is not None and key == last:
+                stable_since = stable_since if stable_since is not None else _NOW()
+                if _NOW() - stable_since >= POPUP_STABLE_SEC:
+                    break
+            else:
+                last, stable_since = key, None
+            if _NOW() - began >= POPUP_ROW_TIMEOUT_SEC:
+                raise UserInputError(f"{label}: row {row} has no stable valid geometry inside the popup "
+                                     f"after {POPUP_ROW_TIMEOUT_SEC:.0f} s (last {sample}); no row press sent")
+            _SLEEP(POPUP_STEP_SEC)
+        step("row_stable", rect=sample["rect"], box=sample["box"], global_xy=sample["global_xy"],
+             stable_after_s=round(_NOW() - began, 3))
+        point = sample["global_xy"]
+        backend.move(round(point[0] * dpr), round(point[1] * dpr))
+        _pump_until(_NOW() + 0.1)
+        chain = list(backend.pointer_chain())
+        row_widget = qt.QApplication.widgetAt(qt.QPoint(*point))
+        step("row_hit", pointer_xy=list(backend.pointer()), chain=[_hex(w) for w in chain],
+             popup_window=_hex(popup_window), widget_at_row=_describe(row_widget))
+        if popup_window not in chain:
+            raise UserInputError(f"{label}: the pointer at row {row} is not over the popup window "
+                                 f"{_hex(popup_window)} (chain {[_hex(w) for w in chain]}); no press sent")
+        if not _is_widget_or_descendant(row_widget, combo.view()):
+            raise UserInputError(f"{label}: Qt reports {_describe(row_widget)} at row {row}, not the popup "
+                                 "list; no press sent")
+        backend.button(1, True)
+        _pump_until(_NOW() + SELECT_HOLD_SEC)
+        backend.button(1, False)
+        selected = _wait_for(lambda: int(combo.currentIndex) == int(row)
+                             and str(combo.currentText) == expected_text, SELECT_DELIVERY_TIMEOUT_SEC)
+        after = int(combo.currentIndex)
+        step("release", currentIndex_before=before, currentIndex_after=after,
+             currentText=str(combo.currentText), popup_visible=bool(combo.view().isVisible()),
+             selected=bool(selected))
+        if not selected:
+            raise UserInputError(f"{label}: the press did not select row {row} (currentIndex {after}, "
+                                 f"text {str(combo.currentText)!r}); no other selection is made")
+    except UserInputError as refusal:
+        _append_evidence(evidence, {**record, "delivered": False, "refused": str(refusal),
+                                    "x_activation": x_activation})
+        raise
+    record.update(delivered=True, currentIndex_before=before, currentIndex_after=after,
+                  x_activation=x_activation, physical_xy=list(physical), logical_xy=list(logical),
+                  device_pixel_ratio=dpr, pointer_start_xy=list(start), utc=utc_now())
+    _append_evidence(evidence, record)
+    return record
+
+
 def slug(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(label).lower()).strip("-") or "control"
