@@ -345,6 +345,9 @@ def test_failed_child_log_and_traceback_survive_temporary_cleanup(monkeypatch, t
     assert status["childOutputExists"] is False
     assert status["phases"] == ["DENTOCASE_PROJECTOR_PHASE projection 1.000000"]
     assert json.loads((retained.parent / "status.json").read_text()) == status
+    assert status["childTemporaryDirectoryName"] == Path(disposable).name
+    assert status["childOutputName"] == "result.dentocase"
+    assert str(tmp_path) not in json.dumps(status)
     assert os.stat(retained).st_mode & 0o077 == 0
     assert os.stat(retained.parent / "status.json").st_mode & 0o077 == 0
     with pytest.raises(RuntimeError, match="full child diagnostic") as error:

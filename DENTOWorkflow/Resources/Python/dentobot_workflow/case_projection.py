@@ -68,7 +68,9 @@ def _retain_projector_log(log_path, *, exit_code, temporary_dir, output_path,
         now = datetime.now(timezone.utc)
         archive_root = Path("/workspace/data/dentobot-runs")
         if not archive_root.is_dir():
-            archive_root = Path.home() / "dentobot/data/dentobot-runs"
+            archive_root = Path("/home/tarun/dentobot/data/dentobot-runs")
+        if not archive_root.is_dir():
+            raise RuntimeError("Configure DENTOCASE_EVIDENCE_DIR or CRUN within the dated run archive.")
         evidence_root = archive_root / now.strftime("%Y-%m-%d") / (
             "DCP-PROJECTION-" + now.strftime("%Y%m%dT%H%M%SZ")
         ) / "evidence"
@@ -86,13 +88,13 @@ def _retain_projector_log(log_path, *, exit_code, temporary_dir, output_path,
         "schemaVersion": "1.0",
         "exitCode": exit_code,
         "failure": failure,
-        "childTemporaryDirectory": str(temporary_dir),
-        "childOutputPath": str(output_path),
+        "childTemporaryDirectoryName": Path(temporary_dir).name,
+        "childOutputName": Path(output_path).name,
         "childOutputExists": Path(output_path).is_file(),
         "sourceSha256": source_sha256,
         "phases": phases,
         "lastPhase": phases[-1] if phases else "",
-        "logPath": str(retained_log),
+        "logName": retained_log.name,
     }
     metadata_path = evidence_dir / "status.json"
     metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
@@ -202,7 +204,8 @@ def project_package_offline(source, destination, target, checkpoint, branch=""):
                         slicer.app.processEvents()
                         time.sleep(0.03)
                 except Exception as exc:
-                    failure = str(exc)
+                    failure = type(exc).__name__
+                    print("Projector parent error:", exc, file=log, flush=True)
                 finally:
                     if process is not None and process.poll() is None:
                         process.terminate()
@@ -384,17 +387,24 @@ def run_offline(request_path):
             summary["caseIdentity"] = {"id": plan["newCaseId"]}
             phase("projection")
             projected_scene = Path(directory) / "projected.mrb"
+            phase("save_scene_begin")
             if not slicer.util.saveScene(str(projected_scene)):
                 raise ValueError("Projected MRB could not be saved.")
+            phase("save_scene_complete")
             # As with ordinary saves, include storage nodes created by saving.
+            phase("post_save_inventory_begin")
             summary["checkpointInventory"], summary["projectionOwnership"] = capture_inventory(parameter, slicer.mrmlScene, summary)
             if not summary["checkpointInventory"]["ownershipComplete"]:
                 raise ValueError("Projected ownership is incomplete.")
+            phase("post_save_inventory_complete")
+            phase("bundle_create_begin")
             create_case_bundle(request["destination"], projected_scene, case_label=parameter.caseName,
                 workflow=summary, robot_profile=inspection.robot_profile,
                 application=inspection.manifest.get("application", {}), case_id=plan["newCaseId"])
+            phase("bundle_create_complete")
             phase("projected_save")
             # A fresh reopen, before releasing the output, validates reconstructed lineage.
+            phase("fresh_reopen_begin")
             parameter_node_id = raw.GetID()
             reopened, result = extract_scene_mrb(request["destination"], Path(directory) / "reopen")
             if not slicer.util.loadScene(str(reopened), {"clear": True}):
