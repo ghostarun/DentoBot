@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import asdict
+import hashlib
 import json
 from typing import Any
 
@@ -19,7 +20,10 @@ from dentobot_case.contracts import (
     CHECKPOINTS,
     INVENTORY_SCHEMA_VERSION,
 )
-from dentobot_case.ownership import DEFAULTS, NODE_FIELDS, PARAMETER_OWNERS, RESUME_INDICES
+from dentobot_case.ownership import (
+    DEFAULTS, LEGACY_PARAMETER_OWNERS, NODE_FIELDS, PARAMETER_OWNERS,
+    RESUME_INDICES, TRANSIENT_REFERENCE_ROLES,
+)
 
 
 _CHECKPOINTS = {item.id: item for item in CHECKPOINTS}
@@ -97,6 +101,7 @@ _SEMANTIC_ROLES = {
     ("DENTOBOT.SegmentationRole", "Step6FixedUpperAnatomy"): ("foundation.pose", "step6FixedUpperAnatomy"),
     ("DENTOBOT.SegmentationRole", "Step6MovingLowerAnatomy"): ("foundation.pose", "step6MovingLowerAnatomy"),
     ("DENTOBOT.SegmentationRole", "Step6TargetJawFallbackAnatomy"): ("foundation.pose", "step6TargetJawFallbackAnatomy"),
+    ("DENTOBOT.MarkupsRole", "Step6MouthPortalVertices"): ("@runtime", ""),
     ("DENTOBOT.ModelRole", "VisibleTemplateSupportSurface"): ("support.surface", "visibleTemplateSupportModel"),
     ("DENTOBOT.ModelRole", "FinalizedTemplateShell"): ("template.verify", "finalizedTemplateShellModel"),
 }
@@ -258,6 +263,8 @@ def _registry_data(workflow_summary: object, unknown: list[str]) -> dict[str, An
     trajectories: dict[str, dict[str, str]] = {}
     node_trajectories: dict[str, str] = {}
     branches: dict[str, Branch] = {}
+    registered_branches: set[str] = set()
+    branch_evidence: dict[str, dict[str, Any]] = {}
     branch_primary: dict[str, str] = {}
     branch_models: dict[str, list[str]] = defaultdict(list)
     selected = ""
@@ -328,24 +335,57 @@ def _registry_data(workflow_summary: object, unknown: list[str]) -> dict[str, An
                         continue
                     members = tuple(_text(item) for item in trajectory_ids)
                     branches[branch_id] = Branch(branch_id, target_id, members, intent, state)
+                    branch_is_valid = True
+                    for field, label in (
+                        ("template_node_id", "template node ID"),
+                        ("revision", "revision"),
+                        ("verification_revision", "verification revision"),
+                        ("planning_pose_fingerprint", "planning pose fingerprint"),
+                        ("branch_foundation_fingerprint", "branch foundation fingerprint"),
+                    ):
+                        if field in record and not isinstance(record[field], str):
+                            unknown.append(f"prepared branch {label} is malformed: {branch_id}")
+                            branch_is_valid = False
+                    branch_evidence[branch_id] = {
+                        "template_node_id": _text(record.get("template_node_id")),
+                        "revision": _text(record.get("revision")),
+                        "verification_revision": _text(record.get("verification_revision")),
+                        "planning_pose_fingerprint": _text(record.get("planning_pose_fingerprint")),
+                        "branch_foundation_fingerprint": _text(record.get("branch_foundation_fingerprint")),
+                        "branch_foundation_present": "branch_foundation_fingerprint" in record,
+                    }
+                    if branch_evidence[branch_id]["template_node_id"]:
+                        branch_models[branch_id].append(branch_evidence[branch_id]["template_node_id"])
                     primary = _text(record.get("primary_trajectory_id"))
                     if primary:
                         branch_primary[branch_id] = primary
                     model_ids = record.get("model_node_ids", [])
                     if not isinstance(model_ids, list) or any(not isinstance(item, str) for item in model_ids):
                         unknown.append(f"prepared branch model node list is malformed: {branch_id}")
+                        branch_is_valid = False
                     else:
                         branch_models[branch_id].extend(item for item in model_ids if item)
                     if target_id not in targets:
                         unknown.append(f"prepared branch has unknown target: {branch_id}")
+                        branch_is_valid = False
                     for trajectory_id in members:
                         owner = trajectories.get(trajectory_id)
                         if owner is None or owner["target_id"] != target_id:
                             unknown.append(f"prepared branch trajectory ownership conflicts: {branch_id}/{trajectory_id}")
+                            branch_is_valid = False
                     if intent not in {"Single", "ExplicitPair", "LegacyUnverified"}:
                         unknown.append(f"prepared branch pairing intent is unknown: {branch_id}")
-                    if not members or len(members) != len(set(members)):
+                        branch_is_valid = False
+                    if (
+                        not members or len(members) > 2
+                        or len(members) != len(set(members))
+                        or (intent == "Single" and len(members) != 1)
+                        or (intent == "ExplicitPair" and len(members) != 2)
+                    ):
                         unknown.append(f"prepared branch trajectory membership is invalid: {branch_id}")
+                        branch_is_valid = False
+                    if branch_is_valid:
+                        registered_branches.add(branch_id)
                 selected = _text(registry.get("selected_branch_id"))
                 if selected and selected not in branches:
                     unknown.append(f"selected registry branch is unknown: {selected}")
@@ -382,7 +422,9 @@ def _registry_data(workflow_summary: object, unknown: list[str]) -> dict[str, An
     return {
         "targets": targets, "by_segment": by_segment, "by_fdi": by_fdi,
         "trajectories": trajectories, "node_trajectories": node_trajectories,
-        "branches": branches, "branch_primary": branch_primary,
+        "branches": branches, "registered_branches": registered_branches,
+        "branch_evidence": branch_evidence,
+        "branch_primary": branch_primary,
         "branch_models": branch_models, "selected": selected,
     }
 
@@ -400,6 +442,7 @@ def _preparation_units(raw: object, data: dict[str, Any], unknown: list[str]) ->
         unknown.append("case preparation units have an unsupported version or shape")
         return
     supplied: dict[str, Branch] = {}
+    supplied_validity: dict[str, bool] = {}
     for record in value["branches"]:
         if not isinstance(record, dict) or set(record) != {"id", "target_id", "trajectory_ids", "pairing_intent", "state"}:
             unknown.append("case preparation unit branch has an unsupported shape")
@@ -417,27 +460,41 @@ def _preparation_units(raw: object, data: dict[str, Any], unknown: list[str]) ->
         branch = Branch(branch_id, target_id, members, intent, state)
         if branch_id in supplied:
             unknown.append(f"duplicate case preparation unit branch: {branch_id}")
+            supplied_validity[branch_id] = False
+            data["registered_branches"].discard(branch_id)
             continue
         supplied[branch_id] = branch
+        branch_is_valid = True
         if target_id not in data["targets"]:
             unknown.append(f"case preparation unit has unknown target: {branch_id}")
+            branch_is_valid = False
         if (not members or len(members) != len(set(members))
                 or any(data["trajectories"].get(item, {}).get("target_id") != target_id for item in members)):
             unknown.append(f"case preparation unit trajectory membership conflicts: {branch_id}")
+            branch_is_valid = False
         if intent not in {"Single", "ExplicitPair", "LegacyUnverified"}:
             unknown.append(f"case preparation unit pairing intent is unknown: {branch_id}")
+            branch_is_valid = False
         if (intent == "Single" and len(members) != 1) or (intent == "ExplicitPair" and len(members) != 2):
             unknown.append(f"case preparation unit pairing shape conflicts: {branch_id}")
+            branch_is_valid = False
+        supplied_validity[branch_id] = branch_is_valid
 
     for branch_id, branch in supplied.items():
+        branch_is_valid = supplied_validity[branch_id]
         registered = data["branches"].get(branch_id)
         if registered is not None:
             if (registered.target_id, registered.trajectory_ids, registered.pairing_intent) != (
                     branch.target_id, branch.trajectory_ids, branch.pairing_intent):
                 unknown.append(f"registry and preparation unit identities conflict: {branch_id}")
+                data["registered_branches"].discard(branch_id)
+            elif not branch_is_valid:
+                data["registered_branches"].discard(branch_id)
             # The registry is current saved evidence for state; never promote it from the unit record.
             continue
         data["branches"][branch_id] = branch
+        if branch_is_valid:
+            data["registered_branches"].add(branch_id)
 
 
 def _all_registry_branches(data: dict[str, Any], unknown: list[str]) -> None:
@@ -494,11 +551,14 @@ def _special_node_owner(node: object) -> str:
         singleton_tag = _text(getattr(node, "GetSingletonTag", lambda: "")())
         if singleton_tag in {"DataProbe", "Units"} and module_name in {"", singleton_tag}:
             return "@display"
+        if (_attr(node, "DENTOBOT.Research") == "Step6WorkingConfigurations; simulation research only"
+                and not _node_references(node)):
+            return "@history"
         return ""
     if _is_a(node, "vtkMRMLDisplayNode"):
         return "@display"
     role_values = {_attr(node, name) for name in _ROLE_ATTRIBUTES}
-    if role_values & {"RobotLink", "RobotLinkPose", "RobotWorkspaceCloud"}:
+    if role_values & {"RobotLink", "RobotLinkPose", "RobotWorkspaceCloud", "Step6MouthPortalVertices"}:
         return "@runtime"
     if class_name.startswith("vtkMRMLROS"):
         return "@runtime"
@@ -509,7 +569,13 @@ def _read_parameter_names(raw: object) -> list[str] | None:
     return _values(getattr(raw, "GetParameterNames", None))
 
 
-def _target_claims(node: object, data: dict[str, Any], unknown: list[str]) -> set[str]:
+def _target_claims(
+    node: object,
+    data: dict[str, Any],
+    unknown: list[str],
+    *,
+    include_target_semantics: bool = False,
+) -> set[str]:
     claims: set[str] = set()
     explicit = _attr(node, "DENTOBOT.RegistryTargetID")
     if explicit:
@@ -517,6 +583,30 @@ def _target_claims(node: object, data: dict[str, Any], unknown: list[str]) -> se
             unknown.append(f"node has unregistered target claim {explicit}: {_scene_identity(node)}")
         else:
             claims.add(explicit)
+    if include_target_semantics:
+        segment = _attr(node, "DENTOBOT.TargetSegmentID")
+        fdi = _attr(node, "DENTOBOT.TargetFdiNumber")
+        if segment or fdi:
+            if not segment or not fdi:
+                lineage_segment = _attr(node, "DENTOBOT.LineageTargetSegmentID")
+                lineage_fdi = _attr(node, "DENTOBOT.LineageTargetFdiNumber")
+                if not (lineage_segment and lineage_fdi
+                        and (not segment or segment == lineage_segment)
+                        and (not fdi or fdi == lineage_fdi)):
+                    unknown.append(
+                        f"node semantic target identity is incomplete on {_scene_identity(node)}"
+                    )
+            else:
+                matches = {
+                    target_id for target_id, association in data["targets"].items()
+                    if association["segmentId"] == segment and association["fdi"] == fdi
+                }
+                if len(matches) == 1:
+                    claims.update(matches)
+                else:
+                    unknown.append(
+                        f"node semantic target identity does not resolve uniquely and consistently to a reviewed registry target on {_scene_identity(node)}"
+                    )
     segment = _attr(node, "DENTOBOT.LineageTargetSegmentID")
     if segment:
         matches = data["by_segment"].get(segment, set())
@@ -558,6 +648,144 @@ def _branch_claims(node: object, data: dict[str, Any], unknown: list[str]) -> se
     if len(claims) > 1:
         unknown.append(f"node has conflicting registered branch claims: {node_id}")
     return claims
+
+
+def _verification_fingerprint(value: dict[str, Any]) -> str:
+    try:
+        encoded = json.dumps(
+            value, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        return ""
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _has_attribute(node: object, name: str) -> bool:
+    getter = getattr(node, "GetAttribute", None)
+    if not callable(getter):
+        return False
+    try:
+        return getter(name) is not None
+    except (RuntimeError, TypeError):
+        return False
+
+
+def _step5c_verification_artifacts(
+    nodes: dict[str, object],
+    data: dict[str, Any],
+    artifact_by_node: dict[str, Artifact],
+    unknown: list[str],
+) -> list[Artifact]:
+    """Project valid saved verification on its exact registered Step 5B node."""
+    owners_by_template: dict[str, set[str]] = defaultdict(set)
+    for branch_id in data["registered_branches"]:
+        template_id = data["branch_evidence"].get(branch_id, {}).get("template_node_id", "")
+        if template_id:
+            owners_by_template[template_id].add(branch_id)
+
+    for node_id, node in nodes.items():
+        state = _attr(node, "DENTOBOT.VerificationState")
+        payload = _attr(node, "DENTOBOT.VerificationJson")
+        if ((state and state != "NotVerified") or payload) and not owners_by_template.get(node_id):
+            unknown.append(f"saved Step 5C evidence has no registered template branch: {node_id}")
+
+    result: list[Artifact] = []
+    for branch_id in sorted(data["registered_branches"]):
+        evidence = data["branch_evidence"].get(branch_id, {})
+        template_id = evidence.get("template_node_id", "")
+        verification_revision = evidence.get("verification_revision", "")
+        template = nodes.get(template_id)
+        state = _attr(template, "DENTOBOT.VerificationState") if template is not None else ""
+        payload = _attr(template, "DENTOBOT.VerificationJson") if template is not None else ""
+        has_saved_evidence = bool((state and state != "NotVerified") or payload)
+
+        if not verification_revision:
+            if has_saved_evidence:
+                unknown.append(f"registry has no Step 5C verification revision for template: {template_id}")
+            continue
+        if not template_id:
+            unknown.append(f"verified prepared branch has no registered template node: {branch_id}")
+            continue
+        if template is None:
+            unknown.append(f"verified prepared branch template is not saved in the scene: {branch_id}/{template_id}")
+            continue
+        if owners_by_template.get(template_id) != {branch_id}:
+            unknown.append(f"registered template node has ambiguous branch ownership: {template_id}")
+            continue
+
+        branch = data["branches"].get(branch_id)
+        template_artifact = artifact_by_node.get(template_id)
+        if (
+            branch is None
+            or template_artifact is None
+            or template_artifact.checkpoint_id != "template.build"
+            or template_artifact.scope != "branch"
+            or template_artifact.target_id != branch.target_id
+            or template_artifact.branch_id != branch_id
+        ):
+            unknown.append(f"registered template artifact does not match its prepared branch: {branch_id}/{template_id}")
+            continue
+
+        try:
+            verification = json.loads(payload)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            verification = None
+        revision = evidence.get("revision", "")
+        planning_pose = evidence.get("planning_pose_fingerprint", "")
+        foundation = evidence.get("branch_foundation_fingerprint", "")
+        node_evidence_matches = (
+            _attr(template, "DENTOBOT.PreparedBranchRevision") == revision
+            and _attr(template, "DENTOBOT.PlanningPoseFingerprint") == planning_pose
+        )
+        foundation_presence = (
+            bool(evidence.get("branch_foundation_present")),
+            "branchFoundationFingerprint" in verification if isinstance(verification, dict) else False,
+            _has_attribute(template, "DENTOBOT.BranchFoundationFingerprint"),
+        )
+        foundation_matches = (
+            len(set(foundation_presence)) == 1
+            and (
+                not foundation_presence[0]
+                or (
+                    isinstance(verification, dict)
+                    and verification.get("branchFoundationFingerprint") == foundation
+                    and _attr(template, "DENTOBOT.BranchFoundationFingerprint") == foundation
+                )
+            )
+        )
+        verification_matches = (
+            isinstance(verification, dict)
+            and verification.get("schemaVersion") == "1.0"
+            and verification.get("overall") == state
+            and verification.get("preparedBranchId") == branch_id
+            and verification.get("preparedBranchRevision") == revision
+            and verification.get("planningPoseFingerprint") == planning_pose
+            and foundation_matches
+            and node_evidence_matches
+            and branch.state == "Current"
+            and _attr(template, "DENTOBOT.GeometryState") == "Current"
+            and state in {"PASS", "WARNING", "FAIL"}
+            and _verification_fingerprint(verification) == verification_revision
+        )
+        if not verification_matches:
+            unknown.append(f"persisted Step 5C verification does not match its prepared branch: {branch_id}/{template_id}")
+            continue
+        if state not in {"PASS", "WARNING"}:
+            # A matching FAIL is valid negative evidence, but it is not a
+            # completed positive Step 5C checkpoint for independent loading.
+            continue
+
+        artifact_id = f"verification:{branch_id}"
+        if artifact_id in nodes or artifact_id in {item.id for item in artifact_by_node.values()}:
+            unknown.append(f"virtual Step 5C artifact ID collides with saved evidence: {artifact_id}")
+            continue
+        result.append(Artifact(
+            artifact_id, "template.verify", "branch", branch.target_id, branch_id,
+            state=state, role="step5cVerification",
+            dependencies=(template_id,),
+            reason="Persisted Step 5C verification is bound to the registered template revision",
+        ))
+    return result
 
 
 def _canonical_role(candidates: list[tuple[str, str]]) -> tuple[str, str] | None:
@@ -657,13 +885,15 @@ def capture_inventory(parameter_wrapper: object, scene: object, workflow_summary
                 elif not isinstance(value, str) or value != "":
                     unknown.append(f"node field parameter has unexpected scalar payload: {name}")
                 continue
-            owner = PARAMETER_OWNERS.get(name)
+            owner = PARAMETER_OWNERS.get(name, LEGACY_PARAMETER_OWNERS.get(name))
             if owner is None:
                 unknown.append(f"unmapped persistent parameter: {name}")
                 continue
             parameter_owners[name] = owner
             if name in DEFAULTS:
                 defaults[name] = DEFAULTS[name]
+            elif name in LEGACY_PARAMETER_OWNERS:
+                defaults[name] = ""
 
     reference_owners: dict[str, str] = {}
     field_nodes: dict[str, list[str]] = defaultdict(list)
@@ -676,6 +906,11 @@ def capture_inventory(parameter_wrapper: object, scene: object, workflow_summary
                 unknown.append(f"unmapped persistent parameter reference role: {role}")
                 continue
             reference_owners[role] = owner
+            if role in TRANSIENT_REFERENCE_ROLES:
+                # Case Foundation display volumes are generated in the live
+                # scene with SaveWithScene(False). The saved IDs are stale
+                # pointers and have no persisted geometry to own or select.
+                continue
             if role in NODE_FIELDS:
                 field_nodes[role].extend(ref_ids)
             for node_id in ref_ids:
@@ -694,13 +929,26 @@ def capture_inventory(parameter_wrapper: object, scene: object, workflow_summary
             for node_id in node_ids:
                 candidates[node_id].append(("trajectory.plan", "trajectoryLine"))
     for node_id, node in by_id.items():
-        candidates[node_id].extend(_semantic_candidates(node, unknown))
+        semantic = _semantic_candidates(node, unknown)
+        if ("source.volume", "inputVolume") in semantic and node_id not in field_nodes.get("inputVolume", ()):
+            # CaseScan may label historical source scans. Only the exact
+            # workflow input reference selects the active source volume.
+            semantic = [item for item in semantic if item != ("source.volume", "inputVolume")]
+        candidates[node_id].extend(semantic)
 
     target_claims: dict[str, set[str]] = {}
     branch_claims: dict[str, set[str]] = {}
+    claim_issues: dict[str, bool] = {}
     for node_id, node in by_id.items():
-        target_claims[node_id] = _target_claims(node, data, unknown)
+        candidate = _canonical_role(candidates[node_id])
+        checkpoint = _CHECKPOINTS.get(candidate[0]) if candidate else None
+        include_target_semantics = bool(checkpoint and checkpoint.scope in {"target", "branch"})
+        issue_count = len(unknown)
+        target_claims[node_id] = _target_claims(
+            node, data, unknown, include_target_semantics=include_target_semantics
+        )
         branch_claims[node_id] = _branch_claims(node, data, unknown)
+        claim_issues[node_id] = len(unknown) > issue_count
         trajectory_id = _attr(node, "DENTOBOT.RegistryTrajectoryID") or data["node_trajectories"].get(node_id, "")
         if trajectory_id and trajectory_id in data["trajectories"]:
             target_claims[node_id].add(data["trajectories"][trajectory_id]["target_id"])
@@ -760,6 +1008,11 @@ def capture_inventory(parameter_wrapper: object, scene: object, workflow_summary
         checkpoint_scope = _CHECKPOINTS[candidate[0]].scope
         if checkpoint_scope == "shared":
             continue
+        if target_claims[node_id] and target_claims[node_id] != {selected_branch.target_id}:
+            # A global wrapper pointer can still name the last edited unit
+            # after the registry selection changed. The node's exact saved
+            # tooth provenance wins; projection rebinds the selected unit.
+            continue
         target_claims[node_id].add(selected_branch.target_id)
         if checkpoint_scope == "branch":
             branch_claims[node_id].add(selected_branch.id)
@@ -781,6 +1034,32 @@ def capture_inventory(parameter_wrapper: object, scene: object, workflow_summary
         if owner_id in by_id:
             target_claims[node_id].update(target_claims[owner_id])
             branch_claims[node_id].update(branch_claims[owner_id])
+
+    # Exact target semantics can identify a branch owner only when one
+    # validated registered preparation belongs to that target and no node
+    # claim has already conflicted. Synthetic per-trajectory branches are not
+    # prepared branch ownership evidence.
+    registered_branches_by_target: dict[str, set[str]] = defaultdict(set)
+    for branch_id in data["registered_branches"]:
+        branch = data["branches"].get(branch_id)
+        if branch is not None:
+            registered_branches_by_target[branch.target_id].add(branch_id)
+    for node_id, node in by_id.items():
+        if claim_issues[node_id]:
+            continue
+        candidate = _canonical_role(candidates[node_id])
+        checkpoint = _CHECKPOINTS.get(candidate[0]) if candidate else None
+        if checkpoint is None or checkpoint.scope != "branch":
+            continue
+        target_ids = target_claims[node_id]
+        if len(target_ids) != 1 or branch_claims[node_id]:
+            continue
+        target_id = next(iter(target_ids))
+        branch_ids = registered_branches_by_target.get(target_id, set())
+        if len(branch_ids) == 1:
+            branch_claims[node_id].update(branch_ids)
+        elif len(branch_ids) > 1:
+            unknown.append(f"target has multiple registered branches for branch checkpoint node: {node_id}")
 
     artifact_by_node: dict[str, Artifact] = {}
     artifact_ids: dict[str, str] = {}
@@ -922,6 +1201,8 @@ def capture_inventory(parameter_wrapper: object, scene: object, workflow_summary
     artifact_by_node = {node_id: next(item for item in artifacts if item.id == artifact.id)
                         for node_id, artifact in artifact_by_node.items()}
 
+    artifacts.extend(_step5c_verification_artifacts(by_id, data, artifact_by_node, unknown))
+
     for node_id, node in by_id.items():
         for role_attribute in _ROLE_ATTRIBUTES:
             value = _attr(node, role_attribute)
@@ -956,6 +1237,20 @@ def capture_inventory(parameter_wrapper: object, scene: object, workflow_summary
         if child_id and child_id in by_id:
             parent_links[parent_id].add(child_id)
     special = {node_id: _special_node_owner(node) for node_id, node in by_id.items()}
+    active_input_ids = set(field_nodes.get("inputVolume", ()))
+    for node_id, node in by_id.items():
+        if (node_id in active_input_ids or not _is_a(node, "vtkMRMLScalarVolumeNode")
+                or _attr(node, "DENTOBOT.CaseScan").casefold() != "true"):
+            continue
+        incoming = [
+            parent_id for parent_id, parent in by_id.items()
+            if parent_id != node_id and parent_id != parameter_id
+            and any(node_id in refs for refs in _node_references(parent).values())
+        ]
+        if incoming:
+            unknown.append(f"nonselected CaseScan is referenced by saved nodes: {node_id}")
+        else:
+            special[node_id] = "@history"
     for _ in range(max(1, len(by_id))):
         changed = False
         for child_id, parents in parent_links.items():

@@ -3,6 +3,28 @@
 Changes to the parameter schema must update this map; unlisted fields block projection.
 """
 
+# Fields removed from the current wrapper can still exist on older saved
+# parameter nodes. They are retained on full load but have no authority in an
+# independent prefix. Keep this list explicit rather than treating every
+# unknown parameter as disposable.
+LEGACY_PARAMETER_OWNERS = {
+    'draftJawGapLine': 'history',
+    'draftJawLandmarks': 'history',
+    'draftJawTargetGapMm': 'history',
+    'draftJawTransform': 'history',
+    'draftPhantomMandibleModel': 'history',
+    'draftPhantomSkullModel': 'history',
+    'robotJoint6Deg': 'runtime',
+    'robotJoint6TaskMaxDeg': 'runtime',
+    'robotJoint6TaskMinDeg': 'runtime',
+}
+
+# Rebuilt display volumes deliberately have SaveWithScene(False) in the Case
+# Foundation owner. A saved reference to one is stale, not saved geometry.
+TRANSIENT_REFERENCE_ROLES = frozenset({
+    'caseFoundationFixedUpperVolume', 'caseFoundationMovingLowerVolume',
+})
+
 PARAMETER_OWNERS = {'caseName': 'shared',
  'inputVolume': 'shared',
  'inspectedVolume': 'shared',
@@ -366,4 +388,8 @@ NODE_ATTRIBUTE_OWNERS = {
     "DENTOBOT.VerificationJson": "template.verify",
     "DENTOBOT.VerificationState": "template.verify",
     "DENTOBOT.Step5CStaleReason": "template.verify",
+    "DENTOBOT.Step6WorkingConfigJson": "simulation.home",
+    "DENTOBOT.Step6PlanningContextImported": "simulation.planning",
+    "DENTOBOT.RobotBaseMountLocked": "simulation.home",
+    "DENTOBOT.RobotBasePlacementAuthority": "simulation.home",
 }
