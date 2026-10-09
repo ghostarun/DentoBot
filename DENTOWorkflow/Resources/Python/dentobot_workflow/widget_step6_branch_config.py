@@ -109,11 +109,20 @@ class Step6BranchConfigWidgetMixin:
             _("Saved for this branch: ") + self._step6WorkingConfigurationSummary(record)
         )
 
+    def _step6RobotPresentForBaseLock(self) -> bool:
+        """The robot presence that the Base accept and lock owners require (DENTORobotWorkflowFacade)."""
+
+        return bool(self.logic.robotModelNodes()) or bool(
+            self.logic.isRos2MotionControlActive(self._parameterNode.robotBaseTransform)
+        )
+
     def onRestoreStep6WorkingConfiguration(self, checked: bool = False) -> list:
         """Re-apply the active branch's saved Step 6 configuration through the normal owners.
 
         Opening, Base and planning policy are applied; the saved Task Home is only
-        staged as the 6.2 jog draft. Nothing moves without the operator.
+        staged as the 6.2 jog draft. Nothing moves without the operator. The Base is
+        accepted only with the ROS robot or local fallback loaded; without one it stays
+        pending (nothing unlocked or staged) and the rest of the configuration still applies.
         """
 
         self._step6WorkingConfigurationRestoreSucceeded = False
@@ -162,7 +171,13 @@ class Step6BranchConfigWidgetMixin:
                     if not self._parameterNode.step6PlanningContextImported:
                         self.logic.importStep6PlanningContext(self._parameterNode)
                         steps.append("import")
-                if "base_world_mm" in diffs or not self._parameterNode.robotBaseMountLocked:
+                baseNeeded = "base_world_mm" in diffs or not self._parameterNode.robotBaseMountLocked
+                if baseNeeded and not self._step6RobotPresentForBaseLock():
+                    # Accept Base locks the Base through the robot owners, which need a loaded robot, and
+                    # the restore can run before one is loaded. Leave the Base pending: nothing is unlocked
+                    # or staged, and the planning policy and Task Home below still apply.
+                    steps.append("base_pending")
+                elif baseNeeded:
                     flat = tuple(float(value) for row in config["base_world_mm"] for value in row)
                     if self._parameterNode.robotBaseMountLocked:
                         result = facade.unlockBase()
@@ -216,11 +231,22 @@ class Step6BranchConfigWidgetMixin:
             self._updateStep6PlanningUi(str(exc), error=True)
             return steps
         self._updateRobotPlacement()
-        self._updateStep6PlanningUi()
+        basePending = "base_pending" in steps or (not diffs and not self._parameterNode.robotBaseMountLocked)
+        pendingText = ""
+        if basePending:
+            pendingText = (
+                _("Saved Base is NOT applied yet: load the ROS robot or local fallback, then press "
+                  "Restore Branch Step 6 Config again.")
+                if "base_world_mm" in diffs
+                else _("The Base is not accepted yet: press Accept Base (it needs the ROS robot or "
+                       "local fallback loaded).")
+            )
+        self._updateStep6PlanningUi(pendingText)
         panel.showBranchConfigStatus(
             (
-                _("Step 6 already matches this branch's saved configuration: ")
-                if not diffs else _("Restored: ")
+                _("Partly restored: ") if "base_pending" in steps
+                else _("Step 6 already matches this branch's saved configuration: ") if not diffs
+                else _("Restored: ")
             ) + self._step6WorkingConfigurationSummary(record)
             + (
                 _(" Saved Task Home is staged in 6.2 pending operator review and acceptance.")
@@ -232,8 +258,13 @@ class Step6BranchConfigWidgetMixin:
                 if "barrier" in steps
                 else ""
             )
+            + (" " + pendingText if basePending else ""),
+            "warning" if basePending else "status",
         )
-        self._step6WorkingConfigurationRestoreSucceeded = True
+        if basePending:
+            self._step6WorkingConfigurationRestoreSucceeded = False
+        else:
+            self._step6WorkingConfigurationRestoreSucceeded = True
         return steps
 
     def _restoreBranchConfigurationOnCaseLoad(self) -> bool:
@@ -322,10 +353,14 @@ class Step6BranchConfigWidgetMixin:
             )
         except (RuntimeError, ValueError, json.JSONDecodeError):
             return
+        robotNote = ""
+        if diffs and ("base_world_mm" in diffs or not self._parameterNode.robotBaseMountLocked) \
+                and not self._step6RobotPresentForBaseLock():
+            robotNote = _(" No robot is loaded yet, so the saved Base stays pending until you load it and restore again.")
         if diffs and slicer.util.confirmYesNoDisplay(
             _("This PreparedBranch has a saved Step 6 working configuration:\n\n%1\n\n"
               "Restore it now? The saved Task Home is only staged; nothing moves.")
-            .replace("%1", self._step6WorkingConfigurationSummary(record)),
+            .replace("%1", self._step6WorkingConfigurationSummary(record) + robotNote),
             windowTitle=_("Restore branch Step 6 configuration"),
         ):
             self.onRestoreStep6WorkingConfiguration()
