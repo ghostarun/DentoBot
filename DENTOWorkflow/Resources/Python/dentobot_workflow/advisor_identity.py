@@ -24,7 +24,8 @@ class AdvisorIdentityMixin:
         if self._home is None:
             return []
         try:
-            raw = self._capture_input_identity()
+            # A trial's own Base change clears the operator's confirmation (advisor-owned, F8); stable_identity never compares it.
+            raw = self._capture_input_identity(confirmation_optional=True)
             current = self._stable_identity(raw)
             expected = self._stable_identity(self._trial_identity)
             changed = sorted(k for k in set(current) | set(expected) if current.get(k) != expected.get(k))
@@ -55,7 +56,7 @@ class AdvisorIdentityMixin:
 
         if self._home is None:
             return
-        current = self._capture_input_identity()
+        current = self._capture_input_identity(confirmation_optional=True)
         before, after = self._stable_identity(self._trial_identity), self._stable_identity(current)
         allowed = {"apply_base": {"saved_base", "audited_scene_sources", "collision_audit_status"},
                    "apply_barrier": {"mouth_barrier", "audited_scene_sources", "collision_audit_status"},
@@ -134,7 +135,7 @@ class AdvisorIdentityMixin:
         rows.sort(key=lambda row: (str(row.get("source_role") or ""), str(row.get("source_name") or "")))
         return {"objects": rows, "fingerprint": fa.fingerprint_of(rows) if rows else ""}
 
-    def _capture_input_identity(self) -> dict:
+    def _capture_input_identity(self, *, confirmation_optional: bool = False) -> dict:
         """Capture current source identity using existing logic/facade records only."""
 
         logic, node = self.logic, self.node
@@ -228,7 +229,7 @@ class AdvisorIdentityMixin:
             missing.append("active target identity")
         for key in ("branch_revision", "branch_foundation_fingerprint", "active_trajectory_revision",
                     "robot_profile", "confirmed_task_fingerprint", "saved_home", "task_limits"):
-            if not identity.get(key):
+            if not identity.get(key) and not (key == "confirmed_task_fingerprint" and confirmation_optional):
                 missing.append(key)
         if not home_identity:
             missing.append("saved Task Home identity")

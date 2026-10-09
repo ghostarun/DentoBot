@@ -639,3 +639,26 @@ def test_consent_on_identity_blocker_is_a_blocking_setup_row_not_an_empty_table(
     assert len(rows) == 1 and rows[0].severity == "blocking" and "complete input identity" in rows[0].message
     assert s.finished and s.outcome == svc.BLOCKED and "complete input identity" in s.message
     assert not {"home_stage", "home_accept", "home_cancel"}.intersection(world.calls)
+
+
+def test_a_consented_trial_that_clears_the_operators_confirmation_still_restores_and_returns_it(tmp_path):
+    """R08 (live): with consent ON and the operator's Task confirmation in place, a Base trial clears the confirmation.
+    The restore must still run (its identity pre-check must not need the confirmation) and end with the operator's own."""
+    world = HomeWorld(oracle=u5_passes)
+    state = {"confirmed": "operator-fp"}
+    world.logic.confirmedTaskRecord = lambda node: SimpleNamespace(snapshot_fingerprint=state["confirmed"]) if state["confirmed"] else None
+    world.logic.invalidateStep6TaskConfirmation = lambda node, reason, makeBaseStale=False: state.__setitem__("confirmed", "")
+    world.facade.confirmTask = lambda: (state.__setitem__("confirmed", "operator-fp"), ok("task_confirmed"))[1]
+    unlock = world.facade.unlockBase
+
+    def clearing_unlock():  # a Base trial unlocks first, which invalidates the operator's confirmation (production owner)
+        state["confirmed"] = ""
+        return unlock()
+
+    world.facade.unlockBase = clearing_unlock
+    s = consent_session(world, tmp_path)
+    s.prepare()
+    drive(s)
+    assert s.outcome == svc.FOUND
+    assert s.restore_issues == [], s.restore_issues
+    assert world.view()["u"] == 0.0 and state["confirmed"] == "operator-fp"
