@@ -4,10 +4,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import time
 from dataclasses import replace
+from datetime import datetime, timezone
+from uuid import uuid4
 
 
 def _clear_future_node_attributes(node, checkpoint_order):
@@ -50,6 +53,56 @@ def _replan_restored_projection(source, inspection, digest, source_stat,
     )
     plan = prepare_projection(inventory, target, checkpoint, branch)
     return inventory, actual_mapping, plan
+
+
+def _retain_projector_log(log_path, *, exit_code, temporary_dir, output_path,
+                          source_sha256, failure=""):
+    """Keep the full child diagnostic before its disposable directory closes."""
+    configured = os.environ.get("DENTOCASE_EVIDENCE_DIR")
+    run_root = os.environ.get("CRUN") or os.environ.get("DENTOBOT_RUN_DIR")
+    if configured:
+        evidence_root = Path(configured)
+    elif run_root:
+        evidence_root = Path(run_root) / "evidence"
+    else:
+        now = datetime.now(timezone.utc)
+        archive_root = Path("/workspace/data/dentobot-runs")
+        if not archive_root.is_dir():
+            archive_root = Path.home() / "dentobot/data/dentobot-runs"
+        evidence_root = archive_root / now.strftime("%Y-%m-%d") / (
+            "DCP-PROJECTION-" + now.strftime("%Y%m%dT%H%M%SZ")
+        ) / "evidence"
+    evidence_dir = evidence_root / ("projector-" + uuid4().hex)
+    evidence_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
+    os.chmod(evidence_dir, 0o700)
+    retained_log = evidence_dir / "process.log"
+    with retained_log.open("wb") as target:
+        os.chmod(retained_log, 0o600)
+        with Path(log_path).open("rb") as source:
+            shutil.copyfileobj(source, target)
+    with retained_log.open(errors="replace") as source:
+        phases = [line.rstrip("\n") for line in source if line.startswith("DENTOCASE_PROJECTOR_")]
+    metadata = {
+        "schemaVersion": "1.0",
+        "exitCode": exit_code,
+        "failure": failure,
+        "childTemporaryDirectory": str(temporary_dir),
+        "childOutputPath": str(output_path),
+        "childOutputExists": Path(output_path).is_file(),
+        "sourceSha256": source_sha256,
+        "phases": phases,
+        "lastPhase": phases[-1] if phases else "",
+        "logPath": str(retained_log),
+    }
+    metadata_path = evidence_dir / "status.json"
+    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+    os.chmod(metadata_path, 0o600)
+    return retained_log, metadata
+
+
+def _check_projector_result(retained_log, status):
+    if status["failure"] or status["exitCode"] or not status["childOutputExists"]:
+        raise RuntimeError("Offline projection failed; full child diagnostic: " + str(retained_log))
 
 
 def _inspect_prefix(source, destination, target, checkpoint, branch):
@@ -130,32 +183,42 @@ def project_package_offline(source, destination, target, checkpoint, branch=""):
             script.write_text("import sys\nsys.path.insert(0, " + repr(str(Path(__file__).resolve().parents[1])) +
                 ")\nfrom dentobot_workflow.case_projection import run_offline\nrun_offline(" + repr(str(request)) + ")\n")
             progress.update("Offline projection and fresh reopen", can_cancel=False)
-            with (directory / "process.log").open("w") as log:
+            child_log = directory / "process.log"
+            with child_log.open("w") as log:
                 environment = dict(os.environ)
                 environment["ROS_DOMAIN_ID"] = "232"
                 print("DENTOCASE_PROJECTOR_LAUNCH", f"{time.monotonic():.6f}", flush=True)
-                process = subprocess.Popen([str(slicer.app.launcherExecutableFilePath), "--no-splash",
-                    "--no-main-window", "--disable-cli-modules", "--python-code",
-                    "exec(open(" + repr(str(script)) + ").read())"],
-                    env=environment, stdout=log, stderr=log)
-                deadline = time.monotonic() + 180
+                process = None
+                failure = ""
                 try:
+                    process = subprocess.Popen([str(slicer.app.launcherExecutableFilePath), "--no-splash",
+                        "--no-main-window", "--disable-cli-modules", "--python-code",
+                        "exec(open(" + repr(str(script)) + ").read())"],
+                        env=environment, stdout=log, stderr=log)
+                    deadline = time.monotonic() + 180
                     while process.poll() is None:
                         if time.monotonic() >= deadline:
                             raise RuntimeError("Offline case projection exceeded 180 seconds.")
                         slicer.app.processEvents()
                         time.sleep(0.03)
+                except Exception as exc:
+                    failure = str(exc)
                 finally:
-                    if process.poll() is None:
+                    if process is not None and process.poll() is None:
                         process.terminate()
                         try:
                             process.wait(timeout=5)
                         except subprocess.TimeoutExpired:
                             process.kill()
                             process.wait()
-                if process.returncode or not output.is_file():
-                    raise RuntimeError("Offline projection failed: " + (directory / "process.log").read_text()[-4000:])
-            for line in (directory / "process.log").read_text().splitlines():
+                log.flush()
+            retained_log, child_status = _retain_projector_log(
+                child_log, exit_code=process.returncode if process is not None else None,
+                temporary_dir=directory, output_path=output,
+                source_sha256=inventory.package_sha256, failure=failure,
+            )
+            _check_projector_result(retained_log, child_status)
+            for line in child_log.read_text(errors="replace").splitlines():
                 if line.startswith("DENTOCASE_PROJECTOR_"):
                     print(line, flush=True)
             phase("projector_complete")

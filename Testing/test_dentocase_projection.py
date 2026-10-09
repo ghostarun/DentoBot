@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, replace
+import json
+import os
 import sys
 from pathlib import Path
+import tempfile
 
 import pytest
 
@@ -18,6 +21,7 @@ from dentobot_case.ownership import DEFAULTS, RESUME_INDICES  # noqa: E402
 from dentobot_case.projection import filter_registry, prepare_projection  # noqa: E402
 from dentobot_workflow.case_projection import (  # noqa: E402
     _clear_future_node_attributes, _inspect_prefix, _replan_restored_projection,
+    _check_projector_result, _retain_projector_log,
 )
 
 
@@ -319,6 +323,52 @@ def test_restored_audit_rejects_changed_persistent_owner_before_replanning(monke
             {"ownershipComplete": True, "unknownOwnership": []}, actual_mapping,
             "target-1", "source.volume", "",
         )
+
+
+def test_failed_child_log_and_traceback_survive_temporary_cleanup(monkeypatch, tmp_path):
+    evidence = tmp_path / "durable-evidence"
+    monkeypatch.setenv("DENTOCASE_EVIDENCE_DIR", str(evidence))
+    monkeypatch.delenv("CRUN", raising=False)
+    with tempfile.TemporaryDirectory(dir=tmp_path) as disposable:
+        log = Path(disposable) / "process.log"
+        full_text = ("diagnostic line\n" * 500 +
+                     "DENTOCASE_PROJECTOR_PHASE projection 1.000000\n" +
+                     "Traceback (most recent call last):\nValueError: synthetic save failure\n")
+        log.write_text(full_text)
+        retained, status = _retain_projector_log(
+            log, exit_code=1, temporary_dir=disposable,
+            output_path=Path(disposable) / "result.dentocase",
+            source_sha256="a" * 64,
+        )
+    assert retained.read_text() == full_text
+    assert status["exitCode"] == 1
+    assert status["childOutputExists"] is False
+    assert status["phases"] == ["DENTOCASE_PROJECTOR_PHASE projection 1.000000"]
+    assert json.loads((retained.parent / "status.json").read_text()) == status
+    assert os.stat(retained).st_mode & 0o077 == 0
+    assert os.stat(retained.parent / "status.json").st_mode & 0o077 == 0
+    with pytest.raises(RuntimeError, match="full child diagnostic") as error:
+        _check_projector_result(retained, status)
+    assert str(retained) in str(error.value)
+
+
+def test_successful_child_log_uses_configured_run_evidence(monkeypatch, tmp_path):
+    monkeypatch.delenv("DENTOCASE_EVIDENCE_DIR", raising=False)
+    monkeypatch.setenv("CRUN", str(tmp_path / "run"))
+    with tempfile.TemporaryDirectory(dir=tmp_path) as disposable:
+        log = Path(disposable) / "process.log"
+        log.write_text("DENTOCASE_PROJECTOR_PHASE fresh_reopen 2.000000\n")
+        output = Path(disposable) / "result.dentocase"
+        output.write_bytes(b"synthetic package")
+        retained, status = _retain_projector_log(
+            log, exit_code=0, temporary_dir=disposable,
+            output_path=output, source_sha256="a" * 64,
+        )
+    assert retained.parent.parent == tmp_path / "run/evidence"
+    assert status["lastPhase"] == "DENTOCASE_PROJECTOR_PHASE fresh_reopen 2.000000"
+    assert status["childOutputExists"] is True
+    assert retained.is_file()
+    _check_projector_result(retained, status)
 
 
 def test_retained_geometry_loses_saved_step6_config_and_base_authority():
