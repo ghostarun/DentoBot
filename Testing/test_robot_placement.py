@@ -942,3 +942,234 @@ def test_a_later_revert_of_status_and_revision_is_refused_with_the_named_fields_
         "before-restore-writes", "after-lock-block", "after-attribute-writes",
         "after-interaction-state", "at-fingerprint-check"]
     assert trace[1]["status"] == "Stale" and trace[1]["revision"] == 42  # the revert happened inside the lock block
+
+
+# S6-ADVISOR-GUI-01 live R05: an exact restore is an acceptance-owned Base change. The real reinstate method and the real
+# Base observer are extracted by AST; the transform fires ModifiedEvent on attribute writes (as MRML does) but not on the
+# matrix write (TransformModifiedEvent only), so the observer's pose cache is the trial pose until an accepted write refreshes it.
+class _RobotActionResultStub:
+    def __init__(self, success, code, message, details=None, payload=None):
+        self.success, self.code, self.message = success, code, message
+        self.details, self.payload = dict(details or {}), payload
+
+
+class _GuardBaseTransform(_BaseIdentityTransform):
+    def __init__(self, values):
+        super().__init__(values)
+        self.observers = []
+        self.display = _BaseIdentityDisplay()
+
+    def GetDisplayNode(self):
+        return self.display
+
+    def SetAndObserveTransformNodeID(self, _node_id):
+        pass
+
+    def SetMatrixTransformToParent(self, matrix):  # MRML fires TransformModifiedEvent here, not ModifiedEvent
+        self.matrix = matrix
+
+    def SetAttribute(self, name, value):
+        new = None if value is None else str(value)
+        old = self.attributes.get(name)
+        if new is None:
+            self.attributes.pop(name, None)
+        else:
+            self.attributes[name] = new
+        if old != new:
+            self.Modified()
+
+    def Modified(self):
+        for observer in list(self.observers):
+            observer(caller=self, event="ModifiedEvent")
+
+
+class _DropAcceptanceFlagWrites(ast.NodeTransformer):
+    def visit_Assign(self, node):
+        if any(isinstance(t, ast.Attribute) and t.attr == "_manual_base_acceptance_in_progress" for t in node.targets):
+            return ast.copy_location(ast.Pass(), node)
+        return node
+
+
+def _extract_methods(path, class_name, names, *, drop_flag_writes=False):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name)
+    found = []
+    for node in cls.body:
+        if isinstance(node, ast.FunctionDef) and node.name in names:
+            node.decorator_list = []
+            if drop_flag_writes:
+                node = ast.fix_missing_locations(_DropAcceptanceFlagWrites().visit(node))
+            found.append(node)
+    assert {node.name for node in found} == set(names), set(names) - {node.name for node in found}
+    return found
+
+
+def _guard_host(*, guarded: bool):
+    """The real logic, facade and widget-observer methods on a small host. Closest unit: the facade's unlockBase and
+    setBasePose are the owners' essential effects (lock owner; matrix and authority writes), not the full production owners."""
+    import logging
+    import math
+    import time
+    from DENTOStep6State import MANUAL_SIMULATION_BASE_SOURCE, fingerprint, normalize_base_status, BasePlacementStatus
+
+    base = _GuardBaseTransform(np.eye(4).tolist())
+    base.SetAttribute("authority", "ManualSimulationBaseReviewed")
+    node = SimpleNamespace(
+        robotBaseTransform=base, robotBaseMountLocked=True, robotMountPlane=None,
+        step6BasePlacementStatus="ProvisionalLocked", step6BasePlacementSource=MANUAL_SIMULATION_BASE_SOURCE,
+        step6BasePlacementRevision=37, step6BasePlacementHighWater=37, step6ConfirmedTaskJson='{"confirmed": true}',
+        StartModify=lambda: 0, EndModify=lambda _old: None,
+    )
+    logic_names = _BASE_REVISION_METHODS + ("invalidateStep6TaskConfirmation", "_applyRobotBaseMountInteractionState")
+    logic_ns = {**_base_owner_namespace(), "logging": logging}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=_base_owner_functions(logic_names), type_ignores=[])),
+                 "<guard-logic>", "exec"), logic_ns)
+    logic = type("GuardLogic", (), {})()
+    for name in logic_names:
+        setattr(type(logic), name, logic_ns[name])
+    logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE = "authority"
+    logic.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY = "circular"
+    logic.ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY = "ManualSimulationBaseReviewed"
+    logic.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY = "ManualSimulationBaseUnreviewed"
+    logic.isRobotBaseTransformNode = lambda value: value is base
+    logic.isRobotMountPlaneNode = lambda _value: False
+    logic.requireCaseFoundationPose = lambda _node: {"planning_pose_fingerprint": "current-pose"}
+    logic.robotProfileFingerprint = lambda: "current-profile"
+    logic.markStep6MotionDiagnosticStale = lambda *_args: None
+    logic.robotWorkspaceModelNode = lambda: None
+    logic._worldMatrixFromTransform = lambda value: value.matrix
+    logic._vtkFromNumpyMatrix = lambda rows: _BaseIdentityMatrix(rows)
+    logic.syncStep6MoveItPlanningScene = lambda _node: 34
+    logic.collisionSceneAuditRecord = lambda _node: logic.audit_record
+    logic.audit_record = SimpleNamespace(status="Acknowledged", audit_fingerprint="audit-1")
+    logic.isRos2MotionControlActive = lambda _node: True
+    logic.taskHomeRecord = lambda _node: None
+
+    from collections.abc import Mapping
+    from typing import Any, Optional
+    fac_ns = {**_base_owner_namespace(), "Mapping": Mapping, "Any": Any, "Optional": Optional, "RobotActionResult": _RobotActionResultStub,
+              "isfinite": math.isfinite, "monotonic_ns": time.monotonic_ns, "_bounded_text": lambda value: str(value)[:300]}
+    facade_methods = _extract_methods(HELPER_DIRECTORY / "DENTORobotWorkflowFacade.py", "DENTORobotWorkflowFacade",
+                                      ("reinstateManualBaseIdentity", "_manual_simulation_base_matrix",
+                                       "manualBaseAcceptanceInProgress"), drop_flag_writes=not guarded)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=facade_methods, type_ignores=[])), "<guard-facade>", "exec"), fac_ns)
+    facade = type("GuardFacade", (), {})()
+    facade.reinstateManualBaseIdentity = lambda snapshot: fac_ns["reinstateManualBaseIdentity"](facade, snapshot)
+    facade._manual_simulation_base_matrix = lambda parameter_node: fac_ns["_manual_simulation_base_matrix"](facade, parameter_node)
+    type(facade).manualBaseAcceptanceInProgress = property(fac_ns["manualBaseAcceptanceInProgress"])
+    facade._logic = logic
+    facade._manual_base_acceptance_uncertain = ""
+    facade._incomplete_preview_evidence = None
+    facade._guarded_preview_active = False
+    facade.previewActive = False
+    facade._manual_base_acceptance_in_progress = False
+    facade._planning_scene_synchronized = False
+    facade._planning_scene_object_count = 0
+    facade._runtime_validated_task_home_key = ""
+    facade._require_context = lambda: node
+    facade._scene_kind = lambda _node: "case"
+    facade._clear_phase_session = lambda: None
+    facade._task_home_runtime_key = lambda _record: ""
+    facade._incomplete_preview_block = lambda code, message: _RobotActionResultStub(False, code, message)
+    facade._manual_simulation_finish_acceptance = lambda result, **_kwargs: result
+    facade.clearTransientState = lambda: None
+
+    def set_base_pose(matrix_object):  # the facade's pose owner: locked refusal, matrix write, authority reset
+        if node.robotBaseMountLocked:
+            return _RobotActionResultStub(False, "base_locked", "Unlock the robot base before moving it.")
+        base.SetMatrixTransformToParent(matrix_object)
+        base.SetAttribute("authority", "ManualSimulationBaseUnreviewed")
+        base.SetAttribute("DENTOBOT.PlacementWarning", None)
+        return _RobotActionResultStub(True, "base_pose_updated", "")
+
+    facade.setBasePose = set_base_pose
+    facade.unlockBase = lambda: (logic.setRobotBaseMountLocked(node, False), _RobotActionResultStub(True, "base_unlocked", ""))[1]
+
+    widget_fn = _extract_methods(HELPER_DIRECTORY / "dentobot_workflow" / "widget_robot_placement.py",
+                                 "RobotPlacementWidgetMixin", ("_onRobotPlacementNodeModified",))[0]
+    widget_ns = {"_": lambda text: text}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[widget_fn], type_ignores=[])), "<guard-observer>", "exec"), widget_ns)
+    widget = type("GuardWidget", (), {})()
+    type(widget)._onRobotPlacementNodeModified = widget_ns["_onRobotPlacementNodeModified"]
+    widget._updatingRobotPlacementUI = False
+    widget.logic = logic
+    widget._parameterNode = node
+    widget._robotWorkflowFacade = facade
+    widget._lastRobotBasePoseFingerprint = logic.robotBasePoseFingerprint(base)
+    widget._step6MotionPlan = None
+    widget._updateRobotPlacementStatus = lambda *_args, **_kwargs: None
+    widget.ui = SimpleNamespace(robotWorkspaceStatusLabel=SimpleNamespace(text="", styleSheet=""))
+    base.observers.append(widget._onRobotPlacementNodeModified)
+    return SimpleNamespace(base=base, node=node, logic=logic, facade=facade, widget=widget, fingerprint=fingerprint)
+
+
+def _guard_snapshot(host):
+    """The advisor's captured Base identity at search start (locked, ProvisionalLocked, revision 37, pose P0)."""
+    base, node = host.base, host.node
+    return {
+        "matrix": [base.matrix.GetElement(r, c) for r in range(4) for c in range(4)],
+        "locked": True, "status": "ProvisionalLocked", "source": node.step6BasePlacementSource,
+        "revision": 37, "authority": "ManualSimulationBaseReviewed",
+        "case_foundation_fingerprint": "current-pose", "robot_profile_fingerprint": "current-profile",
+        "placement_warning": "", "base_fingerprint": host.logic.robotBaseFingerprint(node),
+        "collision_audit_json": "{}", "collision_audit_fingerprint": "audit-1",
+        "task_home_key": "", "runtime_task_home_key": "",
+    }
+
+
+def _trial_then_failed_candidate(host):
+    """The advisor trial as it runs live: unlock (38), accept under the acceptance flag (pose 39), then the candidate fails
+    and the restore starts from the unlocked trial-end state (the live trace reads revision 40 at this point)."""
+    host.facade.unlockBase()
+    host.facade._manual_base_acceptance_in_progress = True
+    try:
+        host.facade.setBasePose(host.logic._vtkFromNumpyMatrix(_MOVED_POSE))
+        host.logic.setRobotBaseMountLocked(host.node, True)
+    finally:
+        host.facade._manual_base_acceptance_in_progress = False
+    assert host.node.step6BasePlacementRevision == 39 and host.widget._lastRobotBasePoseFingerprint == host.logic.robotBasePoseFingerprint(host.base)
+
+
+def test_without_the_acceptance_guard_the_restore_is_treated_as_an_operator_edit_and_stales_the_base():
+    host = _guard_host(guarded=False)
+    snapshot = _guard_snapshot(host)
+    _trial_then_failed_candidate(host)
+
+    result = host.facade.reinstateManualBaseIdentity(snapshot)
+
+    assert not result.success and result.code == "base_identity_reinstate_failed"
+    assert "Differs: status Stale != captured ProvisionalLocked" in result.message
+    assert host.node.step6BasePlacementStatus == "Stale" and host.node.robotBaseMountLocked is False
+    assert host.node.step6BasePlacementRevision == 42  # the live R05 value: the observer's bumps above the high-water mark
+
+
+def test_the_acceptance_owned_restore_keeps_revision_status_and_the_captured_fingerprint():
+    host = _guard_host(guarded=True)
+    snapshot = _guard_snapshot(host)
+    _trial_then_failed_candidate(host)
+
+    result = host.facade.reinstateManualBaseIdentity(snapshot)
+
+    assert result.success and result.code == "base_identity_reinstated", result.message
+    assert host.node.step6BasePlacementRevision == 37
+    assert host.node.step6BasePlacementStatus == "ProvisionalLocked" and host.node.robotBaseMountLocked is True
+    assert host.logic.robotBaseFingerprint(host.node) == snapshot["base_fingerprint"]
+    assert host.widget._lastRobotBasePoseFingerprint == host.logic.robotBasePoseFingerprint(host.base)  # cache at the restored pose
+    assert host.facade._manual_base_acceptance_in_progress is False  # the flag is released on every exit
+
+
+def test_a_user_pose_edit_after_the_acceptance_owned_restore_still_stales_and_bumps_past_the_high_water_mark():
+    host = _guard_host(guarded=True)
+    snapshot = _guard_snapshot(host)
+    _trial_then_failed_candidate(host)
+    assert host.facade.reinstateManualBaseIdentity(snapshot).success
+    high_water_before = host.logic.step6BasePlacementRevisionHighWater(host.node)
+
+    host.base.matrix = _BaseIdentityMatrix(_MOVED_POSE_TWO)  # a real user drag: the transform changes and fires ModifiedEvent
+    host.base.Modified()
+
+    assert host.node.step6BasePlacementStatus == "Stale" and host.node.robotBaseMountLocked is False
+    # The observer's own re-entrant SetAttribute writes issue more than one revision for one user edit (observed +3 in
+    # this host); that is existing observer behaviour and is not changed here. No number is reissued.
+    assert host.node.step6BasePlacementRevision > high_water_before
+    assert host.node.step6BasePlacementRevision == host.logic.step6BasePlacementRevisionHighWater(host.node)  # highest issued

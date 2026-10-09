@@ -4872,20 +4872,27 @@ class DENTORobotWorkflowFacade:
             matrix = [float(value) for value in snapshot["matrix"]]
             if len(matrix) != 16 or not all(isfinite(value) for value in matrix):
                 return RobotActionResult(False, "base_identity_unavailable", "The captured Base matrix is not finite.")
-            if bool(parameter_node.robotBaseMountLocked):
-                unlocked = self.unlockBase()
-                if not unlocked.success:
-                    return unlocked
-            rows = [matrix[row * 4 : row * 4 + 4] for row in range(4)]
-            to_vtk = getattr(self._logic, "_vtkFromNumpyMatrix", None)
-            pose = self.setBasePose(to_vtk(rows) if callable(to_vtk) else rows)
-            if not pose.success:
-                return pose
-            self._logic.restoreStep6BaseIdentity(parameter_node, snapshot)
-            if max(abs(a - b) for a, b in zip(self._manual_simulation_base_matrix(parameter_node), matrix)) > 1e-9:
-                return RobotActionResult(False, "base_identity_pose_mismatch", "The reinstated Base pose is not the captured pose.")
-            parameter_node.step6CollisionSceneAuditJson = str(snapshot.get("collision_audit_json") or "")
-            self._planning_scene_object_count = self._logic.syncStep6MoveItPlanningScene(parameter_node)
+            # The restore is an acceptance-owned Base change (as Accept Base is): the widget's Base observer must not
+            # read the restore's own pose and lock writes as an operator edit (which would stale the Base and bump the
+            # revision mid-restore). The observer still refreshes its pose cache while the flag is set.
+            self._manual_base_acceptance_in_progress = True
+            try:
+                if bool(parameter_node.robotBaseMountLocked):
+                    unlocked = self.unlockBase()
+                    if not unlocked.success:
+                        return unlocked
+                rows = [matrix[row * 4 : row * 4 + 4] for row in range(4)]
+                to_vtk = getattr(self._logic, "_vtkFromNumpyMatrix", None)
+                pose = self.setBasePose(to_vtk(rows) if callable(to_vtk) else rows)
+                if not pose.success:
+                    return pose
+                self._logic.restoreStep6BaseIdentity(parameter_node, snapshot)
+                if max(abs(a - b) for a, b in zip(self._manual_simulation_base_matrix(parameter_node), matrix)) > 1e-9:
+                    return RobotActionResult(False, "base_identity_pose_mismatch", "The reinstated Base pose is not the captured pose.")
+                parameter_node.step6CollisionSceneAuditJson = str(snapshot.get("collision_audit_json") or "")
+                self._planning_scene_object_count = self._logic.syncStep6MoveItPlanningScene(parameter_node)
+            finally:
+                self._manual_base_acceptance_in_progress = False
             audit = self._logic.collisionSceneAuditRecord(parameter_node)
             if (
                 audit is None
