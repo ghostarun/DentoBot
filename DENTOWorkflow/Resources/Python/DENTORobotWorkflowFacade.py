@@ -4778,6 +4778,157 @@ class DENTORobotWorkflowFacade:
         except (RuntimeError, ValueError, OSError) as exc:
             return RobotActionResult(False, "base_unlock_failed", str(exc))
 
+    def manualBaseIdentitySnapshot(self) -> dict[str, object]:
+        """Read-only capture of the accepted Base identity an advisor restore can reinstate exactly.
+
+        Records the pose, the lock/status/source/authority/foundation/profile binding, the revision, the
+        fingerprint Task Home binds, the collision-scene audit record and the runtime-validation key.
+        """
+
+        parameter_node = self._require_context()
+        base = parameter_node.robotBaseTransform
+        if not self._logic.isRobotBaseTransformNode(base):
+            raise ValueError("The Step 6 robot Base is not loaded.")
+        audit = self._logic.collisionSceneAuditRecord(parameter_node)
+        confirmed = self._logic.confirmedTaskRecord(parameter_node)
+        home = self._logic.taskHomeRecord(parameter_node)
+        return {
+            "matrix": self._manual_simulation_base_matrix(parameter_node),
+            "locked": bool(parameter_node.robotBaseMountLocked),
+            "status": str(parameter_node.step6BasePlacementStatus or ""),
+            "source": str(parameter_node.step6BasePlacementSource or ""),
+            "revision": int(parameter_node.step6BasePlacementRevision),
+            "authority": str(
+                base.GetAttribute(self._logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE) or ""
+            ),
+            "case_foundation_fingerprint": str(
+                base.GetAttribute("DENTOBOT.CaseFoundationFingerprint") or ""
+            ),
+            "robot_profile_fingerprint": str(
+                base.GetAttribute("DENTOBOT.RobotProfileFingerprint") or ""
+            ),
+            "placement_warning": str(base.GetAttribute("DENTOBOT.PlacementWarning") or ""),
+            "base_fingerprint": str(self._logic.robotBaseFingerprint(parameter_node) or ""),
+            "collision_audit_json": str(parameter_node.step6CollisionSceneAuditJson or ""),
+            "collision_audit_fingerprint": str(audit.audit_fingerprint) if audit is not None else "",
+            "confirmed_task_fingerprint": (
+                str(confirmed.snapshot_fingerprint) if confirmed is not None else ""
+            ),
+            "task_home_key": self._task_home_runtime_key(home) if home is not None else "",
+            "runtime_task_home_key": str(self._runtime_validated_task_home_key or ""),
+        }
+
+    def reinstateManualBaseIdentity(self, snapshot: Mapping[str, object]) -> RobotActionResult:
+        """Put back the exact accepted Base identity captured before a search, without a new revision.
+
+        Production owners only: unlock (when locked), setBasePose to the captured matrix, restore the
+        captured binding and revision, then re-sync the planning scene with the captured audit record in
+        place.  The sync keeps that record only when the re-published scene content is identical; otherwise
+        this fails closed and no Task Home validation is claimed.  Uncertain Base acceptance stays latched.
+        """
+
+        if self._manual_base_acceptance_uncertain:
+            return RobotActionResult(
+                False,
+                "manual_base_acceptance_unknown",
+                "Keep the uncertain Base acceptance latched until native state is reconciled.",
+            )
+        if self._incomplete_preview_evidence is not None:
+            return self._incomplete_preview_block(
+                "incomplete_preview_blocks_motion",
+                "Base identity reinstatement is blocked because a guarded preview stopped before endpoint verification.",
+            )
+        if self._guarded_preview_active or self.previewActive:
+            return RobotActionResult(False, "preview_active", "Stop the active preview before reinstating the Base identity.")
+        try:
+            parameter_node = self._require_context()
+            base = parameter_node.robotBaseTransform
+            if self._scene_kind(parameter_node) != "case":
+                return RobotActionResult(False, "scene_required", "Open a case before reinstating the Manual Simulation Base.")
+            if (
+                not bool(snapshot.get("locked"))
+                or not snapshot.get("base_fingerprint")
+                or not snapshot.get("collision_audit_fingerprint")
+            ):
+                return RobotActionResult(
+                    False,
+                    "base_identity_unavailable",
+                    "The captured Base identity is incomplete, so it cannot be reinstated exactly.",
+                )
+            if not self._logic.isRos2MotionControlActive(base):
+                return RobotActionResult(False, "ros_required", "Connect ROS 2 Motion Control before reinstating the Base identity.")
+            matrix = [float(value) for value in snapshot["matrix"]]
+            if len(matrix) != 16 or not all(isfinite(value) for value in matrix):
+                return RobotActionResult(False, "base_identity_unavailable", "The captured Base matrix is not finite.")
+            if bool(parameter_node.robotBaseMountLocked):
+                unlocked = self.unlockBase()
+                if not unlocked.success:
+                    return unlocked
+            rows = [matrix[row * 4 : row * 4 + 4] for row in range(4)]
+            to_vtk = getattr(self._logic, "_vtkFromNumpyMatrix", None)
+            pose = self.setBasePose(to_vtk(rows) if callable(to_vtk) else rows)
+            if not pose.success:
+                return pose
+            self._logic.restoreStep6BaseIdentity(parameter_node, snapshot)
+            if max(abs(a - b) for a, b in zip(self._manual_simulation_base_matrix(parameter_node), matrix)) > 1e-9:
+                return RobotActionResult(False, "base_identity_pose_mismatch", "The reinstated Base pose is not the captured pose.")
+            parameter_node.step6CollisionSceneAuditJson = str(snapshot.get("collision_audit_json") or "")
+            self._planning_scene_object_count = self._logic.syncStep6MoveItPlanningScene(parameter_node)
+            audit = self._logic.collisionSceneAuditRecord(parameter_node)
+            if (
+                audit is None
+                or audit.status != "Acknowledged"
+                or audit.audit_fingerprint != snapshot["collision_audit_fingerprint"]
+            ):
+                return RobotActionResult(
+                    False,
+                    "base_identity_audit_mismatch",
+                    "The re-published collision scene does not match the captured audit; Task Home is not revalidated.",
+                )
+            self._planning_scene_synchronized = True
+            self._clear_phase_session()
+            record = self._logic.taskHomeRecord(parameter_node)
+            runtime_key = str(snapshot.get("runtime_task_home_key") or "")
+            if (
+                runtime_key
+                and record is not None
+                and self._task_home_runtime_key(record) == str(snapshot.get("task_home_key") or "")
+            ):
+                self._runtime_validated_task_home_key = runtime_key
+            result = RobotActionResult(
+                True,
+                "base_identity_reinstated",
+                "Reinstated the captured Manual Simulation Base identity; the saved Task Home identity is unchanged.",
+                details={
+                    "manualSimulationBaseCandidateMatrixWorldRasMm": matrix,
+                    "manualSimulationBaseAcceptedFingerprint": str(snapshot["base_fingerprint"]),
+                    "manualSimulationBaseAcceptedMatrixWorldRasMm": matrix,
+                },
+            )
+            return self._manual_simulation_finish_acceptance(
+                result,
+                review_event={
+                    "kind": "review_base",
+                    "monotonic_ns": monotonic_ns(),
+                    "details": {
+                        "candidate_matrix_world_ras_mm": matrix,
+                        "guard_policy_fingerprint": "unknown",
+                    },
+                },
+                acceptance_event={
+                    "kind": "accept_base",
+                    "monotonic_ns": monotonic_ns(),
+                    "details": {
+                        "accepted_fingerprint": str(snapshot["base_fingerprint"]),
+                        "accepted_matrix_world_ras_mm": matrix,
+                        "guard_policy_fingerprint": "unknown",
+                    },
+                },
+                unavailable_reason="The Base identity was reinstated, but no complete pre-commit recording identity was available.",
+            )
+        except (RuntimeError, ValueError, TypeError, OSError, KeyError, AttributeError) as exc:
+            return RobotActionResult(False, "base_identity_reinstate_failed", _bounded_text(exc))
+
     def syncPlanningScene(self) -> RobotActionResult:
         try:
             parameter_node = self._require_context()

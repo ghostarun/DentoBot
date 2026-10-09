@@ -577,3 +577,126 @@ def test_base_lock_publishes_complete_review_evidence_before_parameter_notificat
     assert notifications[-1][0:3] == (False, "Unlocked", "operator-unlocked")
     assert notifications[-1][3]["authority"] == "ManualSimulationBaseUnreviewed"
     assert node.step6BasePlacementRevision == 9
+
+
+class _BaseIdentityMatrix:
+    def __init__(self, values):
+        self.values = [[float(values[row][column]) for column in range(4)] for row in range(4)]
+
+    def GetElement(self, row, column):
+        return self.values[row][column]
+
+
+class _BaseIdentityTransform:
+    def __init__(self, values):
+        self.matrix = _BaseIdentityMatrix(values)
+        self.attributes = {}
+
+    def GetAttribute(self, name):
+        return self.attributes.get(name)
+
+    def SetAttribute(self, name, value):
+        if value is None:
+            self.attributes.pop(name, None)
+        else:
+            self.attributes[name] = str(value)
+
+
+def _base_identity_host(*method_names):
+    """The real RobotLogicMixin base-identity methods (read from logic_robot.py by AST) on a small host."""
+
+    from DENTOStep6State import BasePlacementStatus, MANUAL_SIMULATION_BASE_SOURCE, fingerprint, normalize_base_status
+
+    source = (HELPER_DIRECTORY / "dentobot_workflow/logic_robot.py").read_text()
+    robot_class = next(node for node in ast.parse(source).body
+                       if isinstance(node, ast.ClassDef) and node.name == "RobotLogicMixin")
+    functions = [node for node in robot_class.body if isinstance(node, ast.FunctionDef) and node.name in method_names]
+    assert {node.name for node in functions} == set(method_names), "missing production method"
+    namespace = {
+        "BasePlacementStatus": BasePlacementStatus,
+        "MANUAL_SIMULATION_BASE_SOURCE": MANUAL_SIMULATION_BASE_SOURCE,
+        "normalize_base_status": normalize_base_status,
+        "fingerprint": fingerprint,
+        "_": lambda text: text,
+    }
+    exec(compile(ast.fix_missing_locations(ast.Module(body=functions, type_ignores=[])),
+                 "<base-identity>", "exec"), namespace)
+    base = _BaseIdentityTransform(np.eye(4).tolist())
+    base.matrix = _BaseIdentityMatrix(np.eye(4).tolist())
+    host = type("BaseIdentityHost", (), {})()
+    host.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE = "authority"
+    host.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY = "circular"
+    host.ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY = "ManualSimulationBaseReviewed"
+    host.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY = "ManualSimulationBaseUnreviewed"
+    host.requireCaseFoundationPose = lambda _node: {"planning_pose_fingerprint": "current-pose"}
+    host.isRobotBaseTransformNode = lambda value: value is base
+    host.robotProfileFingerprint = lambda: "current-profile"
+    host.invalidateStep6TaskConfirmation = lambda *_args: None
+    host._applyRobotBaseMountInteractionState = lambda *_args: None
+    host._worldMatrixFromTransform = lambda value: value.matrix
+    for name in method_names:
+        setattr(type(host), name, namespace[name])
+    node = SimpleNamespace(
+        robotBaseTransform=base, robotBaseMountLocked=True, step6BasePlacementStatus="ProvisionalLocked",
+        step6BasePlacementSource="ManualSimulationBase", step6BasePlacementRevision=37,
+        StartModify=lambda: 0, EndModify=lambda _old: None,
+    )
+    base.SetAttribute("authority", "ManualSimulationBaseReviewed")
+    return host, node, base
+
+
+def _base_identity_snapshot(host, node, base):
+    """The facade's manualBaseIdentitySnapshot fields, as the advisor captures them before a search."""
+
+    return {
+        "matrix": [base.matrix.GetElement(r, c) for r in range(4) for c in range(4)],
+        "locked": bool(node.robotBaseMountLocked), "status": node.step6BasePlacementStatus,
+        "source": node.step6BasePlacementSource, "revision": node.step6BasePlacementRevision,
+        "authority": base.GetAttribute("authority"), "case_foundation_fingerprint": "current-pose",
+        "robot_profile_fingerprint": "current-profile", "placement_warning": "",
+        "base_fingerprint": host.robotBaseFingerprint(node),
+    }
+
+
+_MOVED_POSE = [[1.0, 0.0, 0.0, 5.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+
+
+def test_user_base_edit_through_the_lock_owners_still_bumps_the_revision_and_changes_the_identity():
+    host, node, base = _base_identity_host("setRobotBaseMountLocked", "robotBaseFingerprint",
+                                           "robotBasePoseFingerprint")
+    captured = _base_identity_snapshot(host, node, base)
+    host.setRobotBaseMountLocked(node, False)
+    base.matrix = _BaseIdentityMatrix(_MOVED_POSE)
+    host.setRobotBaseMountLocked(node, True)
+    assert node.step6BasePlacementRevision == 39
+    assert host.robotBaseFingerprint(node) != captured["base_fingerprint"]
+
+
+def test_exact_base_identity_restore_reinstates_the_captured_revision_status_and_fingerprint():
+    host, node, base = _base_identity_host("setRobotBaseMountLocked", "robotBaseFingerprint",
+                                           "robotBasePoseFingerprint", "restoreStep6BaseIdentity")
+    captured = _base_identity_snapshot(host, node, base)
+    host.setRobotBaseMountLocked(node, False)  # the advisor trial: unlock, pose change, lock
+    base.matrix = _BaseIdentityMatrix(_MOVED_POSE)
+    host.setRobotBaseMountLocked(node, True)
+    assert node.step6BasePlacementRevision == 39
+    base.matrix = _BaseIdentityMatrix(np.eye(4).tolist())  # the owner put the captured pose back while unlocked
+    node.robotBaseMountLocked, node.step6BasePlacementStatus = False, "Unlocked"
+
+    host.restoreStep6BaseIdentity(node, captured)
+
+    assert node.step6BasePlacementRevision == 37
+    assert host.robotBaseFingerprint(node) == captured["base_fingerprint"]
+    assert (node.robotBaseMountLocked, node.step6BasePlacementStatus, node.step6BasePlacementSource) == (
+        True, "ProvisionalLocked", "ManualSimulationBase")
+    assert base.GetAttribute("authority") == "ManualSimulationBaseReviewed"
+
+
+def test_exact_base_identity_restore_refuses_an_unlocked_snapshot_or_a_fingerprint_mismatch():
+    host, node, base = _base_identity_host("setRobotBaseMountLocked", "robotBaseFingerprint",
+                                           "robotBasePoseFingerprint", "restoreStep6BaseIdentity")
+    captured = _base_identity_snapshot(host, node, base)
+    with pytest.raises(ValueError, match="not locked"):
+        host.restoreStep6BaseIdentity(node, {**captured, "locked": False})
+    with pytest.raises(ValueError, match="does not match"):
+        host.restoreStep6BaseIdentity(node, {**captured, "base_fingerprint": "other"})
