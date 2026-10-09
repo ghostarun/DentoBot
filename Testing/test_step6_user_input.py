@@ -825,3 +825,422 @@ def test_slug_is_a_safe_screenshot_label():
     assert ui.slug("Find Working Configuration") == "find-working-configuration"
     assert ui.slug("  Keep searching!! ") == "keep-searching"
     assert ui.slug("") == "control"
+
+
+# --- Tab navigation before real-input presses (S6-ADVISOR-GUI-01 harness) -------------------
+
+class ArgSignal(FakeSignal):
+    """A Qt signal that passes its arguments to the connected slots (tabBarClicked(int))."""
+
+    def emit(self, *args):
+        for slot in list(self.slots):
+            slot(*args)
+
+
+def effective_visible(node) -> bool:
+    """Qt isVisible(): own flag, and no ancestor hides it (a non-current QTabWidget page does)."""
+    current = node
+    while current is not None:
+        if not getattr(current, "own_visible", True):
+            return False
+        parent = current.parent()
+        if isinstance(parent, FakeTabWidget):
+            index = parent.page_index_of(current)
+            if index is not None and index != parent.currentIndex:
+                return False
+        current = parent
+    return True
+
+
+class TabWorldWidget(FakeWidget):
+    """A FakeWidget whose ``visible`` is Qt-like: it also follows the ancestors and tab pages."""
+
+    @property
+    def visible(self):
+        return effective_visible(self)
+
+    @visible.setter
+    def visible(self, value):
+        self.own_visible = bool(value)
+
+
+class FakePage(TabWorldWidget):
+    def __init__(self, name, *, parent, x, y, width, height):
+        super().__init__(name, parent=parent, cls="QWidget", x=x, y=y, width=width, height=height)
+
+
+class FakeTabRect:
+    def __init__(self, x, y, width, height):
+        self._x, self._y, self._w, self._h = x, y, width, height
+
+    def center(self):
+        return FakePoint(self._x + self._w // 2, self._y + self._h // 2)
+
+
+class FakeTabBar(TabWorldWidget):
+    def __init__(self, name, *, parent, x, y, width, tabs):
+        super().__init__(name, parent=parent, cls="QTabBar", x=x, y=y, width=width, height=30)
+        self.tabs = tabs  # list of dicts: text, rect (x, y, w, h relative to the bar), enabled
+
+    def tabRect(self, index):
+        x, y, w, h = self.tabs[index]["rect"]
+        return FakeTabRect(x, y, w, h)
+
+    def isTabEnabled(self, index):
+        return bool(self.tabs[index].get("enabled", True))
+
+    def index_at(self, global_xy):
+        ox, oy = self._origin
+        for index, tab in enumerate(self.tabs):
+            x, y, w, h = tab["rect"]
+            if x <= global_xy[0] - ox < x + w and y <= global_xy[1] - oy < y + h:
+                return index
+        return None
+
+
+class FakeTabWidget(TabWorldWidget):
+    def __init__(self, name, *, parent, x, y, width, height, tabs, current=0):
+        super().__init__(name, parent=parent, cls="QTabWidget", x=x, y=y, width=width, height=height)
+        self.currentIndex = current
+        self._tab_texts = [tab["text"] for tab in tabs]
+        self.pages: list[FakeWidget] = []
+        self.tabBarClicked = ArgSignal()
+        self.currentChanged = ArgSignal()
+        self._bar = FakeTabBar(f"{name}.tabBar", parent=self, x=x, y=y, width=width, tabs=tabs)
+
+    @property
+    def count(self):
+        return len(self.pages)
+
+    def widget(self, index):
+        return self.pages[index]
+
+    def tabBar(self):
+        return self._bar
+
+    def tabText(self, index):
+        return self._tab_texts[index]
+
+    def page_index_of(self, node):
+        for index, page in enumerate(self.pages):
+            if page is node:
+                return index
+        return None
+
+    def click(self):  # a QAbstractButton-style fallback must never reach a tab widget
+        raise AssertionError("tab widgets are never clicked through click()")
+
+
+class TabEnv(FakeEnv):
+    """Hit testing over the visible widgets: the topmost visible widget under the point wins."""
+
+    def __init__(self, *, dpr=1.0):
+        super().__init__(target=None, dpr=dpr)
+        self.widgets: list[FakeWidget] = []
+
+    def widget_at(self, point):
+        """The topmost visible widget under the point: a higher ``z`` (a window stacked above),
+        then the deepest (a child is stacked above its parent), then the later registration."""
+        hit, hit_key = None, None
+        for widget in self.widgets:
+            if not effective_visible(widget):
+                continue
+            ox, oy = widget._origin
+            if not (ox <= point.x() < ox + widget.width and oy <= point.y() < oy + widget.height):
+                continue
+            depth, node = 0, widget.parent()
+            while node is not None:
+                depth, node = depth + 1, node.parent()
+            key = (getattr(widget, "z", 0), depth)
+            if hit_key is None or key >= hit_key:
+                hit, hit_key = widget, key
+        return hit
+
+
+class TabBackend(FakeBackend):
+    """Release on a tab bar selects the tab under the pointer (what Qt does); release on a
+    button emits its clicked signal. Presses are recorded but do nothing on their own."""
+
+    def __init__(self, env, *, tab_responds=True, **kwargs):
+        super().__init__(env, **kwargs)
+        self.tab_responds = tab_responds
+
+    def button(self, button, pressed):
+        self.events.append(("button", int(button), bool(pressed)))
+        if pressed:
+            return
+        hit = self.env.widget_at(FakePoint(*self.position))
+        if isinstance(hit, FakeTabBar):
+            index = hit.index_at(self.position)
+            if index is not None and self.tab_responds:
+                tab_widget = hit.parent()
+                tab_widget.currentIndex = index
+                tab_widget.tabBarClicked.emit(index)
+        elif hit is not None:
+            hit.clicked.emit()
+
+
+@pytest.fixture
+def tab_world(monkeypatch, clock):
+    """Main window > QTabWidget (Placement, Scene); the target button sits on the Scene page."""
+
+    def build(*, current=0, tab_enabled=True, control_enabled=True, control_visible=True,
+              tabs_visible=True, tab_responds=True, cover_tab_bar=False, dpr=1.0, follows_pointer=True):
+        env = TabEnv(dpr=dpr)
+        env.main = FakeWindowish(env, "main")
+        window = FakeWidget("mainWindow", cls="QMainWindow", x=0, y=0, width=1200, height=800,
+                            native_id=MAIN_WINDOW)
+        env.widgets.append(window)
+        tabs = FakeTabWidget(
+            "DENTOBOTStep61TabWidget", parent=window, x=0, y=0, width=800, height=600, current=current,
+            tabs=[{"text": "Placement", "rect": (0, 0, 200, 30)},
+                  {"text": "Scene", "rect": (200, 0, 200, 30), "enabled": tab_enabled}],
+        )
+        tabs.own_visible = tabs_visible
+        env.widgets += [tabs, tabs.tabBar()]
+        placement = FakePage("DENTOBOTStep61PlacementPage", parent=tabs, x=0, y=30, width=800, height=570)
+        scene = FakePage("DENTOBOTStep61ScenePage", parent=tabs, x=0, y=30, width=800, height=570)
+        tabs.pages = [placement, scene]
+        env.widgets += [placement, scene]
+        if cover_tab_bar:
+            cover = FakeWidget("coverWidget", parent=window, x=0, y=0, width=800, height=30)
+            cover.z = 1  # another window stacked above the tab bar
+            env.widgets.append(cover)
+        target = TabWorldWidget("DENTOBOTSyncCollisionSceneButton", parent=scene, x=300, y=400,
+                            width=100, height=40, text="Audit + Sync Collision Surfaces",
+                            visible=control_visible, enabled=control_enabled)
+        env.widgets.append(target)
+        qt = make_qt(env)
+        slicer = SimpleNamespace(util=SimpleNamespace(mainWindow=lambda: env.main))
+        backend = TabBackend(env, tab_responds=tab_responds, follows_pointer=follows_pointer)
+        monkeypatch.setattr(ui, "_runtime", lambda: (qt, slicer))
+        monkeypatch.setattr(ui, "get_backend", lambda: backend)
+        return SimpleNamespace(target=target, tabs=tabs, scene=scene, placement=placement, env=env,
+                               backend=backend, window=window)
+
+    return build
+
+
+def _entries(path):
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_control_on_a_non_current_tab_page_is_reached_by_a_real_tab_press_first(tab_world, tmp_path):
+    world = tab_world(current=0)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    record = ui.user_click(world.target, "Sync Collision Scene", mode="xtest", evidence=ledger)
+    assert world.tabs.currentIndex == 1  # the Scene page is now current, from a real press
+    presses = [event for event in world.backend.events if event[0] == "button"]
+    # tab press and release come before the control press and release
+    assert presses == [("button", 1, True), ("button", 1, False), ("button", 1, True), ("button", 1, False)]
+    moves = [event[1:] for event in world.backend.events if event[0] == "move"]
+    assert moves[0] == (300, 15)  # centre of the Scene tab (x 200..400, y 0..30)
+    assert moves[-1] == (350, 420)  # then the centre of the control
+    assert world.target.clicks == 0
+    entries = _entries(ledger)
+    assert [entry.get("navigation") for entry in entries] == ["tab", None]
+    tab_entry = entries[0]
+    assert tab_entry["delivered"] is True and tab_entry["tab_index"] == 1
+    assert tab_entry["tab_text"] == "Scene" and tab_entry["currentIndex_before"] == 0
+    assert tab_entry["currentIndex_after"] == 1 and tab_entry["x_activation"]["hit_test"] == "pass"
+    assert tab_entry["delivered_utc"] and tab_entry["physical_xy"] == [300, 15]
+    assert entries[1]["delivered"] is True and entries[1]["objectName"] == "DENTOBOTSyncCollisionSceneButton"
+    assert entries[1]["navigated_before_press"] == [
+        {"navigation": "tab", "label": tab_entry["label"], "tab_index": 1, "action": None}
+    ]
+    assert record["navigated_before_press"][0]["navigation"] == "tab"
+
+
+def test_nested_tab_pages_are_opened_outermost_first_each_as_a_real_press(tab_world, tmp_path, monkeypatch):
+    world = tab_world(current=0)
+    # Put a second QTabWidget inside the Scene page: Overview (current) and Collision (target).
+    inner_tabs = FakeTabWidget(
+        "DENTOBOTStep61InnerTabWidget", parent=world.scene, x=0, y=60, width=800, height=400, current=0,
+        tabs=[{"text": "Overview", "rect": (0, 0, 200, 30)}, {"text": "Collision", "rect": (200, 0, 200, 30)}],
+    )
+    inner_tabs.own_visible = True
+    world.env.widgets += [inner_tabs, inner_tabs.tabBar()]
+    overview = FakePage("Overview", parent=inner_tabs, x=0, y=90, width=800, height=370)
+    collision = FakePage("Collision", parent=inner_tabs, x=0, y=90, width=800, height=370)
+    inner_tabs.pages = [overview, collision]
+    world.env.widgets += [overview, collision]
+    world.target._parent = collision
+    world.env.widgets.remove(world.target)
+    world.env.widgets.append(world.target)  # the button stays topmost
+    world.target._origin = (300, 300)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    ui.user_click(world.target, "Sync Collision Scene", mode="xtest", evidence=ledger)
+    assert world.tabs.currentIndex == 1 and inner_tabs.currentIndex == 1
+    moves = [event[1:] for event in world.backend.events if event[0] == "move"]
+    assert moves[0] == (300, 15) and moves[1] == (300, 75) and moves[-1] == (350, 320)
+    entries = _entries(ledger)
+    assert [entry.get("navigation") for entry in entries] == ["tab", "tab", None]
+    assert entries[0]["objectName"] == "DENTOBOTStep61TabWidget" and entries[0]["tab_text"] == "Scene"
+    assert entries[1]["objectName"] == "DENTOBOTStep61InnerTabWidget" and entries[1]["tab_text"] == "Collision"
+    assert [item["tab_index"] for item in entries[2]["navigated_before_press"]] == [1, 1]
+
+
+def test_tab_press_that_is_not_delivered_is_refused_and_the_control_is_not_pressed(tab_world, tmp_path):
+    world = tab_world(tab_responds=False)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    with pytest.raises(ui.UserInputError, match=r"Open tab 'Scene'.*tab press not delivered \(current tab stayed 0\)"):
+        ui.user_click(world.target, "Sync Collision Scene", mode="xtest", evidence=ledger)
+    assert ("button", 1, True) in world.backend.events and world.target.clicks == 0
+    assert [event for event in world.backend.events if event[0] == "button" and event[2]] == [("button", 1, True)]
+    entries = _entries(ledger)
+    assert entries[0]["navigation"] == "tab" and entries[0]["delivered"] is False
+    assert "not delivered" in entries[0]["refused"]
+    assert entries[-1]["delivered"] is False and entries[-1]["navigated_before_press"] == []
+
+
+def test_covered_tab_bar_is_refused_without_pressing_the_tab_or_the_control(tab_world, tmp_path):
+    world = tab_world(cover_tab_bar=True)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    with pytest.raises(ui.UserInputError, match=r"covered by QPushButton/coverWidget"):
+        ui.user_click(world.target, "Sync Collision Scene", mode="xtest", evidence=ledger)
+    assert [event for event in world.backend.events if event[0] == "button"] == []
+    assert world.tabs.currentIndex == 0
+    assert _entries(ledger)[0]["navigation"] == "tab" and _entries(ledger)[0]["delivered"] is False
+
+
+def test_disabled_tab_is_refused_before_any_press(tab_world, tmp_path):
+    world = tab_world(tab_enabled=False)
+    with pytest.raises(ui.UserInputError, match=r"Open tab 'Scene'.*tab is disabled"):
+        ui.user_click(world.target, "Sync Collision Scene", mode="xtest")
+    assert world.backend.events == [] and world.tabs.currentIndex == 0
+
+
+def test_disabled_control_on_a_hidden_page_is_refused_without_navigating(tab_world):
+    world = tab_world(control_enabled=False)
+    with pytest.raises(ui.UserInputError, match="control is disabled"):
+        ui.user_click(world.target, "Sync Collision Scene", mode="xtest")
+    assert world.backend.events == [] and world.tabs.currentIndex == 0
+
+
+def test_hidden_tab_widget_is_not_navigated_and_refuses_without_a_direct_helper(tab_world):
+    world = tab_world(tabs_visible=False)
+    with pytest.raises(ui.UserInputError, match="control is not visible"):
+        ui.user_click(world.target, "Sync Collision Scene", mode="xtest")
+    assert world.backend.events == [] and world.tabs.currentIndex == 0
+
+
+def test_direct_navigation_is_logged_with_its_reason_and_the_control_is_pressed_after_recheck(tab_world, tmp_path):
+    world = tab_world()
+    group = TabWorldWidget("DENTOBOTCollisionSceneGroupBox", parent=world.window, x=0, y=0, width=800, height=600)
+    group.own_visible = False  # hidden by the shell: not the current substep page
+    world.target._parent = group
+    world.env.widgets.append(group)
+    calls = []
+
+    def direct(widget, reason):
+        calls.append((widget.objectName, reason))
+        group.own_visible = True
+        return {"reason": "the collision group is on shell substep 1", "action": "_configureRobotSimulationShellSubstep(1)"}
+
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    ui.user_click(world.target, "Sync Collision Scene", mode="xtest", evidence=ledger, direct_navigation=direct)
+    assert calls == [("DENTOBOTSyncCollisionSceneButton", "hidden by a non-current page or group")]
+    entries = _entries(ledger)
+    assert entries[0]["navigation"] == "direct" and entries[0]["delivered"] is None
+    assert entries[0]["reason"] == "the collision group is on shell substep 1"
+    assert entries[0]["action"] == "_configureRobotSimulationShellSubstep(1)"
+    assert entries[0]["hidden_reason"] == "hidden by a non-current page or group"
+    assert entries[1]["delivered"] is True and entries[1]["navigated_before_press"][0]["navigation"] == "direct"
+
+
+def test_direct_navigation_returning_none_refuses_loudly_and_presses_nothing(tab_world, tmp_path):
+    world = tab_world()
+    group = TabWorldWidget("hiddenGroup", parent=world.window, x=0, y=0, width=800, height=600)
+    group.own_visible = False
+    world.target._parent = group
+    world.env.widgets.append(group)
+    calls = []
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    with pytest.raises(ui.UserInputError, match="control is not visible"):
+        ui.user_click(world.target, "Sync Collision Scene", mode="xtest", evidence=ledger,
+                      direct_navigation=lambda widget, reason: calls.append(reason) or None)
+    assert calls == ["hidden by a non-current page or group"]
+    assert world.backend.events == []
+    entries = _entries(ledger)
+    assert len(entries) == 1 and entries[0]["delivered"] is False and "not visible" in entries[0]["refused"]
+
+
+def test_direct_navigation_that_does_not_reveal_the_control_is_tried_once_then_refused(tab_world):
+    world = tab_world()
+    group = TabWorldWidget("hiddenGroup", parent=world.window, x=0, y=0, width=800, height=600)
+    group.own_visible = False
+    world.target._parent = group
+    world.env.widgets.append(group)
+    calls = []
+
+    def direct(widget, reason):
+        calls.append(reason)
+        return {"reason": "claimed", "action": "_configureRobotSimulationShellSubstep(9)"}
+
+    with pytest.raises(ui.UserInputError,
+                       match=r"control is not visible after direct navigation \(_configureRobotSimulationShellSubstep\(9\)\)"):
+        ui.user_click(world.target, "Sync Collision Scene", mode="xtest", direct_navigation=direct)
+    assert len(calls) == 1 and world.backend.events == []
+
+
+def test_collapsed_group_is_expanded_only_through_the_direct_helper_and_logged(tab_world, tmp_path):
+    world = tab_world()
+    group = FakeWidget("advancedGroup", cls="ctkCollapsibleButton", text="Advanced settings",
+                       parent=world.window, collapsed=True)
+    world.target._parent = group
+    calls = []
+
+    def direct(widget, reason):
+        calls.append(reason)
+        group.collapsed = False
+        return {"reason": "the advanced group is collapsed", "action": "expand Advanced settings"}
+
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    ui.user_click(world.target, "Diagnose", mode="xtest", evidence=ledger, direct_navigation=direct)
+    assert calls == ["collapsed group"]
+    entries = _entries(ledger)
+    assert entries[0]["navigation"] == "direct" and entries[0]["hidden_reason"] == "collapsed group"
+    assert entries[1]["delivered"] is True
+
+
+def test_collapsed_group_without_a_helper_still_refuses_and_expands_nothing(tab_world, tmp_path):
+    world = tab_world()
+    group = FakeWidget("advancedGroup", cls="ctkCollapsibleButton", text="Advanced settings",
+                       parent=world.window, collapsed=True)
+    world.target._parent = group
+    with pytest.raises(ui.UserInputError, match="not reachable without expanding Advanced settings"):
+        ui.user_click(world.target, "Diagnose", mode="xtest", direct_navigation=None)
+    assert world.backend.events == [] and group.collapsed is True
+
+
+def test_direct_navigation_is_not_consulted_for_disabled_controls(tab_world):
+    world = tab_world(control_enabled=False)
+    group = TabWorldWidget("hiddenGroup", parent=world.window, x=0, y=0, width=800, height=600)
+    group.own_visible = False
+    world.target._parent = group
+    world.env.widgets.append(group)
+    calls = []
+    with pytest.raises(ui.UserInputError, match="control is disabled"):
+        ui.user_click(world.target, "Sync Collision Scene", mode="xtest",
+                      direct_navigation=lambda widget, reason: calls.append(reason))
+    assert calls == [] and world.backend.events == []
+
+
+def test_demo_mode_shows_and_hides_its_overlays_around_a_tab_press(tab_world, tmp_path):
+    world = tab_world()
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    ui.user_click(world.target, "Sync Collision Scene", mode="demo", evidence=ledger)
+    shows = [entry for entry in world.env.log if entry[0] == "overlay_show"]
+    hides = [entry for entry in world.env.log if entry[0] == "overlay_hide"]
+    assert shows and len(shows) == len(hides)
+    entries = _entries(ledger)
+    assert [entry.get("navigation") for entry in entries] == ["tab", None]
+    assert entries[0]["mode"] == "demo" and entries[0]["delivered"] is True
+
+
+def test_tab_navigation_source_has_no_direct_index_assignment_or_click_fallback():
+    import inspect
+
+    source = inspect.getsource(ui._navigate_tab) + inspect.getsource(ui._ensure_reachable)
+    assert ".click(" not in source
+    assert "currentIndex =" not in source and "setCurrentIndex" not in source

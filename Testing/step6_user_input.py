@@ -5,6 +5,16 @@ A production control is pressed the way a user presses it:
 * the control must be visible, enabled, and reachable: it is scrolled into view
   through its QScrollArea ancestors, and it must not sit inside a collapsed
   ctkCollapsibleButton (that fails; nothing is expanded silently);
+* a control on a non-current QTabWidget page is reached the way a user reaches it:
+  the tab is pressed with a real XTest click (outermost tab first, nested tabs in
+  order), with the same window activation and X-level hit test, and the tab change is
+  confirmed by ``currentIndex``. Each tab press is its own ledger entry
+  (``navigation: "tab"``);
+* any other hidden or collapsed reason may use the caller's direct navigation helper
+  (for example a shell substep). Its use is logged as its own ledger entry
+  (``navigation: "direct"``) with the reason, and visibility is checked again. The
+  control is never made clickable any other way, and a control that is still not
+  visible fails loudly;
 * the control's top-level window (the Slicer main window for its controls) is raised
   and activated in Qt, and at X level with an EWMH ``_NET_ACTIVE_WINDOW`` request
   plus ``XRaiseWindow``;
@@ -50,6 +60,7 @@ DEMO_STEPS = 30
 HIGHLIGHT_MARGIN_PX = 6
 CAPTION_GAP_PX = 10
 PRESS_HOLD_SEC = 0.05
+NAVIGATION_STEP_LIMIT = 8  # tab presses plus direct steps allowed before a control is refused
 
 # Indirections so host tests can replace time and pumping without Qt or X.
 _NOW = time.monotonic
@@ -578,12 +589,214 @@ def _record(widget, label, mode, **details) -> dict:
     }
 
 
-def user_click(widget, label: str, *, mode: str, evidence=None) -> dict:
+def _contains(page, widget) -> bool:
+    """True when ``page`` is ``widget`` or one of its ancestors."""
+    if page is None:
+        return False
+    return page == widget or bool(page.isAncestorOf(widget))
+
+
+def _page_index(tab_widget, widget):
+    """Index of the QTabWidget page that contains ``widget``, or None."""
+    for index in range(int(_value(tab_widget, "count"))):
+        if _contains(tab_widget.widget(index), widget):
+            return index
+    return None
+
+
+def _tab_pages_outermost_first(widget) -> list:
+    """(QTabWidget, page index) for each tab page that contains ``widget``, outermost first."""
+    pages = []
+    for ancestor in _ancestors(widget):
+        if not _inherits(ancestor, "QTabWidget"):
+            continue
+        index = _page_index(ancestor, widget)
+        if index is not None:
+            pages.append((ancestor, index))
+    return list(reversed(pages))
+
+
+def _first_hidden_tab_page(widget):
+    """The outermost (QTabWidget, index) whose page holds ``widget`` but is not current."""
+    for tab_widget, index in _tab_pages_outermost_first(widget):
+        if int(_value(tab_widget, "currentIndex")) != index:
+            return tab_widget, index
+    return None
+
+
+def _navigate_tab(tab_widget, index: int, *, owner_label: str, mode: str, evidence, qt, slicer) -> dict:
+    """Open tab ``index`` of ``tab_widget`` with a real XTest click, the way a user would.
+
+    Same preconditions as a control press: the tab bar must be visible, the tab enabled,
+    the window activated and hit at X level, and the tab bar not covered in Qt. The tab
+    change is confirmed by ``currentIndex``. Writes one ledger entry, refusals included.
+    Never calls ``click()`` or sets ``currentIndex`` directly.
+    """
+    tab_bar = tab_widget.tabBar()
+    tab_text = str(tab_widget.tabText(index))
+    label = f"Open tab '{tab_text}' ({_object_name(tab_widget) or _class_name(tab_widget)})"
+    reason = f"{owner_label} is on this tab page, which is not the current tab"
+    x_activation: dict = {}
+    scrolled: list[str] = []
+    delivered = {"utc": None}
+    overlay = None
+    connected = False
+    signal = None
+
+    def on_tab_clicked(clicked_index):
+        if int(clicked_index) == index and delivered["utc"] is None:
+            delivered["utc"] = utc_now()
+
+    def base_record() -> dict:
+        return {
+            "navigation": "tab", "label": label, "reason": reason, "mode": mode,
+            "objectName": _object_name(tab_widget), "widget_class": _class_name(tab_widget),
+            "tab_bar_objectName": _object_name(tab_bar), "tab_index": int(index),
+            "tab_text": tab_text, "utc": utc_now(),
+        }
+
+    try:
+        if not bool(_value(tab_bar, "visible")):
+            raise UserInputError(f"{label}: tab bar is not visible")
+        if not bool(tab_bar.isTabEnabled(index)):
+            raise UserInputError(f"{label}: tab is disabled")
+        for area in _scroll_areas(tab_bar):
+            area.ensureWidgetVisible(tab_bar)
+            scrolled.append(_object_name(area) or _class_name(area))
+        if scrolled:
+            _pump_once()
+        _raise_and_activate(tab_widget, slicer)
+        point = tab_bar.mapToGlobal(tab_bar.tabRect(index).center())
+        logical = (int(point.x()), int(point.y()))
+        dpr = _device_pixel_ratio(qt, point)
+        physical = (round(logical[0] * dpr), round(logical[1] * dpr))
+        backend = get_backend()
+        start = backend.pointer()
+        target = _native_window(_value(tab_widget, "window"), label)
+        x_activation["target_window"] = _hex(target)
+        if mode == "demo":
+            began = _NOW()
+            overlay = _Overlay(qt, tab_bar, f"Clicking: {label}")
+            overlay.show()
+            _animate(backend, start, physical, DEMO_APPROACH_SEC)
+            _pump_until(began + DEMO_PRE_CLICK_SEC)
+            overlay.hide()
+            overlay = None
+        _x_activate_and_confirm(backend, tab_widget, slicer, target, physical, label, x_activation)
+        found = qt.QApplication.widgetAt(qt.QPoint(*logical))
+        if not _is_widget_or_descendant(found, tab_bar):
+            raise UserInputError(f"{label}: covered by {_describe(found)}")
+        before = int(_value(tab_widget, "currentIndex"))
+        signal = tab_widget.tabBarClicked
+        signal.connect(on_tab_clicked)
+        connected = True
+        backend.button(1, True)
+        _pump_until(_NOW() + PRESS_HOLD_SEC)
+        backend.button(1, False)
+        if not _wait_for(lambda: int(_value(tab_widget, "currentIndex")) == index, DELIVERY_TIMEOUT_SEC):
+            current = int(_value(tab_widget, "currentIndex"))
+            raise UserInputError(f"{label}: tab press not delivered (current tab stayed {current})")
+        after = int(_value(tab_widget, "currentIndex"))
+        if mode == "demo":
+            overlay = _Overlay(qt, tab_bar, f"Opened: {label}")
+            overlay.show()
+            _pump_until(_NOW() + DEMO_POST_CLICK_SEC)
+            overlay.hide()
+            overlay = None
+            _pump_until(_NOW() + DEMO_HOLD_SEC)
+    except UserInputError as refusal:
+        _append_evidence(evidence, {**base_record(), "delivered": False, "refused": str(refusal),
+                                    "x_activation": x_activation, "scrolled_areas": scrolled})
+        raise
+    finally:
+        if connected:
+            signal.disconnect(on_tab_clicked)
+        if overlay is not None:
+            overlay.hide()
+
+    record = {
+        **base_record(), "delivered": True, "delivered_utc": delivered["utc"],
+        "currentIndex_before": before, "currentIndex_after": after,
+        "physical_xy": list(physical), "logical_xy": list(logical), "device_pixel_ratio": dpr,
+        "pointer_start_xy": list(start), "scrolled_areas": scrolled, "x_activation": x_activation,
+    }
+    _append_evidence(evidence, record)
+    return record
+
+
+def _unreachable_message(label: str, collapsed, direct_action) -> str:
+    if collapsed is not None:
+        message = f"{label}: not reachable without expanding {_text(collapsed) or _object_name(collapsed)}"
+    else:
+        message = f"{label}: control is not visible"
+    if direct_action is not None:
+        message += f" after direct navigation ({direct_action})"
+    return message
+
+
+def _ensure_reachable(widget, label: str, *, mode: str, evidence, qt, slicer, direct_navigation) -> list:
+    """Bring ``widget`` into a user's view by ordinary navigation, or refuse.
+
+    A disabled control is refused before any navigation. A control on a non-current tab
+    page is reached by real tab presses (outermost first). Otherwise the caller's
+    ``direct_navigation(widget, reason)`` may be used once: it returns None when it has no
+    navigation for this control, or ``{"reason", "action"}`` after it has navigated, and
+    that use is logged as its own entry. Visibility is checked again each time. Returns
+    the navigation records written for this control.
+    """
+    navigations: list[dict] = []
+    direct_action = None
+    for _step in range(NAVIGATION_STEP_LIMIT + 1):
+        collapsed = _collapsed_ancestor(widget)
+        if collapsed is None and not bool(_value(widget, "enabled")):
+            raise UserInputError(f"{label}: control is disabled")
+        if collapsed is None and bool(_value(widget, "visible")):
+            return navigations
+        if collapsed is None:
+            pending = _first_hidden_tab_page(widget)
+            if pending is not None and bool(_value(pending[0], "visible")):
+                tab_widget, index = pending
+                navigations.append(_navigate_tab(tab_widget, index, owner_label=label, mode=mode,
+                                                 evidence=evidence, qt=qt, slicer=slicer))
+                continue
+        hidden_reason = ("collapsed group" if collapsed is not None
+                         else "hidden by a non-current page or group")
+        if direct_navigation is None or direct_action is not None:
+            raise UserInputError(_unreachable_message(label, collapsed, direct_action))
+        result = direct_navigation(widget, hidden_reason)
+        if result is None:
+            raise UserInputError(_unreachable_message(label, collapsed, None))
+        direct_action = str(result["action"])
+        entry = {
+            "navigation": "direct", "label": label, "reason": str(result["reason"]),
+            "hidden_reason": hidden_reason, "action": direct_action, "mode": mode,
+            "objectName": _object_name(widget), "text": _text(widget),
+            "widget_class": _class_name(widget), "delivered": None, "utc": utc_now(),
+        }
+        _append_evidence(evidence, entry)
+        navigations.append(entry)
+    raise UserInputError(
+        f"{label}: navigation did not make the control reachable in {NAVIGATION_STEP_LIMIT} steps"
+    )
+
+
+def _navigation_summary(navigations) -> list[dict]:
+    """Compact view of the navigation entries written before a control press."""
+    return [{"navigation": item["navigation"], "label": item.get("label"),
+             "tab_index": item.get("tab_index"), "action": item.get("action")}
+            for item in navigations]
+
+
+def user_click(widget, label: str, *, mode: str, evidence=None, direct_navigation=None) -> dict:
     """Press ``widget`` the way a user does and return a record of the press.
 
     ``xtest`` and ``demo`` raise ``UserInputError`` and never call ``click()`` when the control
     is unreachable, its window is not activated and hit at X level, Qt reports another widget
     on top, or the press is not delivered. Each refusal is also written to the ledger.
+
+    Before the press, a hidden control on a non-current tab page is reached by real tab presses
+    (see ``_ensure_reachable``). ``direct_navigation(widget, reason)`` is the caller's optional
+    helper for other hidden reasons; its use is logged with ``navigation: "direct"``.
     """
     if mode not in MODES:
         raise UserInputError(f"unknown input mode {mode!r}")
@@ -600,12 +813,15 @@ def user_click(widget, label: str, *, mode: str, evidence=None) -> dict:
     connected = False
     clicked_signal = None
     delivered = {"utc": None}
+    navigations: list[dict] = []
 
     def on_clicked():
         if delivered["utc"] is None:
             delivered["utc"] = utc_now()
 
     try:
+        navigations = _ensure_reachable(widget, label, mode=mode, evidence=evidence, qt=qt,
+                                        slicer=slicer, direct_navigation=direct_navigation)
         scrolled = _preflight(widget, label)
         _raise_and_activate(widget, slicer)
         logical, dpr, physical = _target(widget, qt, label)
@@ -643,7 +859,8 @@ def user_click(widget, label: str, *, mode: str, evidence=None) -> dict:
             _pump_until(_NOW() + DEMO_HOLD_SEC)
     except UserInputError as refusal:
         _append_evidence(evidence, _record(widget, label, mode, delivered=False,
-                                           refused=str(refusal), x_activation=x_activation))
+                                           refused=str(refusal), x_activation=x_activation,
+                                           navigated_before_press=_navigation_summary(navigations)))
         raise
     finally:
         if connected:
@@ -656,6 +873,7 @@ def user_click(widget, label: str, *, mode: str, evidence=None) -> dict:
         physical_xy=list(physical), logical_xy=list(logical), device_pixel_ratio=dpr,
         pointer_start_xy=list(start), scrolled_areas=scrolled, delivered=True,
         delivered_utc=delivered["utc"], x_activation=x_activation,
+        navigated_before_press=_navigation_summary(navigations),
     )
     _append_evidence(evidence, record)
     return record

@@ -1502,14 +1502,52 @@ def _control_label(control) -> str:
     return str(control.text or "").strip() or str(control.objectName or "") or "production control"
 
 
+# Shell substep page that shows each simulation-panel group (widget_robot_shell.py,
+# _configureRobotSimulationShellSubstep). Used only as the direct navigation for a control that
+# is hidden by a non-current substep; user_input re-checks visibility after it.
+_SUBSTEP_OF_PANEL_GROUP = (
+    ("collisionGroup", 1), ("runtimeGroup", 1), ("visualizationGroup", 1),
+    ("homeGroup", 2), ("workbenchGroup", 3), ("previewControlGroup", 4),
+)
+
+
+def _direct_navigation(control, reason: str):
+    """Direct navigation for user_input.user_click, used only after tab presses cannot reach it.
+
+    Opens the shell substep page that shows the control's panel group through the production
+    substep helper. Returns None when no such page applies, so the control is refused.
+    """
+    shell = slicer.util.getModuleWidget("DENTOWorkflow")
+    panel = getattr(shell, "_robotSimulationPanel", None)
+    if panel is None:
+        return None
+    for group_name, substep in _SUBSTEP_OF_PANEL_GROUP:
+        group = getattr(panel, group_name, None)
+        if group is None or not group.isAncestorOf(control):
+            continue
+        current = int(getattr(shell, "_step6SubstepIndex", -1))
+        if current == substep:
+            return None  # the page is already current, so this navigation cannot reveal it
+        shell._configureRobotSimulationShellSubstep(substep)
+        return {
+            "reason": f"{reason}: {group_name} is shown on shell substep {substep}; "
+                      f"the active substep was {current}",
+            "action": f"_configureRobotSimulationShellSubstep({substep})",
+        }
+    return None
+
+
 def _press(button, label: str) -> dict[str, object]:
     """Press a production control the way a user does (see Testing/step6_user_input.py).
 
     Mode comes from DENTOBOT_HEADED_INPUT: xtest (default), demo, or qt_click (legacy).
+    A control on a non-current tab page is reached first by a real tab press, and any other
+    hidden reason may use _direct_navigation; both are logged in the user-input ledger.
     In demo mode a screenshot is kept after each press as ``demo-<n>-<label>``.
     """
     mode = user_input.input_mode_from_env()
-    record = user_input.user_click(button, label, mode=mode, evidence=_INPUT_CONTEXT.get("ledger"))
+    record = user_input.user_click(button, label, mode=mode, evidence=_INPUT_CONTEXT.get("ledger"),
+                                   direct_navigation=_direct_navigation)
     if mode == "demo":
         count = int(_INPUT_CONTEXT.get("demo_count", 0)) + 1
         _INPUT_CONTEXT["demo_count"] = count
