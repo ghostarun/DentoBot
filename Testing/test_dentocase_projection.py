@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, replace
+import hashlib
 import json
 import os
 from io import StringIO
@@ -23,7 +24,9 @@ from dentobot_case.projection import filter_registry, prepare_projection  # noqa
 from dentobot_workflow.case_projection import (  # noqa: E402
     _clear_future_node_attributes, _inspect_prefix, _replan_restored_projection,
     _check_projector_result, _log_projected_unknown_ownership,
-    _record_projected_ownership_failure, _retain_projector_log,
+    _new_projector_evidence_dir, _offline_child_workspace,
+    _record_projected_ownership_failure,
+    _retain_failed_projected_scene, _retain_projector_log,
 )
 
 
@@ -396,16 +399,119 @@ def test_post_save_failure_report_preserves_all_reasons_and_plan_without_scene_d
         "keepNodeIds": ["node-1"], "removeNodeIds": ["node-2"],
         "clearParameters": ["future"], "clearReferenceRoles": ["futureReference"],
     }
+    evidence_dir = _new_projector_evidence_dir()
     path = _record_projected_ownership_failure(
         {"unknownOwnership": reasons}, {"nodeOwners": {"node-1": ["artifact-1"]}},
-        plan, "a" * 64,
+        plan, "a" * 64, evidence_dir,
     )
     report = json.loads(path.read_text())
-    assert path.parent == tmp_path / "run/evidence"
+    assert path.parent == evidence_dir
     assert report["unknownOwnership"] == reasons
     assert report["capturedNodeOwners"] == {"node-1": ["artifact-1"]}
     assert report["plan"] == plan
     assert os.stat(path).st_mode & 0o077 == 0
+
+
+def test_failed_child_retains_saved_mrb_with_report_log_and_hash(monkeypatch, tmp_path):
+    monkeypatch.delenv("DENTOCASE_EVIDENCE_DIR", raising=False)
+    monkeypatch.setenv("CRUN", str(tmp_path / "run"))
+    evidence_dir = _new_projector_evidence_dir()
+    scene_bytes = b"synthetic projected MRB bytes"
+    with tempfile.TemporaryDirectory(dir=tmp_path) as disposable:
+        projected = Path(disposable) / "projected.mrb"
+        projected.write_bytes(scene_bytes)
+        report = _record_projected_ownership_failure(
+            {"unknownOwnership": ["unmapped persistent reference: role"]},
+            {"nodeOwners": {"node-1": []}},
+            {"targetId": "target-1", "branchId": "branch-1", "checkpointId": "template.verify",
+             "keepNodeIds": ["node-1"], "removeNodeIds": [],
+             "clearParameters": [], "clearReferenceRoles": []},
+            "a" * 64, evidence_dir,
+        )
+        retained_scene = _retain_failed_projected_scene(projected, evidence_dir, save_complete=True)
+        log = Path(disposable) / "process.log"
+        log.write_text("DENTOCASE_PROJECTOR_PHASE save_scene_complete 1.0\n"
+                       "DENTOCASE_PROJECTOR_PHASE post_save_inventory_begin 1.1\n"
+                       "ValueError: Projected ownership is incomplete.\n")
+        retained_log, status = _retain_projector_log(
+            log, exit_code=1, temporary_dir=disposable,
+            output_path=Path(disposable) / "result.dentocase",
+            source_sha256="a" * 64, evidence_dir=evidence_dir,
+        )
+    assert retained_scene.read_bytes() == scene_bytes
+    assert retained_log.is_file() and report.is_file()
+    assert status["projectedMrbName"] == "projected.mrb"
+    assert status["projectedMrbSha256"] == hashlib.sha256(scene_bytes).hexdigest()
+    assert status["ownershipReportName"] == "post-save-ownership.json"
+    assert status["lastPhase"] == "DENTOCASE_PROJECTOR_PHASE post_save_inventory_begin 1.1"
+    assert os.stat(evidence_dir).st_mode & 0o077 == 0
+    assert os.stat(retained_scene).st_mode & 0o077 == 0
+
+
+def test_child_workspace_copies_failed_saved_mrb_before_cleanup(monkeypatch, tmp_path):
+    monkeypatch.delenv("DENTOCASE_EVIDENCE_DIR", raising=False)
+    monkeypatch.setenv("CRUN", str(tmp_path / "run"))
+    evidence_dir = _new_projector_evidence_dir()
+    state = {"path": None, "complete": False}
+    with pytest.raises(ValueError, match="projected ownership"):
+        with _offline_child_workspace(tmp_path, evidence_dir, state) as scratch:
+            state["path"] = scratch / "projected.mrb"
+            state["path"].write_bytes(b"synthetic saved scene")
+            state["complete"] = True
+            raise ValueError("projected ownership")
+    assert not scratch.exists()
+    assert (evidence_dir / "projected.mrb").read_bytes() == b"synthetic saved scene"
+
+
+def test_parent_retains_completed_mrb_after_abnormal_child_exit(monkeypatch, tmp_path):
+    monkeypatch.delenv("DENTOCASE_EVIDENCE_DIR", raising=False)
+    monkeypatch.setenv("CRUN", str(tmp_path / "run"))
+    evidence_dir = _new_projector_evidence_dir()
+    with tempfile.TemporaryDirectory(dir=tmp_path) as parent:
+        child = Path(parent) / "dentocase-offline-aborted"
+        child.mkdir()
+        (child / "projected.mrb").write_bytes(b"completed before abnormal exit")
+        log = Path(parent) / "process.log"
+        log.write_text("DENTOCASE_PROJECTOR_PHASE save_scene_complete 2.0\n")
+        retained_log, status = _retain_projector_log(
+            log, exit_code=1, temporary_dir=parent,
+            output_path=Path(parent) / "result.dentocase",
+            source_sha256="a" * 64, evidence_dir=evidence_dir,
+        )
+    assert retained_log.is_file()
+    assert (evidence_dir / "projected.mrb").read_bytes() == b"completed before abnormal exit"
+    assert status["projectedMrbSha256"] == hashlib.sha256(
+        b"completed before abnormal exit"
+    ).hexdigest()
+
+
+@pytest.mark.parametrize("save_complete,scene_exists", [(False, True), (True, False)])
+def test_no_projected_mrb_retained_without_completed_save_and_file(monkeypatch, tmp_path,
+                                                                   save_complete, scene_exists):
+    monkeypatch.delenv("DENTOCASE_EVIDENCE_DIR", raising=False)
+    monkeypatch.setenv("CRUN", str(tmp_path / "run"))
+    evidence_dir = _new_projector_evidence_dir()
+    with tempfile.TemporaryDirectory(dir=tmp_path) as disposable:
+        projected = Path(disposable) / "projected.mrb"
+        if scene_exists:
+            projected.write_bytes(b"partial output")
+            child = Path(disposable) / "dentocase-offline-aborted"
+            child.mkdir()
+            (child / "projected.mrb").write_bytes(b"partial output")
+        assert _retain_failed_projected_scene(
+            projected, evidence_dir, save_complete=save_complete,
+        ) is None
+        log = Path(disposable) / "process.log"
+        log.write_text("DENTOCASE_PROJECTOR_PHASE save_scene_begin 1.0\n")
+        _retained_log, status = _retain_projector_log(
+            log, exit_code=1, temporary_dir=disposable,
+            output_path=Path(disposable) / "result.dentocase",
+            source_sha256="a" * 64, evidence_dir=evidence_dir,
+        )
+    assert not (evidence_dir / "projected.mrb").exists()
+    assert status["projectedMrbName"] == ""
+    assert status["projectedMrbSha256"] == ""
+    assert status["ownershipReportName"] == ""
 
 
 def test_retained_geometry_loses_saved_step6_config_and_base_authority():

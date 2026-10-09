@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -73,13 +75,55 @@ def _projector_evidence_root():
     ) / "evidence"
 
 
-def _retain_projector_log(log_path, *, exit_code, temporary_dir, output_path,
-                          source_sha256, failure=""):
-    """Keep the full child diagnostic before its disposable directory closes."""
-    evidence_root = _projector_evidence_root()
-    evidence_dir = evidence_root / ("projector-" + uuid4().hex)
+def _new_projector_evidence_dir():
+    evidence_dir = _projector_evidence_root() / ("projector-" + uuid4().hex)
     evidence_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
     os.chmod(evidence_dir, 0o700)
+    return evidence_dir
+
+
+def _retain_failed_projected_scene(scene_path, evidence_dir, *, save_complete):
+    """Keep a private MRB only after saveScene reported completion."""
+    scene_path = Path(scene_path) if scene_path is not None else None
+    if not save_complete or scene_path is None or not scene_path.is_file():
+        return None
+    retained = Path(evidence_dir) / "projected.mrb"
+    staging = Path(evidence_dir) / "projected.mrb.tmp"
+    try:
+        with staging.open("xb") as target:
+            os.chmod(staging, 0o600)
+            with scene_path.open("rb") as source:
+                shutil.copyfileobj(source, target)
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(staging, retained)
+    finally:
+        staging.unlink(missing_ok=True)
+    return retained
+
+
+@contextmanager
+def _offline_child_workspace(temporary_root, evidence_dir, save_state):
+    """Copy a completed failed projection while its scratch MRB still exists."""
+    with tempfile.TemporaryDirectory(prefix="dentocase-offline-", dir=temporary_root) as directory:
+        try:
+            yield Path(directory)
+        except Exception:
+            try:
+                retained = _retain_failed_projected_scene(
+                    save_state["path"], evidence_dir, save_complete=save_state["complete"],
+                )
+                if retained is not None:
+                    print("DENTOCASE_PRIVATE_PROJECTED_MRB", retained, flush=True)
+            except Exception as copy_error:
+                print("Projected MRB retention failed:", copy_error, flush=True)
+            raise
+
+
+def _retain_projector_log(log_path, *, exit_code, temporary_dir, output_path,
+                          source_sha256, failure="", evidence_dir=None):
+    """Keep the full child diagnostic before its disposable directory closes."""
+    evidence_dir = Path(evidence_dir) if evidence_dir is not None else _new_projector_evidence_dir()
     retained_log = evidence_dir / "process.log"
     with retained_log.open("wb") as target:
         os.chmod(retained_log, 0o600)
@@ -87,6 +131,27 @@ def _retain_projector_log(log_path, *, exit_code, temporary_dir, output_path,
             shutil.copyfileobj(source, target)
     with retained_log.open(errors="replace") as source:
         phases = [line.rstrip("\n") for line in source if line.startswith("DENTOCASE_PROJECTOR_")]
+    saved_scene = evidence_dir / "projected.mrb"
+    save_complete = any(
+        line.startswith("DENTOCASE_PROJECTOR_PHASE save_scene_complete ") for line in phases
+    )
+    scene_retention_error = ""
+    if save_complete and not saved_scene.is_file() and (exit_code or failure):
+        candidates = list(Path(temporary_dir).glob("dentocase-offline-*/projected.mrb"))
+        if len(candidates) == 1:
+            try:
+                _retain_failed_projected_scene(candidates[0], evidence_dir, save_complete=True)
+            except Exception as exc:
+                scene_retention_error = type(exc).__name__
+    scene_retained = saved_scene.is_file() and save_complete
+    scene_sha256 = ""
+    if scene_retained:
+        digest = hashlib.sha256()
+        with saved_scene.open("rb") as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(block)
+        scene_sha256 = digest.hexdigest()
+    ownership_report = evidence_dir / "post-save-ownership.json"
     metadata = {
         "schemaVersion": "1.0",
         "exitCode": exit_code,
@@ -98,6 +163,10 @@ def _retain_projector_log(log_path, *, exit_code, temporary_dir, output_path,
         "phases": phases,
         "lastPhase": phases[-1] if phases else "",
         "logName": retained_log.name,
+        "projectedMrbName": saved_scene.name if scene_retained else "",
+        "projectedMrbSha256": scene_sha256,
+        "projectedMrbRetentionError": scene_retention_error,
+        "ownershipReportName": ownership_report.name if ownership_report.is_file() else "",
     }
     metadata_path = evidence_dir / "status.json"
     metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
@@ -121,11 +190,9 @@ def _log_projected_unknown_ownership(inventory, *, stream=None):
     }, ensure_ascii=False), file=stream, flush=True)
 
 
-def _record_projected_ownership_failure(inventory, projection, plan, source_sha256):
+def _record_projected_ownership_failure(inventory, projection, plan, source_sha256, evidence_dir):
     """Preserve the full failed audit without copying clinical scene geometry."""
-    evidence_root = _projector_evidence_root()
-    evidence_root.mkdir(parents=True, exist_ok=True)
-    path = evidence_root / ("post-save-ownership-" + uuid4().hex + ".json")
+    path = Path(evidence_dir) / "post-save-ownership.json"
     report = {
         "schemaVersion": "1.0",
         "sourceSha256": source_sha256,
@@ -217,11 +284,14 @@ def project_package_offline(source, destination, target, checkpoint, branch=""):
         phase("source_verification")
         with tempfile.TemporaryDirectory(prefix="dentocase-project-", dir=slicer.app.temporaryPath) as directory:
             directory = Path(directory)
+            evidence_dir = _new_projector_evidence_dir()
             request = directory / "request.json"
             output = directory / "result.dentocase"
             request.write_text(json.dumps({"source": str(source), "destination": str(output),
                 "target": target, "checkpoint": checkpoint, "branch": branch,
-                "sourceSha256": inventory.package_sha256}))
+                "sourceSha256": inventory.package_sha256,
+                "diagnosticDir": str(evidence_dir),
+                "workspaceRoot": str(directory)}))
             script = directory / "run.py"
             script.write_text("import sys\nsys.path.insert(0, " + repr(str(Path(__file__).resolve().parents[1])) +
                 ")\nfrom dentobot_workflow.case_projection import run_offline\nrun_offline(" + repr(str(request)) + ")\n")
@@ -260,6 +330,7 @@ def project_package_offline(source, destination, target, checkpoint, branch=""):
                 child_log, exit_code=process.returncode if process is not None else None,
                 temporary_dir=directory, output_path=output,
                 source_sha256=inventory.package_sha256, failure=failure,
+                evidence_dir=evidence_dir,
             )
             _check_projector_result(retained_log, child_status)
             for line in child_log.read_text(errors="replace").splitlines():
@@ -288,12 +359,14 @@ def run_offline(request_path):
     import sys
 
     started = time.monotonic()
+    save_state = {"path": None, "complete": False}
     print("DENTOCASE_PROJECTOR_READY", f"{started:.6f}", flush=True)
     def phase(name):
         print("DENTOCASE_PROJECTOR_PHASE", name, f"{time.monotonic() - started:.6f}", flush=True)
     try:
         request = json.loads(Path(request_path).read_text())
-        with tempfile.TemporaryDirectory(prefix="dentocase-offline-", dir=slicer.app.temporaryPath) as directory:
+        diagnostic_dir = Path(request["diagnosticDir"])
+        with _offline_child_workspace(request["workspaceRoot"], diagnostic_dir, save_state) as directory:
             source = Path(request["source"])
             signature = source.stat()
             scene_path, inspection = extract_scene_mrb(source, directory)
@@ -428,9 +501,11 @@ def run_offline(request_path):
             summary["caseIdentity"] = {"id": plan["newCaseId"]}
             phase("projection")
             projected_scene = Path(directory) / "projected.mrb"
+            save_state["path"] = projected_scene
             phase("save_scene_begin")
             if not slicer.util.saveScene(str(projected_scene)):
                 raise ValueError("Projected MRB could not be saved.")
+            save_state["complete"] = True
             phase("save_scene_complete")
             # As with ordinary saves, include storage nodes created by saving.
             phase("post_save_inventory_begin")
@@ -439,7 +514,7 @@ def run_offline(request_path):
                 _log_projected_unknown_ownership(summary["checkpointInventory"])
                 report_path = _record_projected_ownership_failure(
                     summary["checkpointInventory"], summary["projectionOwnership"],
-                    plan, inventory.package_sha256,
+                    plan, inventory.package_sha256, diagnostic_dir,
                 )
                 print("DENTOCASE_PRIVATE_POST_SAVE_REPORT", report_path, flush=True)
                 raise ValueError("Projected ownership is incomplete.")
@@ -467,7 +542,7 @@ def run_offline(request_path):
                 raise ValueError("Projected lineage did not survive fresh reopen.")
             phase("fresh_reopen")
         slicer.util.exit(0)
-    except Exception:
+    except Exception as exc:
         import traceback
-        traceback.print_exc()
+        traceback.print_exception(type(exc), exc, exc.__traceback__)
         slicer.util.exit(1)
