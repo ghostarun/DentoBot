@@ -213,10 +213,24 @@ def _device_pixel_ratio(qt, point) -> float:
     return dpr
 
 
+CHECK_INDICATOR_X_PX = 8  # a user presses the check box itself (its indicator), inside Qt's click rect
+
+
+def _press_point(widget, qt):
+    """Local point a user presses: the centre, or for a check box/radio button its indicator.
+
+    A wide QCheckBox spans its whole row, but Qt only hit-tests the indicator and its label text
+    (SE_CheckBoxClickRect), so the centre of the row is empty space and a click there does nothing.
+    """
+    rect = _value(widget, "rect")
+    if _inherits(widget, "QCheckBox") or _inherits(widget, "QRadioButton"):
+        return qt.QPoint(int(rect.left()) + CHECK_INDICATOR_X_PX, int(rect.center().y()))
+    return rect.center()
+
+
 def _target(widget, qt, label: str) -> tuple[tuple[int, int], float, tuple[int, int]]:
-    """Return (logical global centre, devicePixelRatio, physical X pixel)."""
-    centre = _value(widget, "rect").center()
-    point = widget.mapToGlobal(centre)
+    """Return (logical global press point, devicePixelRatio, physical X pixel)."""
+    point = widget.mapToGlobal(_press_point(widget, qt))
     logical = (int(point.x()), int(point.y()))
     dpr = _device_pixel_ratio(qt, point)
     physical = (round(logical[0] * dpr), round(logical[1] * dpr))
@@ -815,7 +829,7 @@ def user_click(widget, label: str, *, mode: str, evidence=None, direct_navigatio
     delivered = {"utc": None}
     navigations: list[dict] = []
 
-    def on_clicked():
+    def on_clicked(*_args):  # a QCheckBox's clicked signal passes its checked state
         if delivered["utc"] is None:
             delivered["utc"] = utc_now()
 

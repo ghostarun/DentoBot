@@ -70,6 +70,9 @@ class FakeRect:
     def center(self):
         return FakePoint(self._w // 2, self._h // 2)
 
+    def left(self):
+        return 0
+
     def topLeft(self):
         return FakePoint(0, 0)
 
@@ -1244,3 +1247,22 @@ def test_tab_navigation_source_has_no_direct_index_assignment_or_click_fallback(
     source = inspect.getsource(ui._navigate_tab) + inspect.getsource(ui._ensure_reachable)
     assert ".click(" not in source
     assert "currentIndex =" not in source and "setCurrentIndex" not in source
+
+
+def test_check_box_is_pressed_on_its_indicator_not_on_the_empty_centre_of_its_row(harness, monkeypatch, tmp_path):
+    target, env, backend = harness(cls="QCheckBox", x=300, y=400, width=1000, height=30)
+    target.clicked = ArgSignal()  # QCheckBox.clicked(bool): the slot receives the checked state
+    class BoolBackend(FakeBackend):
+        def button(self, button, pressed):
+            self.events.append(("button", int(button), bool(pressed)))
+            if not pressed:
+                self.env.target.clicked.emit(True)
+    backend_bool = BoolBackend(env)
+    monkeypatch.setattr(ui, "get_backend", lambda: backend_bool)
+    ledger = tmp_path / "session" / "user-input-ledger.jsonl"
+    record = ui.user_click(target, "I consent to Task Home revalidation", mode="xtest", evidence=ledger)
+    assert record["delivered"] is True
+    assert record["physical_xy"] == [308, 415]  # the indicator: 300 + 8, row centre y 415
+    assert ("move", 308, 415) in backend_bool.events
+    assert ("move", 500, 415) not in backend_bool.events  # not the centre of the 1000 px row
+    assert target.clicks == 0
