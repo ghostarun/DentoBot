@@ -1599,6 +1599,8 @@ def _confirming_world(*, original="", confirm_value="fp-search", **kwargs):
         return SimpleNamespace(success=True, code="task_confirmed", message="Confirmed one immutable Step 6 task snapshot.")
 
     world.logic.confirmedTaskRecord = record
+    world.logic.confirmedTaskFreshnessIssues = (
+        lambda _node: () if state["confirmed"] else ("the Step 6 task snapshot was never confirmed",))
     world.logic.invalidateStep6TaskConfirmation = invalidate
     world.facade.confirmTask = confirm
     world.facade.clearTaskConfirmation = lambda reason: invalidate(None, reason)

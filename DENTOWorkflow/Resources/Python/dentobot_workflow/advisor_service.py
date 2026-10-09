@@ -1457,7 +1457,9 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                     )
                 else:
                     observed = self._observe(self._restore_state, self._restore_observed)
-                    self.restore_issues += fa.precondition_issues(observed, self.limits)
+                    # With no confirmation before the search, its absence is the restored state (F8 checks the exact one).
+                    self.restore_issues += [t for t in fa.precondition_issues(observed, self.limits)
+                                            if self._original_confirmation or not t.startswith("stale task confirmation")]
                     if self._home is not None and self._home_stale_by_us:
                         self.restore_issues.append("the original Task Home joints were not re-validated after restoration")
                     if self._home is not None:
