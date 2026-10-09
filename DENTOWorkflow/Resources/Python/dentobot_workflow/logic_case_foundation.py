@@ -859,6 +859,34 @@ class CaseFoundationLogicMixin:
             node.SetAttribute("DENTOBOT.GeometryState", "Stale")
             node.SetAttribute("DENTOBOT.StaleReason", str(reason))
 
+    def step6BasePlacementRevisionHighWater(self, parameterNode) -> int:
+        """Highest Base revision ever issued for this case.
+
+        The mark is persisted with the revision.  A case saved before the field existed has no mark, so the
+        mark defaults to the current revision.
+        """
+        return max(
+            int(parameterNode.step6BasePlacementRevision),
+            int(getattr(parameterNode, "step6BasePlacementHighWater", 0) or 0),
+        )
+
+    def recordStep6BasePlacementRevision(self, parameterNode, revision: int) -> None:
+        """Set the Base revision; the high-water mark is raised to it and never lowered.
+
+        The advisor's exact restore reinstates an earlier revision through this owner, so a number issued during
+        the search is never handed out again by a later real edit.
+        """
+        revision = int(revision)
+        high_water = max(revision, self.step6BasePlacementRevisionHighWater(parameterNode))
+        parameterNode.step6BasePlacementRevision = revision
+        parameterNode.step6BasePlacementHighWater = high_water
+
+    def issueStep6BasePlacementRevision(self, parameterNode) -> int:
+        """Issue the next Base revision: one above every revision ever issued, so no number is reused."""
+        issued = self.step6BasePlacementRevisionHighWater(parameterNode) + 1
+        self.recordStep6BasePlacementRevision(parameterNode, issued)
+        return issued
+
     def invalidateCaseFoundationBase(self, parameterNode, reason: str) -> None:
         base = parameterNode.robotBaseTransform
         if not self.isRobotBaseTransformNode(base):
@@ -874,9 +902,7 @@ class CaseFoundationLogicMixin:
         parameterNode.robotBaseMountLocked = False
         parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
         if wasReviewed:
-            parameterNode.step6BasePlacementRevision = max(
-                0, int(parameterNode.step6BasePlacementRevision)
-            ) + 1
+            self.issueStep6BasePlacementRevision(parameterNode)
         self._applyRobotBaseMountInteractionState(parameterNode, False)
         self.invalidateStep6TaskConfirmation(parameterNode, reason)
         self.deleteRobotWorkspaceModel()

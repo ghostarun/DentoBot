@@ -146,8 +146,8 @@ class RobotSceneWidgetMixin:
                 snapshot["baseStatus"]
             )
             self._parameterNode.step6BasePlacementSource = MANUAL_SIMULATION_BASE_SOURCE
-            self._parameterNode.step6BasePlacementRevision = int(
-                snapshot["baseRevision"]
+            self.logic.recordStep6BasePlacementRevision(
+                self._parameterNode, int(snapshot["baseRevision"])
             )
             self.logic._applyRobotBaseMountInteractionState(
                 self._parameterNode, True

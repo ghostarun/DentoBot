@@ -49,6 +49,9 @@ TASK_ID = "S6-ADVISOR-GUI-01"
 DEFAULT_ARTIFACT_ROOT = "/workspace/data/dentobot-runs"
 MAX_CONSECUTIVE_SETUP_ERRORS = 3
 REPORT_EVERY = 25  # the full report is rewritten every N candidates and at the end; candidate.json is per candidate
+# A restore reinstates the captured Base identity only for the captured pose itself.  The Base fingerprint rounds
+# poses to 9 decimals and the historical restore check used the same bound, so no looser pose is ever equal.
+BASE_IDENTITY_TOLERANCE_MM = 1.0e-9
 
 APPLY_STEPS = ("apply_barrier", "apply_opening", "apply_base", "apply_policy", "apply_home", "apply_confirm")
 PLAN_STEPS = (*APPLY_STEPS, *fa.EVALUATION_STEPS)
@@ -283,6 +286,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         self.baseline: dict = {}
         self.original: dict = {}
         self.saved_base = None
+        self._base_snapshot: dict | None = None  # the accepted Base identity captured at search start (F1 restore)
         self.saved_home: dict | None = None
         self._saved_home_identity: dict = {}
         self.branch_id = ""
@@ -553,6 +557,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         home = logic.taskHomeRecord(node)
         policy = facade.jointPlanningPolicy()
         self.saved_base = self._ctx_matrix(node.robotBaseTransform)
+        self._base_snapshot = self._capture_base_snapshot()
         self.saved_home = dict(zip(home.joint_names, home.joint_positions_si))
         self._saved_home_identity = self._home_record_identity(home)
         if self._home_consent is not None:
@@ -603,6 +608,24 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         if not self._identity_available:
             self.message += " Checkpoint reuse and Apply & Save are disabled because a complete input identity is unavailable."
         return issues
+
+    def _capture_base_snapshot(self) -> dict | None:
+        """The accepted Base identity an exact restore reinstates (None when the owner cannot describe it).
+
+        A missing snapshot keeps the restore on the ordinary Base owner path, which bumps the revision and so
+        leaves the saved Task Home for explicit 6.2 review (fail-closed); the search itself is not blocked here.
+        """
+
+        capture = getattr(self.facade, "manualBaseIdentitySnapshot", None)
+        if not callable(capture):
+            return None
+        try:
+            snapshot = dict(capture())
+        except Exception:
+            return None
+        if not snapshot.get("locked") or not snapshot.get("collision_audit_fingerprint"):
+            return None
+        return snapshot
 
     def cancel(self) -> None:
         """Request cancellation; takes effect at the next ``step()`` (never mid-step)."""
@@ -1043,6 +1066,21 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         target = candidate_around_base(forehead, self.saved_base, float(state[fa.BASE_U_MM]), float(state[fa.BASE_V_MM]),
                                        float(state[fa.BASE_DEPTH_MM]), float(state[fa.BASE_YAW_DEG]))
         current.observed["requested_base"] = target.tolist()
+        snapshot = self._base_snapshot if current.stage == "restore" else None
+        captured_pose_gap = (float(np.abs(np.asarray(snapshot["matrix"], dtype=float).reshape(4, 4) - target).max())
+                             if snapshot is not None else None)
+        if captured_pose_gap is not None and captured_pose_gap <= BASE_IDENTITY_TOLERANCE_MM:
+            # Restoring the exact captured pose: reinstate the captured identity (same revision, same Task Home binding)
+            # through the production owner.  A real pose or binding change is never reached through this branch.
+            if bool(node.robotBaseMountLocked) and self.logic.robotBaseFingerprint(node) == snapshot["base_fingerprint"]:
+                return "Base unchanged"
+            result = facade.reinstateManualBaseIdentity(snapshot)
+            current.observed["base_accept"] = [bool(result.success), str(result.code), str(result.message)[:300]]
+            if not result.success:
+                raise RuntimeError("Base identity was not reinstated: " + str(result.message)[:200])
+            if self._home is not None:
+                self._home_stale_by_us = True  # consent ON: the saved Home is still revalidated at the restore Home step
+            return "Base identity reinstated"
         same = bool(node.robotBaseMountLocked) and float(np.abs(self._ctx_matrix(node.robotBaseTransform) - target).max()) < 1e-9
         if same:
             return "Base unchanged"
@@ -1105,11 +1143,22 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         return "saved Task Home identity and existing validation remain current"
 
     def _do_apply_confirm(self, current):
+        # A trial Base change clears the confirmation; a restore re-confirms, and must land on the exact snapshot the
+        # search started from (the confirmed-task snapshot binds the Base fingerprint and the saved Home).
+        expected = str((self._base_snapshot or {}).get("confirmed_task_fingerprint") or "") if current.stage == "restore" else ""
+        if expected and self._confirmed_task_fingerprint() == expected:
+            return "original task confirmation is already current"
         result = self.facade.confirmTask()
         current.observed["confirm"] = [bool(result.success), str(result.code), str(result.message)[:300]]
         if not result.success:
             raise RuntimeError("Task was not confirmed: " + str(result.message)[:200])
+        if expected and self._confirmed_task_fingerprint() != expected:
+            raise RuntimeError("the restored task confirmation differs from the original")
         return "task confirmed"
+
+    def _confirmed_task_fingerprint(self) -> str:
+        record = self.logic.confirmedTaskRecord(self.node)
+        return str(getattr(record, "snapshot_fingerprint", "") or "") if record is not None else ""
 
     # ---- evaluation steps ------------------------------------------------------------------
     def _barrier_issues(self, state) -> list:

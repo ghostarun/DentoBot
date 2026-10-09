@@ -7422,3 +7422,184 @@ def test_candidate_ranking_truncation_does_not_replay_the_accepted_prefix():
     final = source[source.index("# Operator policy 2b (2026-10-02) also applies to the final"):]
     final = final[:final.index("if shortened is not None:")]
     assert "revalidate" not in final  # final composed chain keeps the full re-validation
+
+
+# ---------------------------------------------------------------------------
+# S6-ADVISOR-GUI-01 F1: exact Base identity reinstatement through the production owners.  The fake logic
+# below models the revision bumps of setRobotBaseMountLocked and the collision-scene audit rule (an
+# identical re-sync keeps the prior audit record); the real logic methods are covered in test_robot_placement.
+
+
+class RevisionFakeLogic(FakeLogic):
+    def __init__(self, parameter_node):
+        super().__init__(parameter_node)
+        self.audit_content_changes = False
+        self._audit_counter = 0
+
+    @staticmethod
+    def _issue_revision(parameter_node):
+        # Mirrors the production high-water owner (logic_robot.issueStep6BasePlacementRevision).
+        issued = max(int(parameter_node.step6BasePlacementRevision),
+                     int(getattr(parameter_node, "step6BasePlacementHighWater", 0) or 0)) + 1
+        parameter_node.step6BasePlacementRevision = issued
+        parameter_node.step6BasePlacementHighWater = issued
+
+    def setRobotBaseMountLocked(self, parameter_node, locked):
+        changed = bool(parameter_node.robotBaseMountLocked) != bool(locked)
+        super().setRobotBaseMountLocked(parameter_node, locked)
+        if changed:
+            self._issue_revision(parameter_node)
+            parameter_node.step6BasePlacementStatus = "ProvisionalLocked" if locked else "Unlocked"
+            parameter_node.step6BasePlacementSource = "ManualSimulationBase" if locked else "operator-unlocked"
+
+    def _pose_values(self, parameter_node):
+        matrix = self._worldMatrixFromTransform(parameter_node.robotBaseTransform)
+        return [[round(matrix.GetElement(r, c), 9) for c in range(4)] for r in range(4)]
+
+    def robotBaseFingerprint(self, parameter_node):
+        base = parameter_node.robotBaseTransform
+        return json.dumps({
+            "pose": self._pose_values(parameter_node), "locked": bool(parameter_node.robotBaseMountLocked),
+            "status": parameter_node.step6BasePlacementStatus, "source": parameter_node.step6BasePlacementSource,
+            "sourceRevision": parameter_node.step6BasePlacementRevision,
+            "authority": base.GetAttribute(self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE) or "",
+        }, sort_keys=True)
+
+    def restoreStep6BaseIdentity(self, parameter_node, snapshot):
+        if not snapshot["locked"]:
+            raise ValueError("unlocked snapshot")
+        parameter_node.robotBaseMountLocked = True
+        parameter_node.step6BasePlacementStatus = snapshot["status"]
+        parameter_node.step6BasePlacementSource = snapshot["source"]
+        parameter_node.step6BasePlacementRevision = int(snapshot["revision"])
+        parameter_node.step6BasePlacementHighWater = max(
+            int(snapshot["revision"]), int(getattr(parameter_node, "step6BasePlacementHighWater", 0) or 0))
+        base = parameter_node.robotBaseTransform
+        base.SetAttribute(self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE, snapshot["authority"])
+        if self.robotBaseFingerprint(parameter_node) != snapshot["base_fingerprint"]:
+            raise ValueError("reinstated Base does not match the captured identity")
+
+    def collisionSceneAuditRecord(self, parameter_node):
+        payload = str(parameter_node.step6CollisionSceneAuditJson or "")
+        if not payload:
+            return None
+        data = json.loads(payload)
+        return SimpleNamespace(status=data["status"], audit_fingerprint=data["audit_fingerprint"])
+
+    def syncStep6MoveItPlanningScene(self, parameter_node):
+        count = super().syncStep6MoveItPlanningScene(parameter_node)
+        content = {"base": self.robotBaseFingerprint(parameter_node), "pose": self._pose_values(parameter_node)}
+        if self.audit_content_changes:
+            content["runtime_time"] = self.synced  # a re-sync whose runtime readback differs
+        prior = str(parameter_node.step6CollisionSceneAuditJson or "")
+        if prior and json.loads(prior)["content"] == content:
+            return count  # identical content: the prior audit record is kept (sync owner rule)
+        self._audit_counter += 1
+        parameter_node.step6CollisionSceneAuditJson = json.dumps({
+            "content": content, "status": "Acknowledged", "audit_fingerprint": f"audit-{self._audit_counter}"},
+            sort_keys=True)
+        return count
+
+    def taskHomeRecord(self, parameter_node):
+        return SimpleNamespace(to_dict=lambda: {"revision": 14, "base_fingerprint": self.robotBaseFingerprint(parameter_node)})
+
+    def confirmedTaskRecord(self, parameter_node):
+        del parameter_node
+        return None
+
+
+def make_identity_facade():
+    facade, parameter_node, _logic, bridge = make_facade()
+    logic = RevisionFakeLogic(parameter_node)
+    facade._logic = logic
+    base = parameter_node.robotBaseTransform
+    base.active = True
+    base.matrix = logic._vtkFromNumpyMatrix([_manual_base_test_matrix(0.0)[r * 4:(r + 1) * 4] for r in range(4)])
+    base.SetAttribute(logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE, logic.ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY)
+    parameter_node.robotBaseMountLocked = True
+    parameter_node.step6BasePlacementStatus = "ProvisionalLocked"
+    parameter_node.step6BasePlacementSource = "ManualSimulationBase"
+    parameter_node.step6BasePlacementRevision = 37
+    parameter_node.step6BasePlacementHighWater = 37
+    parameter_node.step6CollisionSceneAuditJson = ""
+    logic.syncStep6MoveItPlanningScene(parameter_node)  # the audit of the original accepted Base
+    facade._runtime_validated_task_home_key = facade._task_home_runtime_key(logic.taskHomeRecord(parameter_node))
+    return facade, parameter_node, logic, bridge
+
+
+def test_identity_snapshot_is_read_only_and_names_the_exact_owner_identity():
+    facade, node, logic, _bridge = make_identity_facade()
+    before = (node.step6BasePlacementRevision, node.robotBaseMountLocked, node.step6CollisionSceneAuditJson)
+    snapshot = facade.manualBaseIdentitySnapshot()
+    assert (node.step6BasePlacementRevision, node.robotBaseMountLocked, node.step6CollisionSceneAuditJson) == before
+    assert snapshot["revision"] == 37 and snapshot["locked"] is True
+    assert snapshot["base_fingerprint"] == logic.robotBaseFingerprint(node)
+    assert snapshot["collision_audit_fingerprint"] == "audit-1"
+    assert snapshot["runtime_task_home_key"] == snapshot["task_home_key"] != ""
+    assert snapshot["confirmed_task_fingerprint"] == ""
+    assert len(snapshot["matrix"]) == 16
+
+
+def test_reinstatement_restores_the_captured_revision_binding_and_keeps_an_identical_audit():
+    facade, node, logic, _bridge = make_identity_facade()
+    snapshot = facade.manualBaseIdentitySnapshot()
+    audit_before = node.step6CollisionSceneAuditJson
+    # an advisor trial moves the Base through the production owners (unlock, then accept)
+    assert facade.unlockBase().success
+    assert facade.stageManualBaseReview(_manual_base_test_matrix(5.0)).success
+    assert facade.acceptManualBaseReview().success
+    assert node.step6BasePlacementRevision == 39
+    assert logic.robotBaseFingerprint(node) != snapshot["base_fingerprint"]
+    assert facade._runtime_validated_task_home_key == ""
+
+    result = facade.reinstateManualBaseIdentity(snapshot)
+
+    assert result.success and result.code == "base_identity_reinstated", result
+    assert node.step6BasePlacementRevision == 37
+    assert logic.robotBaseFingerprint(node) == snapshot["base_fingerprint"]
+    assert node.robotBaseMountLocked and node.step6BasePlacementStatus == "ProvisionalLocked"
+    assert node.step6CollisionSceneAuditJson == audit_before  # identical scene content keeps the original audit
+    assert facade._runtime_validated_task_home_key == snapshot["runtime_task_home_key"]
+    assert facade._manual_simulation_base_matrix(node) == snapshot["matrix"]
+    assert facade._planning_scene_synchronized is True
+
+
+def test_reinstatement_fails_closed_when_the_rebound_scene_audit_differs():
+    facade, node, logic, _bridge = make_identity_facade()
+    snapshot = facade.manualBaseIdentitySnapshot()
+    assert facade.unlockBase().success
+    logic.audit_content_changes = True  # the re-published scene no longer matches the captured audit
+    result = facade.reinstateManualBaseIdentity(snapshot)
+    assert not result.success and result.code == "base_identity_audit_mismatch"
+    assert facade._runtime_validated_task_home_key == ""  # Home stays un-validated; nothing is claimed
+
+
+def test_reinstatement_is_refused_while_base_acceptance_is_uncertain_and_without_a_live_robot():
+    facade, node, logic, _bridge = make_identity_facade()
+    snapshot = facade.manualBaseIdentitySnapshot()
+    assert facade.unlockBase().success
+    facade._manual_base_acceptance_uncertain = "A prior Base acceptance may have changed native state."
+    result = facade.reinstateManualBaseIdentity(snapshot)
+    assert result.code == "manual_base_acceptance_unknown" and not result.success
+    assert node.step6BasePlacementRevision == 38
+    facade._manual_base_acceptance_uncertain = ""
+    node.robotBaseTransform.active = False
+    result = facade.reinstateManualBaseIdentity(snapshot)
+    assert result.code == "ros_required" and not result.success
+    assert node.step6BasePlacementRevision == 38
+
+
+def test_next_user_edit_after_an_exact_reinstatement_never_reissues_a_trial_revision():
+    facade, node, logic, _bridge = make_identity_facade()
+    snapshot = facade.manualBaseIdentitySnapshot()
+    assert facade.unlockBase().success  # trial: issues 38
+    assert facade.stageManualBaseReview(_manual_base_test_matrix(5.0)).success
+    assert facade.acceptManualBaseReview().success  # trial: issues 39
+    assert facade.reinstateManualBaseIdentity(snapshot).success  # unlock issues 40, revision back to 37
+    assert node.step6BasePlacementRevision == 37 and node.step6BasePlacementHighWater == 40
+
+    assert facade.unlockBase().success  # the next real user edit: issues 41 ...
+    assert facade.stageManualBaseReview(_manual_base_test_matrix(3.0)).success
+    assert facade.acceptManualBaseReview().success  # ... and 42, never 38
+    assert node.step6BasePlacementRevision == 42 and node.step6BasePlacementHighWater == 42
+    assert logic.robotBaseFingerprint(node) != snapshot["base_fingerprint"]  # Task Home is stale

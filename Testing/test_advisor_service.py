@@ -1116,3 +1116,227 @@ def test_no_timing_means_nothing_measured_and_no_claim(tmp_path):
     world = World()
     s = session(world, tmp_path)
     assert s.longest_step() is None
+
+
+# ---------------------------------------------------------------------------
+# S6-ADVISOR-GUI-01 F1: the Base revision is part of the Task Home binding (sourceRevision in the Base
+# fingerprint).  The shared World fake above clears staleness whenever the pose returns to the saved
+# pose, so it cannot show the bug; BaseIdentityModel installs a test-only model of the production
+# identity (revision, pose, lock, authority, audit and runtime-validation key) on that same World.
+
+class BaseIdentityModel:
+    ORIGINAL_REVISION = 37
+
+    def __init__(self, world):
+        self.w = world
+        self.revision = self.ORIGINAL_REVISION
+        self.high_water = self.ORIGINAL_REVISION  # the production mark: issued revisions never repeat
+        self.status, self.source = "ProvisionalLocked", "ManualSimulationBase"
+        self.authority = "ManualSimulationBaseReviewed"
+        self.confirmed = True
+        self.runtime_key_ok = True
+        self.drift_on_reinstate = False
+        self.audit_fp = self._audit_fp()
+        world.home.base_fingerprint = self.fingerprint()
+        world.home.collision_audit_fingerprint = self.audit_fp
+        self._install()
+
+    def pose(self):
+        return tuple(round(float(v), 9) for v in self.w.base.matrix.flatten())
+
+    def fingerprint(self):
+        return fa.fingerprint_of({"pose": self.pose(), "locked": bool(self.w.locked), "status": self.status,
+                                  "source": self.source, "revision": self.revision, "authority": self.authority})
+
+    def _audit_fp(self):
+        return fa.fingerprint_of({"base": self.fingerprint(), "pose": self.pose()})
+
+    def _issue(self):
+        self.revision = max(self.revision, self.high_water) + 1
+        self.high_water = self.revision
+
+    def _install(self):
+        m, w = self, self.w
+
+        def unlock():
+            w._log("unlock")
+            if w.locked:
+                w.locked = False
+                m.status, m.source, m.authority = "Unlocked", "operator-unlocked", "ManualSimulationBaseUnreviewed"
+                m._issue()
+                m.confirmed = False
+                m.runtime_key_ok = False
+            return ok()
+
+        def accept():
+            w._log("base_accept")
+            w.base.matrix = np.array(w.staged, dtype=float)
+            w.locked = True
+            m.status, m.source, m.authority = "ProvisionalLocked", "ManualSimulationBase", "ManualSimulationBaseReviewed"
+            m._issue()
+            m.confirmed = False
+            m.audit_fp = m._audit_fp()
+            return ok()
+
+        def snapshot():
+            w._log("identity_snapshot")
+            return {"matrix": [float(v) for v in w.base.matrix.flatten()], "locked": bool(w.locked),
+                    "status": m.status, "source": m.source, "revision": m.revision, "authority": m.authority,
+                    "case_foundation_fingerprint": "cf-1", "robot_profile_fingerprint": w.profile,
+                    "placement_warning": "", "base_fingerprint": m.fingerprint(),
+                    "collision_audit_json": "audit:" + m.audit_fp, "collision_audit_fingerprint": m.audit_fp,
+                    "confirmed_task_fingerprint": "confirmed-task-1" if m.confirmed else "",
+                    "task_home_key": "home-key-1", "runtime_task_home_key": "home-key-1" if m.runtime_key_ok else ""}
+
+        def reinstate(snap):
+            w._log("reinstate")
+            if w.locked:
+                unlock()  # the production unlock owner runs first; the captured binding replaces its revision
+            w.base.matrix = np.array(snap["matrix"], dtype=float).reshape(4, 4)
+            if m.drift_on_reinstate:
+                w.base.matrix[0, 3] += 0.05
+            if not np.allclose(w.base.matrix, np.array(snap["matrix"]).reshape(4, 4), atol=1e-9):
+                return fail("base_identity_pose_mismatch", "the reinstated pose differs from the captured pose")
+            w.locked = True
+            m.status, m.source, m.authority = snap["status"], snap["source"], snap["authority"]
+            m.revision = int(snap["revision"])
+            m.high_water = max(m.high_water, m.revision)
+            m.audit_fp = snap["collision_audit_fingerprint"]
+            m.runtime_key_ok = bool(snap["runtime_task_home_key"]) and snap["task_home_key"] == "home-key-1"
+            return ok()
+
+        def gap(node=None):
+            if w.logic.taskHomeFreshnessIssues(node):
+                return "Task Home is stale: Task Home belongs to a different base pose."
+            if not w.connected:
+                return "Connect ROS + MoveIt in 6.1; Task Home validation needs the live runtime."
+            if not m.runtime_key_ok:
+                return "Task Home validation was cleared by a later robot action; re-validate it in 6.2."
+            if m.audit_fp != w.home.collision_audit_fingerprint:
+                return "The collision scene changed since Task Home was validated."
+            return ""
+
+        def confirm():
+            w._log("confirm")
+            if gap():
+                return fail("task_home_runtime_validation_required", gap())
+            m.confirmed = True
+            return ok()
+
+        w.facade.unlockBase = unlock
+        w.facade.acceptManualBaseReview = accept
+        w.facade.manualBaseIdentitySnapshot = snapshot
+        w.facade.reinstateManualBaseIdentity = reinstate
+        w.facade.taskHomeValidationGap = gap
+        w.facade.confirmTask = confirm
+        w.logic.robotBaseFingerprint = lambda node: m.fingerprint()
+        w.logic.taskHomeFreshnessIssues = lambda node: (
+            ("Task Home belongs to a different base pose.",) if m.fingerprint() != w.home.base_fingerprint else ())
+        w.logic.collisionSceneAuditRecord = lambda node: SimpleNamespace(
+            status="Acknowledged", object_records=[dict(w.scene_object)], base_fingerprint=m.fingerprint(),
+            jaw_preparation_fingerprint="jaw-preparation-1", world_to_base_fingerprint="world-to-base-1",
+            runtime_acknowledgement={"status": "Acknowledged"}, audit_fingerprint=m.audit_fp)
+        w.logic.confirmedTaskRecord = lambda node: (
+            SimpleNamespace(snapshot_fingerprint="confirmed-task-1") if m.confirmed else None)
+        w.logic.confirmedTaskFreshnessIssues = lambda node: (
+            () if m.confirmed else ("Confirm the immutable Step 6 task snapshot.",))
+
+
+def test_restore_after_a_consent_off_base_trial_reinstates_the_original_base_identity(tmp_path):
+    world = World(oracle=lambda v: {"stroke": False})
+    model = BaseIdentityModel(world)
+    original = model.fingerprint()
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, decline=("opening", "base_yaw"))
+    trial = s.records[-1]
+    assert trial["stage"] == "base_lateral" and trial["failed_step"] == "apply_base"
+    assert trial["operator_review_required"]  # the consent-OFF stop for 6.2 review is unchanged
+    assert s.outcome == svc.BLOCKED
+    assert world.calls.count("reinstate") == 1
+    assert np.allclose(world.base.matrix, SAVED_BASE, atol=1e-9)
+    assert model.revision == BaseIdentityModel.ORIGINAL_REVISION and model.fingerprint() == original
+    assert model.high_water == BaseIdentityModel.ORIGINAL_REVISION + 3  # trial 38, 39; reinstatement unlock 40
+    assert world.logic.taskHomeFreshnessIssues(world.node) == ()
+    assert world.facade.taskHomeValidationGap(world.node) == ""
+    assert model.confirmed
+    assert s.restore_issues == [] and "could NOT" not in s.message
+
+
+def test_restore_that_does_not_land_on_the_exact_pose_leaves_home_stale_and_blocked(tmp_path):
+    world = World(oracle=lambda v: {"stroke": False})
+    model = BaseIdentityModel(world)
+    model.drift_on_reinstate = True
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, decline=("opening", "base_yaw"))
+    assert s.outcome == svc.BLOCKED and s.finished
+    assert any(issue.startswith("apply_base: Base identity was not reinstated") for issue in s.restore_issues)
+    assert "could NOT be fully restored" in s.message
+    assert world.logic.taskHomeFreshnessIssues(world.node)  # never marked fresh when the pose is not exact
+    assert world.facade.taskHomeValidationGap(world.node).startswith("Task Home is stale")
+    assert "confirm" not in world.calls[world.calls.index("reinstate"):]  # restore stops at the failed step
+
+
+def test_restore_to_a_target_that_differs_from_the_captured_pose_never_reinstates_identity(tmp_path):
+    world = World(oracle=lambda v: {"stroke": False})
+    model = BaseIdentityModel(world)
+    s = session(world, tmp_path)
+    s.prepare()
+    shifted = SAVED_BASE.copy()
+    shifted[0, 3] += 0.5  # the restore target is 0.5 mm away from the Base captured at search start
+    s.saved_base = shifted
+    drive(s, decline=("opening", "base_yaw"))
+    assert "reinstate" not in world.calls
+    assert s.restore_issues and s.restore_issues[0].startswith("apply_home")  # the stale Home stops restoration
+    assert world.logic.taskHomeFreshnessIssues(world.node)  # Home stays stale; no identity was claimed
+
+
+def test_a_normal_operator_base_edit_still_bumps_the_revision_and_stales_task_home(tmp_path):
+    world = World()
+    model = BaseIdentityModel(world)
+    original = model.fingerprint()
+    edited = SAVED_BASE.copy()
+    edited[0, 3] += 3.0
+    assert world.facade.unlockBase().success
+    assert world.facade.stageManualBaseReview(edited.flatten().tolist()).success
+    assert world.facade.acceptManualBaseReview().success
+    assert model.revision == BaseIdentityModel.ORIGINAL_REVISION + 2
+    assert model.fingerprint() != original
+    assert world.logic.taskHomeFreshnessIssues(world.node)
+    assert world.facade.taskHomeValidationGap(world.node).startswith("Task Home is stale")
+    assert "reinstate" not in world.calls
+
+
+def test_cancel_during_a_candidate_before_its_base_moves_leaves_the_base_identity_untouched(tmp_path):
+    world = World(oracle=lambda v: {"stroke": False})
+    model = BaseIdentityModel(world)
+    s = session(world, tmp_path)
+    s.prepare()
+    for _ in range(1000):
+        event = s.step()
+        if event.kind == "step" and event.index == 2 and event.step == "apply_opening":
+            break
+    assert model.revision == BaseIdentityModel.ORIGINAL_REVISION  # the Base has not moved yet
+    s.cancel()
+    drive(s)
+    assert s.outcome == svc.CANCELLED and s.restore_issues == []
+    assert model.revision == BaseIdentityModel.ORIGINAL_REVISION
+    assert "reinstate" not in world.calls and "base_accept" not in world.calls
+    assert world.facade.taskHomeValidationGap(world.node) == ""
+
+
+def test_next_operator_edit_after_an_exact_restore_never_reissues_a_trial_revision(tmp_path):
+    world = World(oracle=lambda v: {"stroke": False})
+    model = BaseIdentityModel(world)
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, decline=("opening", "base_yaw"))
+    assert model.revision == BaseIdentityModel.ORIGINAL_REVISION and model.high_water == 40
+    edited = SAVED_BASE.copy()
+    edited[0, 3] += 3.0
+    assert world.facade.unlockBase().success  # issues 41
+    assert world.facade.stageManualBaseReview(edited.flatten().tolist()).success
+    assert world.facade.acceptManualBaseReview().success  # issues 42, never a trial number
+    assert model.revision == 42 and model.high_water == 42
+    assert world.logic.taskHomeFreshnessIssues(world.node)  # Task Home is stale

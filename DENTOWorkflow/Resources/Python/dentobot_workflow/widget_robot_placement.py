@@ -820,9 +820,7 @@ class RobotPlacementWidgetMixin:
                 caller.SetAttribute("DENTOBOT.PlacementWarning", None)
                 wasLocked = bool(self._parameterNode.robotBaseMountLocked)
                 if not wasLocked:
-                    self._parameterNode.step6BasePlacementRevision = max(
-                        0, int(self._parameterNode.step6BasePlacementRevision)
-                    ) + 1
+                    self.logic.issueStep6BasePlacementRevision(self._parameterNode)
                 self.logic.invalidateStep6TaskConfirmation(
                     self._parameterNode,
                     _("Robot base pose changed."),

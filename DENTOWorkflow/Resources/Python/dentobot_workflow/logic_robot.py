@@ -200,10 +200,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotOverlayLogicMixin, RobotPla
             self.setRobotBaseMountLocked(parameterNode, False)
             parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
             parameterNode.step6BasePlacementSource = "restored-before-step6a-review"
-            parameterNode.step6BasePlacementRevision = max(
-                0,
-                int(parameterNode.step6BasePlacementRevision),
-            ) + 1
+            self.issueStep6BasePlacementRevision(parameterNode)
             self.invalidateStep6TaskConfirmation(
                 parameterNode,
                 _("Case Foundation preparation is incomplete after branch activation."),
@@ -255,6 +252,58 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotOverlayLogicMixin, RobotPla
                 display.SetHandlesInteractive(False)
                 display.SetTranslationHandleVisibility(False)
                 display.SetRotationHandleVisibility(False)
+
+    def restoreStep6BaseIdentity(self, parameterNode, snapshot) -> None:
+        """Reinstate the exact accepted Base identity captured before an advisor search.
+
+        Only the advisor's exact-restore path calls this, after the production setBasePose owner has put the
+        captured pose back.  It writes the captured lock, status, source, authority, foundation/profile
+        attributes and revision WITHOUT advancing the revision, then refuses unless the resulting Base
+        fingerprint equals the captured one.  Any other pose or binding stays a normal, revision-bumping edit.
+        """
+
+        base_transform = parameterNode.robotBaseTransform
+        if not self.isRobotBaseTransformNode(base_transform):
+            raise ValueError(_("Load the local Step 6 robot before restoring its base."))
+        if not bool(snapshot.get("locked")):
+            raise ValueError(_("The captured Base was not locked; its identity cannot be reinstated."))
+        status = normalize_base_status(str(snapshot.get("status") or ""))
+        if status not in {
+            BasePlacementStatus.PROVISIONAL_LOCKED,
+            BasePlacementStatus.REGISTERED_LOCKED,
+        }:
+            raise ValueError(_("The captured Base status is not a reviewed locked status."))
+        was_modifying = parameterNode.StartModify()
+        try:
+            parameterNode.robotBaseMountLocked = True
+            parameterNode.step6BasePlacementStatus = status.value
+            parameterNode.step6BasePlacementSource = str(snapshot.get("source") or "")
+            self.recordStep6BasePlacementRevision(parameterNode, int(snapshot["revision"]))
+        finally:
+            parameterNode.EndModify(was_modifying)
+        base_transform.SetAttribute(
+            self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+            str(snapshot.get("authority") or ""),
+        )
+        base_transform.SetAttribute(
+            "DENTOBOT.CaseFoundationFingerprint",
+            str(snapshot.get("case_foundation_fingerprint") or ""),
+        )
+        base_transform.SetAttribute(
+            "DENTOBOT.RobotProfileFingerprint",
+            str(snapshot.get("robot_profile_fingerprint") or ""),
+        )
+        base_transform.SetAttribute(
+            "DENTOBOT.PlacementWarning",
+            str(snapshot.get("placement_warning") or "") or None,
+        )
+        self._applyRobotBaseMountInteractionState(parameterNode, True)
+        if self.robotBaseFingerprint(parameterNode) != str(
+            snapshot.get("base_fingerprint") or ""
+        ):
+            raise ValueError(
+                _("The reinstated Base does not match the captured Base identity.")
+            )
 
     def step6BasePlacementFreshnessIssues(self, parameterNode) -> tuple[str, ...]:
         """Return fail-closed issues for the diagnostic Step 6 base contract."""
@@ -343,9 +392,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotOverlayLogicMixin, RobotPla
             parameterNode.step6BasePlacementSource = (
                 QUARANTINED_CIRCULAR_BASE_SOURCE
             )
-            parameterNode.step6BasePlacementRevision = max(
-                0, int(parameterNode.step6BasePlacementRevision)
-            ) + 1
+            self.issueStep6BasePlacementRevision(parameterNode)
         finally:
             parameterNode.EndModify(was_modifying)
         base_transform.SetAttribute("DENTOBOT.PlacementWarning", message)
@@ -390,9 +437,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotOverlayLogicMixin, RobotPla
                 parameterNode.step6BasePlacementSource = (
                     MANUAL_SIMULATION_BASE_SOURCE if locked else "operator-unlocked"
                 )
-                parameterNode.step6BasePlacementRevision = max(
-                    0, int(parameterNode.step6BasePlacementRevision)
-                ) + 1
+                self.issueStep6BasePlacementRevision(parameterNode)
             if state_changed:
                 self.invalidateStep6TaskConfirmation(
                     parameterNode,
@@ -1146,9 +1191,7 @@ class RobotLogicMixin(RobotSceneSyncLogicMixin, RobotOverlayLogicMixin, RobotPla
                     parameterNode.robotBaseMountLocked
                     or base_status is not BasePlacementStatus.STALE
                 ):
-                    parameterNode.step6BasePlacementRevision = max(
-                        0, int(parameterNode.step6BasePlacementRevision)
-                    ) + 1
+                    self.issueStep6BasePlacementRevision(parameterNode)
                 parameterNode.step6BasePlacementStatus = BasePlacementStatus.STALE.value
                 parameterNode.robotBaseMountLocked = False
         finally:

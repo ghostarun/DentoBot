@@ -420,9 +420,8 @@ class LifecycleWidgetMixin:
                 BasePlacementStatus.PROVISIONAL_LOCKED.value
             )
             self._parameterNode.step6BasePlacementSource = "legacy-scene/unreviewed"
-            self._parameterNode.step6BasePlacementRevision = max(
-                1, int(self._parameterNode.step6BasePlacementRevision)
-            )
+            if int(self._parameterNode.step6BasePlacementRevision) < 1:
+                self.logic.issueStep6BasePlacementRevision(self._parameterNode)
             self._parameterNode.step6ConfirmedTaskJson = ""
             logging.warning(
                 "Restored a legacy Boolean base lock as provisional/unreviewed; "
