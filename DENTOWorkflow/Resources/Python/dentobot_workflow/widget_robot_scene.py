@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from .step6_control_flags import annotate_case_foundation
 
 
 class RobotSceneWidgetMixin:
@@ -513,6 +514,7 @@ class RobotSceneWidgetMixin:
                 )
         finally:
             self._updatingRobotPlacementUI = False
+        annotate_case_foundation(self, locals())
 
     def _updateStep6CaseJawOpeningStatus(
         self,

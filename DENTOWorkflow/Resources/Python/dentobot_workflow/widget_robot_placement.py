@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .runtime import *
+from .step6_control_reasons import annotate_step6_controls
 
 
 class RobotPlacementWidgetMixin:
@@ -65,6 +66,7 @@ class RobotPlacementWidgetMixin:
     def _disableRobotKeyboardShortcuts(self) -> None:
         for shortcut in self._robotKeyboardShortcuts:
             shortcut.enabled = False
+        self._annotateRobotKeyboardShortcuts({})
 
     def _updateRobotKeyboardShortcutState(self) -> None:
         if not hasattr(self, "ui"):
@@ -82,7 +84,23 @@ class RobotPlacementWidgetMixin:
         )
         for shortcut in self._robotKeyboardShortcuts:
             shortcut.enabled = enabled
+        self._annotateRobotKeyboardShortcuts({
+            "placement_context": bool(self._isStep6ManualBaseReviewActive() or self._isStep3BActive()),
+            "base_unlocked": bool(self._parameterNode and not self._parameterNode.robotBaseMountLocked),
+            "keyboard_nudge_on": bool(self._parameterNode and self._parameterNode.robotKeyboardNudgeEnabled),
+            "robot_transform_node": bool(self.logic and self.logic.isRobotBaseTransformNode(
+                self._parameterNode.robotBaseTransform
+            )),
+        })
         self._setRobotTransformInteractionVisible(placementSurfaceActive)
+
+    def _annotateRobotKeyboardShortcuts(self, flags) -> None:
+        annotate_step6_controls(
+            "robot nudge shortcuts",
+            lambda: [("robotNudgeShortcut", shortcut) for shortcut in self._robotKeyboardShortcuts],
+            lambda: flags,
+            self.__dict__.setdefault("_step6ControlBaseTips", {}),
+        )
 
     def _onRobotKeyboardNudge(
         self,

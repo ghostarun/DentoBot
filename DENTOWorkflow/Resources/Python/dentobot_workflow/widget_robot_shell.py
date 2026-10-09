@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from math import isfinite
 
 from .runtime import *
+from .step6_control_flags import annotate_shell_controls
 from .workflow_progress import WorkflowProgress
 from .widget_robot_manual import RobotManualWidgetMixin
 
@@ -1489,6 +1490,7 @@ class RobotShellWidgetMixin(RobotManualWidgetMixin):
             == len(self._workflowStageEntries()) - 1
         ):
             qt.QTimer.singleShot(0, self._ensureStep6SubstepNavigatorVisible)
+        annotate_shell_controls(self)
 
     def _ensureStep6SubstepNavigatorVisible(self) -> None:
         try:
