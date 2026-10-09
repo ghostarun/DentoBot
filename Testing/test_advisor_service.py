@@ -1427,14 +1427,92 @@ def test_an_identity_blocker_is_a_visible_setup_row_for_the_mode_it_blocks(tmp_p
     s = session(world, tmp_path)
     issues = s.setup_report()
     rows = [issue for issue in issues if "safe input identity unavailable" in issue.message]
-    assert len(rows) == 1 and rows[0].severity == "blocks_apply"  # Apply & Save and reuse only; search runs
+    # consent OFF: Apply & Save and checkpoint reuse only (batch category consent_apply); the search still runs
+    assert len(rows) == 1 and rows[0].severity == "advisory" and rows[0].blocks == "consent_apply"
     assert "Apply & Save to branch" in rows[0].message and "source geometry/environment" in rows[0].message
     issues = s.prepare()
     assert s.phase == svc.READY and any(issue.message == rows[0].message for issue in issues)  # never "no issues"
     assert not s._identity_available
 
 
-def test_the_setup_table_labels_an_apply_only_blocker_as_blocking_apply_and_not_the_search():
+def test_an_identity_blocker_with_consent_on_blocks_the_consent_search_not_all(tmp_path):
+    from dentobot_workflow import advisor_home as ah  # the approved consent wording (test-only import)
+    world = World(full_identity=False)
+    s = session(world, tmp_path)
+    s.grant_home_revalidation_consent(ah.CONSENT_TEXT)
+    rows = [issue for issue in s.setup_report() if "safe input identity unavailable" in issue.message]
+    assert len(rows) == 1 and rows[0].severity == "blocking" and rows[0].blocks == "consent_apply"
+    assert rows[0].blocks != "all"  # never the default: the Start without consent still runs after unticking consent
+
+
+def test_the_setup_table_kind_text_follows_the_batch_blocks_category():
     source = (PYTHON / "dentobot_workflow" / "widget_step6_advisor.py").read_text(encoding="utf-8")
-    assert '"blocks_apply": _("blocks Apply & Save to branch")' in source
-    assert '"blocking": _("blocks the search")' in source
+    assert "_ADVISOR_KIND_TEXT.get(issue.blocks" in source
+    assert '"consent_apply": "Blocks consent search and Apply' in source
+    assert "blocks_apply" not in source  # the retired F5 severity never reaches the table
+
+
+# S6-ADVISOR-GUI-01 UI batch: F3 production planning-policy capture, F4 what each setup row blocks.
+def test_search_runs_on_the_current_production_policy_not_the_default(tmp_path):
+    world = World()
+    world.policy["planning_time_sec"] = 10.0  # facade default: RRTConnectkConfigDefault, 5 attempts, 10.0 s
+    s = session(world, tmp_path)
+    s.prepare()
+    assert s.baseline[fa.PLANNING_TIME_SEC] == 10.0 and s.original[fa.PLANNING_TIME_SEC] == 10.0
+    assert s.baseline[fa.PLANNER_ID] == "RRTConnectkConfigDefault" and s.baseline[fa.PLANNING_ATTEMPTS] == 5
+    assert s.planning_policy_source.startswith("facade ")
+    assert all(state[fa.PLANNING_TIME_SEC] == 10.0 for _, state in s._candidates)
+    drive(s)
+    assert s.records and all(r["state"][fa.PLANNING_TIME_SEC] == 10.0 for r in s.records)
+    assert s.records[0]["planning_policy"] == {"planner_id": "RRTConnectkConfigDefault", "planning_attempts": 5,
+                                               "planning_time_sec": 10.0, "source": s.planning_policy_source}
+    assert world.policy["planning_time_sec"] == 10.0  # restored to the captured production value
+    report = (tmp_path / "run" / "advisor-ordered-report.md").read_text(encoding="utf-8")
+    fixed = next(line for line in report.splitlines() if line.startswith("**Fixed:**"))
+    assert "'planning_time_sec': 10.0" in fixed and "facade" in fixed and "DEFAULT_POLICY" not in fixed
+
+
+def test_policy_fallback_is_used_and_recorded_only_without_a_facade_policy(tmp_path):
+    world = World()
+
+    def unavailable():
+        raise RuntimeError("facade not ready")
+
+    world.facade.jointPlanningPolicy = unavailable
+    s = session(world, tmp_path)
+    s.prepare()
+    assert s.baseline[fa.PLANNING_TIME_SEC] == fa.DEFAULT_POLICY[fa.PLANNING_TIME_SEC] == 5.0
+    assert s.planning_policy_source.startswith("fallback feasibility_advisor.DEFAULT_POLICY")
+    assert "facade not ready" in s.planning_policy_source
+
+
+def test_apply_and_save_persists_the_captured_policy_not_the_default(tmp_path):
+    world = World(oracle=lambda v: {"stroke": v["opening"] >= 40.5})
+    world.policy["planning_time_sec"] = 10.0
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, approve=("opening",), decline=("base_yaw",))
+    s.apply_and_save(acknowledged=["mouth opening"])
+    config = world.stored[0]
+    assert config["planning_time_sec"] == 10.0 and config["planning_attempts"] == 5
+    assert config["planner_id"] == "RRTConnectkConfigDefault"
+
+
+def test_setup_rows_state_what_they_block_from_the_gate_that_reads_them(tmp_path):
+    assert svc.advisory_blocks("stale task confirmation: Confirm the task") == "consent_apply"
+    assert svc.advisory_blocks("MoveIt scene does not match Slicer (not checked): ") == "auto"
+    assert svc.advisory_blocks("collision audit: stale") == "passes"
+
+    world = World(home=None)
+    issues = session(world, tmp_path / "blocked").setup_report()
+    assert issues and all(i.blocks == "all" for i in issues if i.severity == "blocking")
+
+    world = World()
+    world.logic.confirmedTaskFreshnessIssues = lambda node: ("Confirm the immutable task again",)
+    stale = [i for i in session(world, tmp_path / "stale").setup_report() if i.message.startswith("stale task confirmation")]
+    assert len(stale) == 1 and stale[0].severity == "advisory" and stale[0].blocks == "consent_apply"
+
+    world = World()
+    world.last_scene_status = {"state": "mismatch"}
+    scene = [i for i in session(world, tmp_path / "scene").setup_report() if "MoveIt scene" in i.message]
+    assert len(scene) == 1 and scene[0].blocks == "auto"

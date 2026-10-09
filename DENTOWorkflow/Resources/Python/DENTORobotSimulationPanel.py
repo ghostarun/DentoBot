@@ -1726,7 +1726,7 @@ class DENTORobotSimulationPanel:
             "the search attempts to restore the starting configuration when it ends. No trial is saved "
             "to the branch. Lip/barrier variants (approved endpoint values only) run only when the baseline's "
             "own contact evidence names the lip slab and after your explicit review; otherwise they stay UNTESTED. "
-            "Clinically sensitive stages ask for your approval first. Apply & Save retains "
+            "Clinically sensitive stages ask for your approval first. Apply && Save retains "
             "the recommendation only after baseline restoration is confirmed. Simulation only."
         )
         self.motionDiagnosticsButton = qt.QPushButton(

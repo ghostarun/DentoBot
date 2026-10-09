@@ -268,3 +268,34 @@ class AdvisorIdentityMixin:
 
     def _stable_identity(self, identity: Mapping, *, source_only: bool = False) -> dict:
         return home_mod.stable_identity(identity, self.saved_home or {}, source_only=source_only)
+
+    def _capture_base_snapshot(self) -> dict | None:
+        """The accepted Base identity an exact restore reinstates (None when the owner cannot describe it).
+
+        A missing snapshot keeps the restore on the ordinary Base owner path, which bumps the revision and so
+        leaves the saved Task Home for explicit 6.2 review (fail-closed); the search itself is not blocked here.
+        """
+
+        capture = getattr(self.facade, "manualBaseIdentitySnapshot", None)
+        if not callable(capture):
+            return None
+        try:
+            snapshot = dict(capture())
+        except Exception:
+            return None
+        if not snapshot.get("locked") or not snapshot.get("collision_audit_fingerprint"):
+            return None
+        return snapshot
+
+    def _capture_planning_policy(self) -> tuple:
+        """The CURRENT production planning policy (planner, attempts, time), else the documented fallback."""
+        try:
+            live = self.facade.jointPlanningPolicy()
+            policy = fa.policy_values({fa.PLANNER_ID: live["planner_id"],
+                                       fa.PLANNING_ATTEMPTS: live["planning_attempts"],
+                                       fa.PLANNING_TIME_SEC: live["planning_time_sec"]})
+        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError) as exc:
+            return fa.policy_values(None), (
+                "fallback feasibility_advisor.DEFAULT_POLICY (facade planning policy unavailable: "
+                + str(exc)[:160] + ")")
+        return policy, "facade DENTORobotWorkflowFacade.jointPlanningPolicy() at search start"
