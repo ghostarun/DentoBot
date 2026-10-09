@@ -357,6 +357,8 @@ class AdvisorIdentityMixin:
         except Exception as exc:
             return "the Task confirmation could not be restored: " + str(exc)[:200]
         if current != self._original_confirmation:
+            if current:  # a confirmation the search left must not outlive the search: clear it (operator confirms again)
+                self.facade.clearTaskConfirmation("advisor restore: confirmation after the search differs from the operator's")
             return ("the Task confirmation after the search (%s) is not the one before it (%s)"
                     % (current[:12] or "none", self._original_confirmation[:12] or "none"))
         return ""

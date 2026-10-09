@@ -1670,6 +1670,9 @@ def test_a_confirmation_that_differs_from_the_original_is_an_unconfirmed_restore
     drive(s, approve=("opening",), decline=("base_yaw",))
     assert any("Task confirmation" in issue for issue in s.restore_issues), s.restore_issues
     assert world.restore_latch and "Task confirmation" in world.restore_latch  # F7: blocks across reopen
+    assert world.confirm_state["confirmed"] == ""  # the search-made confirmation does not outlive the search
+    reopened = session(world, tmp_path)  # closed and reopened: the unconfirmed restore still blocks (F7)
+    assert _latch_rows(reopened.setup_report()), "the unconfirmed restore must still be a blocking row"
     with pytest.raises(PermissionError, match="Baseline restoration is incomplete"):
         s.apply_and_save(acknowledged=["mouth opening"])
 
