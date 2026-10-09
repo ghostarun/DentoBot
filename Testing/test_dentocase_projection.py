@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 import json
 import os
+from io import StringIO
 import sys
 from pathlib import Path
 import tempfile
@@ -21,7 +22,8 @@ from dentobot_case.ownership import DEFAULTS, RESUME_INDICES  # noqa: E402
 from dentobot_case.projection import filter_registry, prepare_projection  # noqa: E402
 from dentobot_workflow.case_projection import (  # noqa: E402
     _clear_future_node_attributes, _inspect_prefix, _replan_restored_projection,
-    _check_projector_result, _retain_projector_log,
+    _check_projector_result, _log_projected_unknown_ownership,
+    _record_projected_ownership_failure, _retain_projector_log,
 )
 
 
@@ -372,6 +374,38 @@ def test_successful_child_log_uses_configured_run_evidence(monkeypatch, tmp_path
     assert status["childOutputExists"] is True
     assert retained.is_file()
     _check_projector_result(retained, status)
+
+
+def test_post_save_unknown_ownership_log_keeps_exact_bounded_reasons_private():
+    stream = StringIO()
+    reasons = [f"unmapped persistent parameter reference role: role-{index}" for index in range(130)]
+    _log_projected_unknown_ownership({"unknownOwnership": reasons}, stream=stream)
+    line = stream.getvalue().strip()
+    assert line.startswith("DENTOCASE_PRIVATE_POST_SAVE_OWNERSHIP ")
+    assert not line.startswith("DENTOCASE_PROJECTOR_")
+    payload = json.loads(line.split(" ", 1)[1])
+    assert payload == {"count": 130, "reasons": reasons[:128], "omitted": 2}
+
+
+def test_post_save_failure_report_preserves_all_reasons_and_plan_without_scene_data(monkeypatch, tmp_path):
+    monkeypatch.delenv("DENTOCASE_EVIDENCE_DIR", raising=False)
+    monkeypatch.setenv("CRUN", str(tmp_path / "run"))
+    reasons = [f"saved node has no concrete owner: node-{index}" for index in range(130)]
+    plan = {
+        "targetId": "target-1", "branchId": "branch-1", "checkpointId": "template.verify",
+        "keepNodeIds": ["node-1"], "removeNodeIds": ["node-2"],
+        "clearParameters": ["future"], "clearReferenceRoles": ["futureReference"],
+    }
+    path = _record_projected_ownership_failure(
+        {"unknownOwnership": reasons}, {"nodeOwners": {"node-1": ["artifact-1"]}},
+        plan, "a" * 64,
+    )
+    report = json.loads(path.read_text())
+    assert path.parent == tmp_path / "run/evidence"
+    assert report["unknownOwnership"] == reasons
+    assert report["capturedNodeOwners"] == {"node-1": ["artifact-1"]}
+    assert report["plan"] == plan
+    assert os.stat(path).st_mode & 0o077 == 0
 
 
 def test_retained_geometry_loses_saved_step6_config_and_base_authority():

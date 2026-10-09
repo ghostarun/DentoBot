@@ -55,25 +55,28 @@ def _replan_restored_projection(source, inspection, digest, source_stat,
     return inventory, actual_mapping, plan
 
 
-def _retain_projector_log(log_path, *, exit_code, temporary_dir, output_path,
-                          source_sha256, failure=""):
-    """Keep the full child diagnostic before its disposable directory closes."""
+def _projector_evidence_root():
     configured = os.environ.get("DENTOCASE_EVIDENCE_DIR")
     run_root = os.environ.get("CRUN") or os.environ.get("DENTOBOT_RUN_DIR")
     if configured:
-        evidence_root = Path(configured)
-    elif run_root:
-        evidence_root = Path(run_root) / "evidence"
-    else:
-        now = datetime.now(timezone.utc)
-        archive_root = Path("/workspace/data/dentobot-runs")
-        if not archive_root.is_dir():
-            archive_root = Path("/home/tarun/dentobot/data/dentobot-runs")
-        if not archive_root.is_dir():
-            raise RuntimeError("Configure DENTOCASE_EVIDENCE_DIR or CRUN within the dated run archive.")
-        evidence_root = archive_root / now.strftime("%Y-%m-%d") / (
-            "DCP-PROJECTION-" + now.strftime("%Y%m%dT%H%M%SZ")
-        ) / "evidence"
+        return Path(configured)
+    if run_root:
+        return Path(run_root) / "evidence"
+    now = datetime.now(timezone.utc)
+    archive_root = Path("/workspace/data/dentobot-runs")
+    if not archive_root.is_dir():
+        archive_root = Path("/home/tarun/dentobot/data/dentobot-runs")
+    if not archive_root.is_dir():
+        raise RuntimeError("Configure DENTOCASE_EVIDENCE_DIR or CRUN within the dated run archive.")
+    return archive_root / now.strftime("%Y-%m-%d") / (
+        "DCP-PROJECTION-" + now.strftime("%Y%m%dT%H%M%SZ")
+    ) / "evidence"
+
+
+def _retain_projector_log(log_path, *, exit_code, temporary_dir, output_path,
+                          source_sha256, failure=""):
+    """Keep the full child diagnostic before its disposable directory closes."""
+    evidence_root = _projector_evidence_root()
     evidence_dir = evidence_root / ("projector-" + uuid4().hex)
     evidence_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
     os.chmod(evidence_dir, 0o700)
@@ -105,6 +108,44 @@ def _retain_projector_log(log_path, *, exit_code, temporary_dir, output_path,
 def _check_projector_result(retained_log, status):
     if status["failure"] or status["exitCode"] or not status["childOutputExists"]:
         raise RuntimeError("Offline projection failed; full child diagnostic: " + str(retained_log))
+
+
+def _log_projected_unknown_ownership(inventory, *, stream=None):
+    """Expose bounded exact audit reasons only in the private child log."""
+    reasons = inventory["unknownOwnership"]
+    limit = 128
+    print("DENTOCASE_PRIVATE_POST_SAVE_OWNERSHIP " + json.dumps({
+        "count": len(reasons),
+        "reasons": reasons[:limit],
+        "omitted": max(0, len(reasons) - limit),
+    }, ensure_ascii=False), file=stream, flush=True)
+
+
+def _record_projected_ownership_failure(inventory, projection, plan, source_sha256):
+    """Preserve the full failed audit without copying clinical scene geometry."""
+    evidence_root = _projector_evidence_root()
+    evidence_root.mkdir(parents=True, exist_ok=True)
+    path = evidence_root / ("post-save-ownership-" + uuid4().hex + ".json")
+    report = {
+        "schemaVersion": "1.0",
+        "sourceSha256": source_sha256,
+        "unknownOwnership": inventory["unknownOwnership"],
+        "capturedNodeOwners": projection["nodeOwners"],
+        "plan": {
+            "targetId": plan["targetId"],
+            "branchId": plan["branchId"],
+            "checkpointId": plan["checkpointId"],
+            "keepNodeIds": plan["keepNodeIds"],
+            "removeNodeIds": plan["removeNodeIds"],
+            "clearParameters": plan["clearParameters"],
+            "clearReferenceRoles": plan["clearReferenceRoles"],
+        },
+    }
+    with path.open("x") as output:
+        os.chmod(path, 0o600)
+        json.dump(report, output, indent=2, sort_keys=True)
+        output.write("\n")
+    return path
 
 
 def _inspect_prefix(source, destination, target, checkpoint, branch):
@@ -395,6 +436,12 @@ def run_offline(request_path):
             phase("post_save_inventory_begin")
             summary["checkpointInventory"], summary["projectionOwnership"] = capture_inventory(parameter, slicer.mrmlScene, summary)
             if not summary["checkpointInventory"]["ownershipComplete"]:
+                _log_projected_unknown_ownership(summary["checkpointInventory"])
+                report_path = _record_projected_ownership_failure(
+                    summary["checkpointInventory"], summary["projectionOwnership"],
+                    plan, inventory.package_sha256,
+                )
+                print("DENTOCASE_PRIVATE_POST_SAVE_REPORT", report_path, flush=True)
                 raise ValueError("Projected ownership is incomplete.")
             phase("post_save_inventory_complete")
             phase("bundle_create_begin")
