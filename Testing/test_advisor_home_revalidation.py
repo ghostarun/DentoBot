@@ -616,3 +616,26 @@ def test_apply_and_save_checks_exact_joint_identity_tolerance_for_each_source(tm
     else:
         s.apply_and_save(acknowledged=())
         assert world.calls.count("store") == 1
+
+
+# --- F5/F6: consent ON with absent legacy landmarks (S6-ADVISOR-GUI-01) ----------------------------------
+def test_consent_on_setup_and_apply_identity_pass_with_absent_legacy_landmarks(tmp_path):
+    world = HomeWorld(oracle=u5_passes, landmarks_present=False)
+    s = consent_session(world, tmp_path)
+    issues = s.prepare()
+    assert s.phase == svc.READY and s._identity_available and s._identity_error == ""
+    assert not [issue for issue in issues if issue.severity == "blocking"]
+    drive(s)
+    assert s.outcome == svc.FOUND and s.restore_issues == []
+    s.apply_and_save(acknowledged=())
+    assert world.calls.count("store") == 1
+
+
+def test_consent_on_identity_blocker_is_a_blocking_setup_row_not_an_empty_table(tmp_path):
+    world = HomeWorld(full_identity=False)
+    s = consent_session(world, tmp_path)
+    issues = s.prepare()
+    rows = [issue for issue in issues if "safe input identity unavailable" in issue.message]
+    assert len(rows) == 1 and rows[0].severity == "blocking" and "complete input identity" in rows[0].message
+    assert s.finished and s.outcome == svc.BLOCKED and "complete input identity" in s.message
+    assert not {"home_stage", "home_accept", "home_cancel"}.intersection(world.calls)

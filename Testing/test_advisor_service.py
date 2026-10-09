@@ -29,6 +29,7 @@ SAVED_BASE[:3, 3] = (100.0, 200.0, 300.0)
 HOME = {"j1": 0.1, "j2": -0.2, "j3": 0.3, "j4": 0.0, "j5": 0.5}
 SMALL = fa.OrderedLimits(lateral_range_mm=10.0, vertical_range_mm=10.0, vertical_grid_step_mm=10.0,
                          depth_range_mm=5.0, max_opening_mm=41.0, max_yaw_deg=10.0)
+LANDMARK_POINTS = tuple(float(v) for v in range(12))  # four RAS points: legacy Case Foundation landmarks
 
 
 def ok(code="ok", message="", **kwargs):
@@ -83,8 +84,11 @@ class World:
 
     def __init__(self, *, oracle=None, opening=40.0, profile="profile-1", branch_valid=lambda w: True,
                  home=HOME, stale_home_on_base_change=False, stale_home_on_opening=False,
-                 disconnect_drops_connection=False, full_identity=True):
+                 disconnect_drops_connection=False, full_identity=True, landmarks_present=True,
+                 landmark_points=LANDMARK_POINTS):
         self.calls = []
+        self.landmarks_present = landmarks_present  # False: no Step 6 case jaw landmarks node exists
+        self.landmark_points = tuple(landmark_points)
         self.opening = opening
         self.connected = True
         self.locked = True
@@ -183,12 +187,18 @@ class World:
                 return "task-limits-1"
 
             def buildCaseFoundationSnapshot(self, node):
+                # Production returns an empty landmark fingerprint and no positions when no landmarks node exists.
+                if w.landmarks_present:
+                    landmark_positions = tuple(float(v) for v in w.landmark_points)
+                    landmarks_fingerprint = fa.fingerprint_of(list(landmark_positions))
+                else:
+                    landmark_positions, landmarks_fingerprint = (), ""
                 values = {
                     "case_identity": "case-1", "anatomy_fingerprint": "anatomy-1",
                     "source_volume_fingerprint": w.source_volume_fingerprint,
                     "source_segmentation_fingerprint": "segmentation-1",
-                    "jaw_source_fingerprint": "jaw-source-1", "jaw_landmarks_fingerprint": "jaw-landmarks-1",
-                    "landmark_positions_ras_mm": (1.0, 2.0, 3.0),
+                    "jaw_source_fingerprint": "jaw-source-1", "jaw_landmarks_fingerprint": landmarks_fingerprint,
+                    "landmark_positions_ras_mm": landmark_positions,
                     "landmark_review_fingerprint": "landmark-review-1", "hinge_model_schema": "hinge-v1",
                     "jaw_configuration_fingerprint": "jaw-config-1", "robot_profile_fingerprint": w.profile,
                     "tool_identity": "dentobot_drill_tcp", "tool_fingerprint": "tool-fingerprint-1",
@@ -1340,3 +1350,91 @@ def test_next_operator_edit_after_an_exact_restore_never_reissues_a_trial_revisi
     assert world.facade.acceptManualBaseReview().success  # issues 42, never a trial number
     assert model.revision == 42 and model.high_water == 42
     assert world.logic.taskHomeFreshnessIssues(world.node)  # Task Home is stale
+
+
+# --- F5/F6: legacy jaw landmarks are optional for the input identity (S6-ADVISOR-GUI-01) -------------------
+def test_absent_landmarks_node_gives_a_stable_available_identity_across_reopen(tmp_path):
+    world = World(landmarks_present=False)
+    s = session(world, tmp_path)
+    s.prepare()
+    assert s._identity_available and s._identity_error == ""
+    first = s._capture_input_identity()
+    assert first["source_environment"]["jaw_landmarks_fingerprint"] == "absent:v1"
+    assert first == s._capture_input_identity()  # stable across two computations
+    reopened = session(World(landmarks_present=False), tmp_path / "reopened")  # save/reopen-equivalent state
+    reopened.prepare()
+    assert reopened._identity_available and reopened._capture_input_identity() == first
+
+
+def test_a_missing_landmark_field_is_not_the_absent_sentinel_and_still_fails_closed(tmp_path):
+    world = World(landmarks_present=False)
+    production_snapshot = world.logic.buildCaseFoundationSnapshot
+
+    def snapshot_without_the_field(node):
+        snapshot = production_snapshot(node)
+        del snapshot.jaw_landmarks_fingerprint  # a malformed snapshot is not an explicit absence
+        return snapshot
+
+    world.logic.buildCaseFoundationSnapshot = snapshot_without_the_field
+    s = session(world, tmp_path)
+    s.prepare()
+    assert not s._identity_available
+    assert "source geometry/environment fingerprints" in s._identity_error
+
+
+def test_present_landmarks_are_still_fingerprinted_and_a_moved_point_changes_identity(tmp_path):
+    world = World()
+    s = session(world, tmp_path)
+    s.prepare()
+    before = s._capture_input_identity()
+    fingerprint = before["source_environment"]["jaw_landmarks_fingerprint"]
+    assert fingerprint and fingerprint != "absent:v1"
+    points = list(world.landmark_points)
+    points[4] += 0.5  # one coordinate of the second landmark
+    world.landmark_points = tuple(points)
+    after = s._capture_input_identity()
+    assert after["source_environment"]["jaw_landmarks_fingerprint"] not in ("", fingerprint, "absent:v1")
+    assert s._identity_matches_baseline()[0] is False
+
+
+def test_creating_landmarks_after_an_absent_baseline_makes_the_identity_stale(tmp_path):
+    world = World(landmarks_present=False)
+    s = session(world, tmp_path)
+    s.prepare()
+    assert s._identity_available and s._identity_matches_baseline() == (True, "")
+    drive(s)
+    assert s.outcome == svc.FOUND
+    world.landmarks_present = True  # the operator later creates and places the legacy landmarks
+    with pytest.raises(PermissionError, match="original input identity is not current"):
+        s.apply_and_save()
+    assert "store" not in world.calls
+
+
+def test_absent_landmarks_do_not_block_setup_or_apply_and_save_for_a_stable_case(tmp_path):
+    world = World(landmarks_present=False)
+    s = session(world, tmp_path)
+    issues = s.prepare()
+    assert s.phase == svc.READY and s._identity_available
+    assert not [issue for issue in issues if issue.severity != "advisory"]
+    drive(s)
+    assert s.outcome == svc.FOUND
+    s.apply_and_save()
+    assert world.calls.count("store") == 1
+
+
+def test_an_identity_blocker_is_a_visible_setup_row_for_the_mode_it_blocks(tmp_path):
+    world = World(full_identity=False)  # a source fingerprint is missing: identity unavailable
+    s = session(world, tmp_path)
+    issues = s.setup_report()
+    rows = [issue for issue in issues if "safe input identity unavailable" in issue.message]
+    assert len(rows) == 1 and rows[0].severity == "blocks_apply"  # Apply & Save and reuse only; search runs
+    assert "Apply & Save to branch" in rows[0].message and "source geometry/environment" in rows[0].message
+    issues = s.prepare()
+    assert s.phase == svc.READY and any(issue.message == rows[0].message for issue in issues)  # never "no issues"
+    assert not s._identity_available
+
+
+def test_the_setup_table_labels_an_apply_only_blocker_as_blocking_apply_and_not_the_search():
+    source = (PYTHON / "dentobot_workflow" / "widget_step6_advisor.py").read_text(encoding="utf-8")
+    assert '"blocks_apply": _("blocks Apply & Save to branch")' in source
+    assert '"blocking": _("blocks the search")' in source

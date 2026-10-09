@@ -233,7 +233,9 @@ class Step6AdvisorWidgetMixin:
         for row, issue in enumerate(issues):
             table.insertRow(row)
             table.setItem(row, 0, qt.QTableWidgetItem(issue.message))
-            table.setItem(row, 1, qt.QTableWidgetItem(_("blocks the search") if issue.severity == "blocking" else _("the search applies this")))
+            mode = {"blocking": _("blocks the search"), "blocks_apply": _("blocks Apply & Save to branch")}.get(
+                issue.severity, _("the search applies this"))
+            table.setItem(row, 1, qt.QTableWidgetItem(mode))
             if issue.fix_id:
                 button = qt.QPushButton(_(issue.fix_label), table)
                 button.objectName = f"DENTOBOTStep6AdvisorFixButton{row}"
