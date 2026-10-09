@@ -1203,6 +1203,7 @@ class RobotWidgetMixin(
                     "The complete Stage 3 preflight is retained. Preview Approach "
                     "through Entry before creating the Drill preview."
                 )
+            self._applyStep6ControlReasons(locals())
 
     def _applyTaskJointLimitsToJointSpinboxes(self) -> None:
         if not self._parameterNode or not self.logic:

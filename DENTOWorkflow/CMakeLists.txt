@@ -91,6 +91,8 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/mouth_portal.py
   Resources/Python/dentobot_workflow/path_clearance.py
   Resources/Python/dentobot_workflow/task_home_gate.py
+  Resources/Python/dentobot_workflow/step6_control_reasons.py
+  Resources/Python/dentobot_workflow/step6_control_flags.py
   Resources/Python/dentobot_workflow/reach_envelope.py
   Resources/Python/dentobot_workflow/base_diagnosis.py
   Resources/Python/dentobot_workflow/feasibility_advisor.py

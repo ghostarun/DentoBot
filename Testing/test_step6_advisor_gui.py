@@ -2,6 +2,7 @@
 
 import ast
 import re
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,9 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / "DENTOWorkflow" / "Resources" / "Python"
 GUI_PATH = PY / "dentobot_workflow" / "widget_step6_advisor.py"
+if str(PY) not in sys.path:
+    sys.path.insert(0, str(PY))
+from dentobot_workflow.step6_control_reasons import ADVISOR_CONTROLS, annotate_step6_controls  # noqa: E402
 ADVISOR_HOME_PATH = PY / "dentobot_workflow" / "advisor_home.py"
 
 METHODS = {
@@ -28,6 +32,7 @@ METHODS = {
     "_advisorOnContinue",
     "_advisorFinish",
     "_advisorShowSetup",
+    "_advisorExplainControls",
 }
 
 
@@ -113,6 +118,8 @@ def _load_gui_methods():
 
     namespace = {
         "_": lambda text: text,
+        "ADVISOR_CONTROLS": ADVISOR_CONTROLS,
+        "annotate_step6_controls": annotate_step6_controls,
         "advisor": SimpleNamespace(
             APPLY_STEPS=("apply_base", "apply_policy"),
             DONE="done", EVALUATING="evaluating", FOUND="found", IDLE="idle", RESTORING="restoring",
@@ -837,3 +844,21 @@ def test_setup_kind_column_states_what_each_row_blocks():
 def test_setup_kind_column_is_wide_enough_and_wraps_in_the_dialog_source():
     source = ast.get_source_segment(GUI_PATH.read_text(encoding="utf-8"), _dialog_build_source())
     assert "setColumnWidth(1, 300)" in source and "wordWrap = True" in source
+
+
+def test_advisor_explainer_names_each_disabled_control_and_logs_nothing(caplog):
+    import logging
+
+    widget = SetupWidget()
+    names = ("startButton", "cancelButton", "consentBox", "pauseConnectButton", "continueButton",
+             "moreButton", "applyButton", "exportButton", "closeButton")
+    buttons = {name: SimpleNamespace(enabled=False, toolTip="") for name in names}
+    fix = SimpleNamespace(enabled=False, toolTip="")
+    widget._advisorState.update(buttons, fixButtons=[fix], mode="running", running=True, cancelRequested=True)
+    with caplog.at_level(logging.ERROR):
+        widget._advisorExplainControls()
+    assert buttons["startButton"].toolTip.startswith("Unavailable:")
+    assert "already running" in buttons["startButton"].toolTip
+    assert "Cancellation is already requested" in buttons["cancelButton"].toolTip
+    assert fix.toolTip.endswith("Setup fixes wait until the running or paused search ends.")
+    assert "skipped" not in caplog.text

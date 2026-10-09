@@ -7,6 +7,7 @@ from math import isfinite
 
 from .runtime import *
 from .task_home_gate import format_blockers, task_home_action_blockers
+from .step6_control_flags import annotate_refresh_controls
 from .workflow_progress import WorkflowProgress
 
 from DENTOROS2Bridge import (
@@ -81,6 +82,11 @@ class RobotManualWidgetMixin:
             else:
                 why = reason or "A planning prerequisite is not met; see the status line above."
                 button.toolTip = (base + "\n\n" if base else "") + "Unavailable: " + why
+
+    def _applyStep6ControlReasons(self, refresh: Mapping[str, object]) -> None:
+        """Put the named reason on each disabled or hidden 6.1/6.3 control (see step6_control_flags)."""
+
+        annotate_refresh_controls(self, refresh)
 
     def _explainTaskHomeActionBlockers(
         self, gate_context, anatomy_ready, capabilities, review_result, unresolved

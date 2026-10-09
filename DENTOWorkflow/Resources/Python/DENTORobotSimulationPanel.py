@@ -11,6 +11,10 @@ import qt
 from DENTORobotWorkflowFacade import STEP6_JOINT_PLANNER_ALGORITHMS
 from DENTORobotPlacement import joint_positions_si_from_display
 from DENTOStep6State import JOINT_NAMES
+from dentobot_workflow.step6_control_reasons import (
+    ANATOMY_CONTROLS,
+    annotate_step6_controls,
+)
 
 
 class DENTORobotSimulationPanel:
@@ -2327,6 +2331,16 @@ class DENTORobotSimulationPanel:
                 "No manual anatomy-review copy exists. Source anatomy remains authoritative."
             )
             self.anatomyReviewStatusLabel.setProperty("dentobotRole", "status")
+        annotate_step6_controls(
+            "anatomy review",
+            lambda: [(name, getattr(self, name)) for name in ANATOMY_CONTROLS],
+            lambda: {
+                "historical_override": historical_enabled,
+                "review_exists": exists,
+                "review_not_active": not active,
+            },
+            self.__dict__.setdefault("_step6ControlBaseTips", {}),
+        )
 
     def _invoke(self, name: str, *args) -> object:
         owner = self.ACTION_OWNER_SUBSTEP.get(name)
@@ -3686,6 +3700,7 @@ class DENTORobotSimulationPanel:
         )
 
     def setManualSimulationRecords(self, records) -> None:
+        self._manualEventPosition = None
         self._manualSimulationRecords = tuple(records)
         selector = self.manualSimulationRecordComboBox
         selector.blockSignals(True)
@@ -3714,6 +3729,7 @@ class DENTORobotSimulationPanel:
             self.nextManualSimulationEventButton.enabled = False
 
     def clearManualSimulationRecords(self) -> None:
+        self._manualEventPosition = None
         self._manualSimulationRecords = ()
         selector = self.manualSimulationRecordComboBox
         selector.blockSignals(True)
@@ -3781,6 +3797,7 @@ class DENTORobotSimulationPanel:
         if record_index < 0 or record_index >= len(self._manualSimulationRecords):
             return
         events = self._manualSimulationRecords[record_index]["events"]
+        self._manualEventPosition = (index, len(events))
         self.previousManualSimulationEventButton.enabled = index > 0
         self.nextManualSimulationEventButton.enabled = 0 <= index < len(events) - 1
         if index < 0 or index >= len(events):
@@ -4449,6 +4466,16 @@ class DENTORobotSimulationPanel:
             details.plainText = json.dumps(attempt, indent=2, sort_keys=True)
             replay.enabled = bool(current and any(attempt["paths"].values()))
             choose.enabled = attempt["status"] != "NotRun"
+            annotate_step6_controls(
+                "planner comparison",
+                lambda: [("plannerReplayButton", replay), ("plannerChooseButton", choose)],
+                lambda: {
+                    "comparison_current": bool(current),
+                    "attempt_has_paths": any(attempt["paths"].values()),
+                    "attempt_run": attempt["status"] != "NotRun",
+                },
+                self.__dict__.setdefault("_step6ControlBaseTips", {}),
+            )
 
         def replay_selected():
             row = int(table.currentRow())
@@ -5390,6 +5417,8 @@ class DENTORobotSimulationPanel:
                 details.appendPlainText("\n\nReview result: " + result.message)
                 if result.success:
                     review_button.enabled = False
+                    review_pending["value"] = False
+                    explain_plan_buttons()
 
         review_button.clicked.connect(review_evidence)
         review_button.enabled = session.operator_review_state != "Reviewed"
@@ -5411,9 +5440,38 @@ class DENTORobotSimulationPanel:
         path_button.enabled = bool(on_candidate_path and not preentry_ik_failure)
         preview_button.enabled = bool(on_candidate_preview and not preentry_ik_failure)
 
+        plan_view = {"complete": False}
+        review_pending = {"value": session.operator_review_state != "Reviewed"}
+
+        def explain_plan_buttons() -> None:
+            annotate_step6_controls(
+                "motion diagnostics",
+                lambda: [
+                    ("motionReviewButton", review_button),
+                    ("motionPathButton", path_button),
+                    ("motionPreviewButton", preview_button),
+                    ("motionApplyButton", apply_button),
+                    ("motionLockButton", lock_button),
+                    ("motionUnlockButton", unlock_button),
+                ],
+                lambda: {
+                    "review_pending": review_pending["value"],
+                    "path_available": bool(on_candidate_path and not preentry_ik_failure),
+                    "preview_available": bool(on_candidate_preview and not preentry_ik_failure),
+                    "has_apply": bool(on_candidate_apply),
+                    "has_unlock": bool(on_candidate_unlock),
+                    "preentry_ok": not preentry_ik_failure,
+                    "plan_complete": plan_view["complete"],
+                    "plan_locked": plan_selection_state == "locked",
+                    "plan_unlocked": plan_selection_state != "locked",
+                },
+                self.__dict__.setdefault("_step6ControlBaseTips", {}),
+            )
+
         def update_plan_buttons(index: int) -> None:
             record = records[index]
             complete = str(record.get("full_chain_candidate_status") or "") == "Complete"
+            plan_view["complete"] = complete
             locked = plan_selection_state == "locked"
             apply_button.enabled = bool(
                 on_candidate_apply and complete and not locked and not preentry_ik_failure
@@ -5424,6 +5482,7 @@ class DENTORobotSimulationPanel:
             unlock_button.enabled = bool(
                 on_candidate_unlock and locked and not preentry_ik_failure
             )
+            explain_plan_buttons()
 
         last_inspected_candidate = {"index": None}
 
@@ -5506,6 +5565,7 @@ class DENTORobotSimulationPanel:
                         apply_button.enabled = False
                         lock_button.enabled = False
                         unlock_button.enabled = bool(on_candidate_unlock)
+                    explain_plan_buttons()
 
         def unlock_selected() -> None:
             nonlocal plan_selection_state
