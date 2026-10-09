@@ -15,6 +15,16 @@ from dentobot_case.contracts import CHECKPOINTS, CaseInventory
 from dentobot_case.lineage import available_cutoffs, select_prefix
 
 
+def _needs_scene_ownership_audit(inventory: CaseInventory) -> bool:
+    """An incomplete schema-3 save may be re-audited only on restored MRML."""
+    return (
+        inventory.integrity == "Valid"
+        and inventory.archive_schema == "3.0"
+        and not inventory.ownership_complete
+        and isinstance(inventory.metadata.get("projection"), dict)
+    )
+
+
 class _CancelFlag:
     """One-way cancel flag; the GUI thread sets it and the worker polls it."""
 
@@ -78,12 +88,15 @@ def _checkpoint_rows(
             selection = allowed_cutoffs[checkpoint.id]
         else:
             selection = select_prefix(inventory, target_id, checkpoint.id, branch_id)
-        selection_ok = bool(full_ok and selection.allowed)
+        scene_audit = bool(full_ok and _needs_scene_ownership_audit(inventory))
+        selection_ok = bool(full_ok and (selection.allowed or scene_audit))
         state = _checkpoint_state(inventory, target_id, branch_id, checkpoint.id)
-        eligibility = "available" if selection_ok else "blocked"
+        eligibility = "scene audit required" if scene_audit else ("available" if selection_ok else "blocked")
         reason = ""
         if not full_ok:
             reason = f"Location: {location_status}; package integrity: {inventory.integrity}."
+        elif scene_audit:
+            reason = "Saved ownership is incomplete; restored scene must pass a full ownership audit before projection."
         elif not selection.allowed:
             reason = "; ".join(selection.reasons) or "Required saved evidence is unavailable."
             if selection.latest_complete_checkpoint:
@@ -649,14 +662,16 @@ def show_case_library(
             if verified:
                 saved = _checkpoint_state(inventory, target_id, branch_id, checkpoint.id)
                 selection = select_prefix(inventory, target_id, checkpoint.id, branch_id)
+                scene_audit = bool(valid_location and _needs_scene_ownership_audit(inventory))
                 allowed = bool(
                     valid_location
                     and inventory.integrity == "Valid"
-                    and inventory.ownership_complete
-                    and selection.allowed
+                    and ((inventory.ownership_complete and selection.allowed) or scene_audit)
                 )
                 if not valid_location or inventory.integrity != "Valid":
                     reason = f"Package status: {location_status}; integrity: {inventory.integrity}."
+                elif scene_audit:
+                    reason = "Restored scene ownership audit required before projection; any unresolved ownership blocks the action."
                 elif not inventory.ownership_complete:
                     reason = "; ".join(inventory.unknown_ownership) or "Artifact ownership is incomplete."
                 elif not selection.allowed:
@@ -667,7 +682,7 @@ def show_case_library(
                     reason = (reason + " " if reason else "") + (
                         f"Latest complete cutoff: {selection.latest_complete_checkpoint}."
                     )
-                cutoff = "Available" if allowed else "Blocked"
+                cutoff = "Scene audit required" if scene_audit else ("Available" if allowed else "Blocked")
             else:
                 saved = _preview_saved_state(list(preview), checkpoint.id, target_id, branch_id)
                 allowed = False
@@ -686,7 +701,7 @@ def show_case_library(
                 "target_id": target_id,
                 "branch_id": branch_id,
                 "reason": reason,
-                "included_ids": selection.included_ids if verified and allowed else (),
+                "included_ids": selection.included_ids if verified and selection.allowed else (),
             })
         return rows
 
@@ -1033,7 +1048,8 @@ def show_case_library(
                 catalog.record_verified(inventory),
                 catalog.get_case_details(inventory.case_id),
             )[1])
-            return {"selection": selection, "path": inventory.path, "details": details}
+            return {"selection": selection, "scene_audit": _needs_scene_ownership_audit(inventory),
+                    "path": inventory.path, "details": details}
 
         _start_job("partial-load" if kind == "load" else "partial-save", worker, {
             "generation": generation, "identity": identity, "target_id": target_id,
@@ -1211,7 +1227,7 @@ def show_case_library(
                 session._case_library_selected_summary["case_key"] = result["details"]["case_key"]
                 _render_details(result["details"])
                 selection = result["selection"]
-                if not selection.allowed:
+                if not selection.allowed and not result["scene_audit"]:
                     progress_status.setText("Partial action blocked: " + "; ".join(selection.reasons))
                 elif kind == "partial-load":
                     clear.setEnabled(False)

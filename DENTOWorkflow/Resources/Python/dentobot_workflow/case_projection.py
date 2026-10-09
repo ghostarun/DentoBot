@@ -9,6 +9,18 @@ import tempfile
 import time
 
 
+def _clear_future_node_attributes(node, checkpoint_order):
+    """Drop saved downstream authority from retained geometry in a prefix."""
+    from dentobot_case.contracts import CHECKPOINTS
+    from dentobot_case.ownership import NODE_ATTRIBUTE_OWNERS
+
+    orders = {item.id: item.order for item in CHECKPOINTS}
+    for attribute, owner in NODE_ATTRIBUTE_OWNERS.items():
+        if orders[owner] > checkpoint_order and node.GetAttribute(attribute) is not None:
+            node.SetAttribute(attribute,
+                "NotVerified" if attribute == "DENTOBOT.VerificationState" else None)
+
+
 def _inspect_prefix(source, destination, target, checkpoint, branch):
     from dentobot_case.inspection import inspect_package
     from dentobot_case.projection import prepare_projection
@@ -16,7 +28,13 @@ def _inspect_prefix(source, destination, target, checkpoint, branch):
     if source == destination or (destination.exists() and os.path.samefile(source, destination)):
         raise ValueError("Partial Save As requires a destination distinct from the source.")
     inventory = inspect_package(source)
-    prepare_projection(inventory, target, checkpoint, branch)
+    if inventory.ownership_complete:
+        prepare_projection(inventory, target, checkpoint, branch)
+    elif (inventory.archive_schema != "3.0" or not isinstance(inventory.metadata.get("projection"), dict)):
+        raise ValueError("Saved ownership cannot be re-audited for this package schema.")
+    # An incomplete schema-3 save can only be projected after the disposable
+    # Slicer process restores and re-audits its exact saved scene. No selection
+    # or deletion uses the old incomplete map.
     return inventory, source, destination
 
 
@@ -130,6 +148,7 @@ def run_offline(request_path):
     from .parameter_state import DENTOWorkflowParameterNode
     import importlib.util
     import sys
+    from dataclasses import replace
 
     started = time.monotonic()
     print("DENTOCASE_PROJECTOR_READY", f"{started:.6f}", flush=True)
@@ -149,7 +168,9 @@ def run_offline(request_path):
             if digest != request["sourceSha256"]:
                 raise ValueError("Source changed after selection.")
             inventory = inventory_from_inspection(source, inspection, digest, after)
-            plan = prepare_projection(inventory, request["target"], request["checkpoint"], request["branch"])
+            complete_at_save = inventory.ownership_complete
+            if complete_at_save:
+                plan = prepare_projection(inventory, request["target"], request["checkpoint"], request["branch"])
             phase("source_preparation")
             if not slicer.util.loadScene(str(scene_path), {"clear": True}):
                 raise ValueError("Source MRB could not be restored.")
@@ -172,14 +193,31 @@ def run_offline(request_path):
             actual_inventory, actual_mapping = capture_inventory(parameter, slicer.mrmlScene, inspection.workflow)
             if not actual_inventory["ownershipComplete"]:
                 raise ValueError("Restored ownership audit failed: " + "; ".join(actual_inventory["unknownOwnership"]))
-            # Re-audit IDs and owners before deleting a single node.
-            if any(actual_mapping["nodeOwners"].get(node_id) != owners
-                   for node_id, owners in mapping["nodeOwners"].items()):
+            # Re-audit IDs and owners before deleting a single node. A source
+            # that was marked incomplete can replace its old map only with this
+            # complete audit of the same package scene and validated lineage.
+            if complete_at_save and any(actual_mapping["nodeOwners"].get(node_id) != owners
+                                    for node_id, owners in mapping["nodeOwners"].items()):
                 raise ValueError("Restored persistent ownership differs from the saved audit.")
             extra = set(actual_mapping["nodeOwners"]) - set(mapping["nodeOwners"])
             if any(actual_mapping["nodeOwners"][node_id] != ["@display"] for node_id in extra):
                 raise ValueError("Restore introduced unaudited persistent geometry or state.")
+            if not complete_at_save:
+                repaired_workflow = dict(inspection.workflow)
+                repaired_workflow["checkpointInventory"] = actual_inventory
+                repaired_workflow["projectionOwnership"] = actual_mapping
+                inventory = inventory_from_inspection(
+                    source, replace(inspection, workflow=repaired_workflow), digest, after,
+                )
+                mapping = actual_mapping
+                plan = prepare_projection(
+                    inventory, request["target"], request["checkpoint"], request["branch"],
+                )
+            from dentobot_case.ownership import LEGACY_PARAMETER_OWNERS
             for name in plan["clearParameters"]:
+                if name in LEGACY_PARAMETER_OWNERS:
+                    raw.UnsetParameter(name)
+                    continue
                 value = plan["defaults"][name]
                 current = getattr(parameter, name)
                 if isinstance(current, bool):
@@ -211,13 +249,8 @@ def run_offline(request_path):
             registry = json.loads(parameter.step6TrajectoryRegistryJson)
             order = next(item.order for item in CHECKPOINTS if item.id == plan["checkpointId"])
             registry = filter_registry(registry, plan["targetId"], trajectory_ids, plan["branchId"], order)
-            from dentobot_case.ownership import NODE_ATTRIBUTE_OWNERS
-            checkpoint_orders = {item.id: item.order for item in CHECKPOINTS}
             for node_id in plan["keepNodeIds"]:
-                for attribute, owner in NODE_ATTRIBUTE_OWNERS.items():
-                    if checkpoint_orders[owner] > order and nodes[node_id].GetAttribute(attribute) is not None:
-                        nodes[node_id].SetAttribute(attribute,
-                            "NotVerified" if attribute == "DENTOBOT.VerificationState" else None)
+                _clear_future_node_attributes(nodes[node_id], order)
             parameter.step6TrajectoryRegistryJson = json.dumps(registry, sort_keys=True)
             from dataclasses import asdict
             units = branches if order >= 50 else []

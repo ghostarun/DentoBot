@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 import sys
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "DENTOWorkflow/Resources/Python"))
 
-from dentobot_case.contracts import Artifact, CaseInventory  # noqa: E402
+from dentobot_case.contracts import Artifact, Branch, CaseInventory, CHECKPOINTS  # noqa: E402
+from dentobot_case.ownership import DEFAULTS, RESUME_INDICES  # noqa: E402
 from dentobot_case.projection import filter_registry, prepare_projection  # noqa: E402
+from dentobot_workflow.case_projection import _clear_future_node_attributes, _inspect_prefix  # noqa: E402
 
 
 def _inventory() -> CaseInventory:
@@ -159,6 +164,125 @@ def test_prepare_projection_blocks_incomplete_or_unknown_ownership():
         assert "resume index" in str(exc)
     else:
         raise AssertionError("missing resume index must block projection")
+
+
+def test_verified_prefix_keeps_foundation_geometry_but_resets_step6_authority():
+    artifacts = []
+    first_by_checkpoint = {}
+    for checkpoint in CHECKPOINTS:
+        if checkpoint.order > 100:
+            break
+        for role in checkpoint.artifact_roles:
+            artifact_id = f"{checkpoint.id}:{role}"
+            dependencies = tuple(first_by_checkpoint[item] for item in checkpoint.requires)
+            artifacts.append(Artifact(
+                artifact_id, checkpoint.id, checkpoint.scope,
+                target_id="target-1" if checkpoint.scope != "shared" else "",
+                branch_id="branch-1" if checkpoint.scope == "branch" else "",
+                role=role, dependencies=dependencies,
+                trajectory_ids=("trajectory-1",) if checkpoint.id == "trajectory.plan" else (),
+            ))
+            first_by_checkpoint.setdefault(checkpoint.id, artifact_id)
+    artifacts.append(Artifact(
+        "other-target-template", "template.build", "branch", "target-2", "branch-2",
+        role="finalPrintableTemplateModel",
+    ))
+    parameter_names = (
+        "robotBaseMountLocked", "step6BasePlacementStatus", "step6BasePlacementSource",
+        "step6BasePlacementRevision", "step6BasePlacementHighWater", "step6EnvironmentJson",
+        "step6TaskHomeJson",
+    )
+    projection = {
+        "version": "1.0", "parameterNodeId": "parameter",
+        "nodeIds": ["parameter", *[item.id for item in artifacts], "research-config"],
+        "nodeOwners": {
+            "parameter": [], "research-config": ["@history"],
+            **{item.id: [item.id] for item in artifacts},
+        },
+        "parameterOwners": {
+            **{name: ("simulation.home" if name == "step6TaskHomeJson" else "foundation.base")
+               for name in parameter_names},
+        },
+        "referenceOwners": {
+            "caseFoundationFixedUpperVolume": "foundation.pose",
+            "caseFoundationMovingLowerVolume": "foundation.pose",
+        },
+        "resumeIndices": dict(RESUME_INDICES),
+        "defaults": {name: DEFAULTS[name] for name in parameter_names},
+    }
+    inventory = CaseInventory(
+        path="case.dentocase", package_id="package", case_id="source-case", label="Case",
+        archive_schema="3.0", package_sha256="a" * 64,
+        checked_at_utc="2026-10-01T00:00:00Z", target_ids=("target-1", "target-2"),
+        artifacts=tuple(artifacts),
+        branches=(Branch("branch-1", "target-1", ("trajectory-1",), "Single", "Current"),
+                  Branch("branch-2", "target-2", ("trajectory-2",), "Single", "Current")),
+        ownership_complete=True, metadata={"projection": projection},
+    )
+    plan = prepare_projection(inventory, "target-1", "template.verify", "branch-1")
+    assert "foundation.pose:step6CaseJawTransform" in plan["keepNodeIds"]
+    assert "foundation.base:robotBaseTransform" in plan["keepNodeIds"]
+    assert "template.build:finalPrintableTemplateModel" in plan["keepNodeIds"]
+    assert "research-config" in plan["removeNodeIds"]
+    assert "other-target-template" in plan["removeNodeIds"]
+    assert set(parameter_names) <= set(plan["clearParameters"])
+    assert set(projection["referenceOwners"]) <= set(plan["clearReferenceRoles"])
+
+
+def test_incomplete_schema3_source_defers_selection_until_restored_scene_audit(monkeypatch, tmp_path):
+    source = tmp_path / "source.dentocase"
+    source.write_bytes(b"fixture")
+    destination = tmp_path / "partial.dentocase"
+    inventory = replace(_inventory(), archive_schema="3.0", ownership_complete=False,
+                        unknown_ownership=("unmapped saved node",))
+    monkeypatch.setattr("dentobot_case.inspection.inspect_package", lambda _path: inventory)
+    result, actual_source, actual_destination = _inspect_prefix(
+        source, destination, "target-1", "source.volume", "",
+    )
+    assert result is inventory
+    assert actual_source == source and actual_destination == destination
+
+    blocked = replace(inventory, archive_schema="2.0")
+    monkeypatch.setattr("dentobot_case.inspection.inspect_package", lambda _path: blocked)
+    with pytest.raises(ValueError, match="cannot be re-audited"):
+        _inspect_prefix(source, destination, "target-1", "source.volume", "")
+
+
+def test_retained_geometry_loses_saved_step6_config_and_base_authority():
+    class Node:
+        def __init__(self, attributes):
+            self.attributes = dict(attributes)
+
+        def GetAttribute(self, name):
+            return self.attributes.get(name)
+
+        def SetAttribute(self, name, value):
+            if value is None:
+                self.attributes.pop(name, None)
+            else:
+                self.attributes[name] = value
+
+    template = Node({
+        "DENTOBOT.VerificationState": "WARNING",
+        "DENTOBOT.VerificationJson": "saved-step5c",
+        "DENTOBOT.Step6WorkingConfigJson": "saved-home-base-policy",
+    })
+    base = Node({
+        "DENTOBOT.RobotBaseMountLocked": "true",
+        "DENTOBOT.RobotBasePlacementAuthority": "ManualSimulationBaseReviewed",
+        "DENTOBOT.Step6PlanningContextImported": "true",
+    })
+    for node in (template, base):
+        _clear_future_node_attributes(node, 100)
+    assert template.attributes == {
+        "DENTOBOT.VerificationState": "WARNING",
+        "DENTOBOT.VerificationJson": "saved-step5c",
+    }
+    assert base.attributes == {}
+
+    _clear_future_node_attributes(template, 90)
+    assert template.attributes["DENTOBOT.VerificationState"] == "NotVerified"
+    assert "DENTOBOT.VerificationJson" not in template.attributes
 
 
 def test_filter_registry_keeps_only_selected_pair_and_resets_histories_on_early_cutoff():

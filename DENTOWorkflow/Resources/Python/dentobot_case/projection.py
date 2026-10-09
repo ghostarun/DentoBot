@@ -18,6 +18,15 @@ _TEETH = tuple(f"FDI{quadrant}{tooth}" for quadrant in range(1, 5) for tooth in 
 _SLOTS_PER_TOOTH = 3
 _REGISTRY_SCHEMA = "3.0"
 
+# These fields describe Step 6 readiness or accepted Base state even though
+# their geometry owners precede template.verify. A prefix through Step 5C
+# retains the underlying foundation nodes but must re-establish authority.
+_STEP6_AUTHORITY_PARAMETERS = frozenset({
+    "robotBaseMountLocked", "step6BasePlacementStatus",
+    "step6BasePlacementSource", "step6BasePlacementRevision",
+    "step6BasePlacementHighWater", "step6EnvironmentJson",
+})
+
 
 def _text(value: object, name: str, *, allow_empty: bool = False) -> str:
     if not isinstance(value, str) or (not allow_empty and not value.strip()):
@@ -156,11 +165,16 @@ def prepare_projection(
         )
 
     clear_parameters = sorted(
-        name for name, owner in projection["parameterOwners"].items() if must_clear(owner)
+        name for name, owner in projection["parameterOwners"].items()
+        if must_clear(owner) or (
+            checkpoint_order <= projection["checkpointOrders"]["template.verify"]
+            and name in _STEP6_AUTHORITY_PARAMETERS
+        )
     )
     clear_references = sorted(
         role for role, owner in projection["referenceOwners"].items()
         if must_clear(owner) or owner == "display"
+        or role in {"caseFoundationFixedUpperVolume", "caseFoundationMovingLowerVolume"}
     )
     missing_defaults = sorted(set(clear_parameters) - set(projection["defaults"]))
     if missing_defaults:

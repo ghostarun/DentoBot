@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -95,6 +96,22 @@ def test_unknown_ownership_is_visible_but_partial_actions_stay_disabled():
     assert "unmapped node group" in location["reason"]
     assert any("unmapped node group" in row["reason"] for row in checkpoints)
     assert not any(row["partial_enabled"] for row in checkpoints)
+
+
+def test_schema3_incomplete_inventory_offers_audited_projection_without_claiming_eligibility():
+    case = replace(inventory(owned=False, unknown=("unmapped saved node",)), archive_schema="3.0")
+    case.metadata["projection"] = {"version": "1.0"}
+    rows = case_library.build_rows(catalog_case(case))
+    checkpoints = rows_of_kind(rows, "checkpoint")
+    assert checkpoints
+    assert all(row["partial_enabled"] for row in checkpoints)
+    assert all("scene audit required" in row["text"] for row in checkpoints)
+    assert all("full ownership audit" in row["reason"] for row in checkpoints)
+    assert all(not row["included_ids"] for row in checkpoints)
+
+    case.metadata.pop("projection")
+    blocked = rows_of_kind(case_library.build_rows(catalog_case(case)), "checkpoint")
+    assert all(not row["partial_enabled"] for row in blocked)
 
 
 def test_prefix_tree_lists_only_closed_allowed_cutoffs_and_uses_fdi_metadata():
