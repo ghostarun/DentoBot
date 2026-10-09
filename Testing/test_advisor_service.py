@@ -1116,3 +1116,70 @@ def test_no_timing_means_nothing_measured_and_no_claim(tmp_path):
     world = World()
     s = session(world, tmp_path)
     assert s.longest_step() is None
+
+
+# ---------------------------------------------------------------------------
+# S6-ADVISOR-GUI-01 UI batch: F3 production planning-policy capture, F4 what each setup row blocks.
+def test_search_runs_on_the_current_production_policy_not_the_default(tmp_path):
+    world = World()
+    world.policy["planning_time_sec"] = 10.0  # facade default: RRTConnectkConfigDefault, 5 attempts, 10.0 s
+    s = session(world, tmp_path)
+    s.prepare()
+    assert s.baseline[fa.PLANNING_TIME_SEC] == 10.0 and s.original[fa.PLANNING_TIME_SEC] == 10.0
+    assert s.baseline[fa.PLANNER_ID] == "RRTConnectkConfigDefault" and s.baseline[fa.PLANNING_ATTEMPTS] == 5
+    assert s.planning_policy_source.startswith("facade ")
+    assert all(state[fa.PLANNING_TIME_SEC] == 10.0 for _, state in s._candidates)
+    drive(s)
+    assert s.records and all(r["state"][fa.PLANNING_TIME_SEC] == 10.0 for r in s.records)
+    assert s.records[0]["planning_policy"] == {"planner_id": "RRTConnectkConfigDefault", "planning_attempts": 5,
+                                               "planning_time_sec": 10.0, "source": s.planning_policy_source}
+    assert world.policy["planning_time_sec"] == 10.0  # restored to the captured production value
+    report = (tmp_path / "run" / "advisor-ordered-report.md").read_text(encoding="utf-8")
+    fixed = next(line for line in report.splitlines() if line.startswith("**Fixed:**"))
+    assert "'planning_time_sec': 10.0" in fixed and "facade" in fixed and "DEFAULT_POLICY" not in fixed
+
+
+def test_policy_fallback_is_used_and_recorded_only_without_a_facade_policy(tmp_path):
+    world = World()
+
+    def unavailable():
+        raise RuntimeError("facade not ready")
+
+    world.facade.jointPlanningPolicy = unavailable
+    s = session(world, tmp_path)
+    s.prepare()
+    assert s.baseline[fa.PLANNING_TIME_SEC] == fa.DEFAULT_POLICY[fa.PLANNING_TIME_SEC] == 5.0
+    assert s.planning_policy_source.startswith("fallback feasibility_advisor.DEFAULT_POLICY")
+    assert "facade not ready" in s.planning_policy_source
+
+
+def test_apply_and_save_persists_the_captured_policy_not_the_default(tmp_path):
+    world = World(oracle=lambda v: {"stroke": v["opening"] >= 40.5})
+    world.policy["planning_time_sec"] = 10.0
+    s = session(world, tmp_path)
+    s.prepare()
+    drive(s, approve=("opening",), decline=("base_yaw",))
+    s.apply_and_save(acknowledged=["mouth opening"])
+    config = world.stored[0]
+    assert config["planning_time_sec"] == 10.0 and config["planning_attempts"] == 5
+    assert config["planner_id"] == "RRTConnectkConfigDefault"
+
+
+def test_setup_rows_state_what_they_block_from_the_gate_that_reads_them(tmp_path):
+    assert svc.advisory_blocks("stale task confirmation: Confirm the task") == "consent_apply"
+    assert svc.advisory_blocks("MoveIt scene does not match Slicer (not checked): ") == "auto"
+    assert svc.advisory_blocks("collision audit: stale") == "passes"
+
+    world = World(home=None)
+    issues = session(world, tmp_path / "blocked").setup_report()
+    assert issues and all(i.blocks == "all" for i in issues if i.severity == "blocking")
+
+    world = World()
+    world.logic.confirmedTaskFreshnessIssues = lambda node: ("Confirm the immutable task again",)
+    stale = [i for i in session(world, tmp_path / "stale").setup_report() if i.message.startswith("stale task confirmation")]
+    assert len(stale) == 1 and stale[0].severity == "advisory" and stale[0].blocks == "consent_apply"
+
+    world = World()
+    world.last_scene_status = {"state": "mismatch"}
+    scene = [i for i in session(world, tmp_path / "scene").setup_report() if "MoveIt scene" in i.message]
+    assert len(scene) == 1 and scene[0].blocks == "auto"

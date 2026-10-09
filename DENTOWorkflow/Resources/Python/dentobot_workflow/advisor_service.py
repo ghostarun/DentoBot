@@ -201,12 +201,30 @@ def classify_setup_issue(text: str) -> tuple:
     return ()
 
 
+def advisory_blocks(text: str) -> str:
+    """What an advisory setup row blocks, from the gate that reads it (``SetupIssue.blocks`` codes)."""
+
+    lowered = text.lower()
+    if lowered.startswith("stale task confirmation"):
+        # Identity capture needs confirmed_task_fingerprint (advisor_identity.py:221-224); without it consent ON
+        # refuses at prepare() (advisor_service.py:603-611) and Apply refuses (advisor_identity.py:243 identity check).
+        return "consent_apply"
+    if lowered.startswith("moveit scene does not match"):
+        # facade.ensureMoveItSceneMatches (called by _observe per candidate) re-syncs on mismatch: the search fixes it.
+        return "auto"
+    # Collision audit and other per-candidate prerequisites: _do_prerequisites fails every candidate (advisor_service.py).
+    return "passes"
+
+
 @dataclass
 class SetupIssue:
     message: str
     severity: str = "blocking"  # blocking: the search cannot start; advisory: the search applies it itself
     fix_id: str = ""
     fix_label: str = ""
+    # What it blocks: all (Start with or without consent, and Apply) | consent_apply (consent search and Apply only)
+    # | auto (the search checks and re-syncs it for each candidate) | passes (every candidate fails until fixed).
+    blocks: str = "all"
 
 
 @dataclass
@@ -282,6 +300,8 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         self.phase, self.outcome, self.message = IDLE, "", ""
         self.baseline: dict = {}
         self.original: dict = {}
+        self.planning_policy: dict = {}  # production policy captured at prepare(); immutable for this search
+        self.planning_policy_source = ""
         self.saved_base = None
         self.saved_home: dict | None = None
         self._saved_home_identity: dict = {}
@@ -535,7 +555,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
             fix = classify_setup_issue(text)
             severity = "blocking" if text.startswith("Task Home not validated") else "advisory"
             issues.append(SetupIssue(text, severity=severity, fix_id=fix[0] if fix else "",
-                                     fix_label=fix[1] if fix else ""))
+                                     fix_label=fix[1] if fix else "", blocks=advisory_blocks(text)))
         return issues
 
     # ---- lifecycle --------------------------------------------------------------
@@ -551,7 +571,8 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
             self.message = "Setup must be fixed first: " + "; ".join(i.message for i in blocking)
             return issues
         home = logic.taskHomeRecord(node)
-        policy = facade.jointPlanningPolicy()
+        self.planning_policy, self.planning_policy_source = self._capture_planning_policy()
+        policy = self.planning_policy
         self.saved_base = self._ctx_matrix(node.robotBaseTransform)
         self.saved_home = dict(zip(home.joint_names, home.joint_positions_si))
         self._saved_home_identity = self._home_record_identity(home)
@@ -560,7 +581,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         registry = self._persisted_registry()
         self.branch_id = str(registry.get("selected_branch_id") or "")
         opening = float(node.step6CaseJawTargetGapMm)
-        self.baseline = fa.baseline_state(opening)
+        self.baseline = fa.baseline_state(opening, self.planning_policy)
         live_tuning = self._live_barrier_tuning()
         self._synced_tuning = dict(live_tuning) if live_tuning is not None else None
         if live_tuning is not None:
@@ -572,8 +593,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         self.baseline[fa.CORRIDOR_MARGIN_SAMPLES] = int(facade.approachCorridorMarginSamples())
         self.baseline[fa.SPINDLE_TEMPLATE_ALLOWANCE] = bool(getattr(node, "step6AllowSpindleGuideContact", False))
         self.original = {
-            fa.MOUTH_OPENING_MM: opening, fa.PLANNER_ID: policy["planner_id"],
-            fa.PLANNING_ATTEMPTS: int(policy["planning_attempts"]), fa.PLANNING_TIME_SEC: float(policy["planning_time_sec"]),
+            fa.MOUTH_OPENING_MM: opening, **fa.policy_values(policy),
             fa.CORRIDOR_MARGIN_SAMPLES: int(facade.approachCorridorMarginSamples()),
             fa.SPINDLE_TEMPLATE_ALLOWANCE: bool(getattr(node, "step6AllowSpindleGuideContact", False)),
             **(live_tuning or {}),
@@ -601,8 +621,21 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         if self._home is not None:
             self.message += " Task Home revalidation consent is ON (simulation only; saved joints, no motion)."
         if not self._identity_available:
-            self.message += " Checkpoint reuse and Apply & Save are disabled because a complete input identity is unavailable."
+            self.message += " Checkpoint reuse and Save to branch are disabled because a complete input identity is unavailable."
         return issues
+
+    def _capture_planning_policy(self) -> tuple:
+        """The CURRENT production planning policy (planner, attempts, time), else the documented fallback."""
+        try:
+            live = self.facade.jointPlanningPolicy()
+            policy = fa.policy_values({fa.PLANNER_ID: live["planner_id"],
+                                       fa.PLANNING_ATTEMPTS: live["planning_attempts"],
+                                       fa.PLANNING_TIME_SEC: live["planning_time_sec"]})
+        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError) as exc:
+            return fa.policy_values(None), (
+                "fallback feasibility_advisor.DEFAULT_POLICY (facade planning policy unavailable: "
+                + str(exc)[:160] + ")")
+        return policy, "facade DENTORobotWorkflowFacade.jointPlanningPolicy() at search start"
 
     def cancel(self) -> None:
         """Request cancellation; takes effect at the next ``step()`` (never mid-step)."""
@@ -798,6 +831,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
         violations = fa.state_violations(
             state, self.baseline[fa.MOUTH_OPENING_MM], self.limits,
             expected_corridor_margin_samples=int(self.original[fa.CORRIDOR_MARGIN_SAMPLES]),
+            policy=self.planning_policy or None,
         )
         current = _Current(index, stage, state, label, directory, {} if violations else identity, plan)
         if stage == "lip_variant":
@@ -1282,6 +1316,8 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                                      evidence_dir=str(current.directory))
         record["sequence"] = current.index
         record["timings_sec"] = dict(current.timings)
+        record["planning_policy"] = {**fa.policy_values(self.planning_policy or None),
+                                     "source": self.planning_policy_source or "feasibility_advisor.DEFAULT_POLICY"}
         if self._home is not None:
             record["home_revalidation"] = [e for e in self._home.ledger if e["candidate"] == current.index and e["kind"] == "trial"]
             record["home_rejected"] = bool(current.home_rejected)
@@ -1463,7 +1499,9 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
             notes.append(f"{self._declined_count} candidate(s) were skipped (declined stage or skipped opening) and stay UNTESTED.")
         (self.root).mkdir(parents=True, exist_ok=True)
         (self.root / "advisor-ordered-report.md").write_text(
-            fa.ordered_report_markdown(self.baseline, self.records, self.limits, notes=notes), encoding="utf-8")
+            fa.ordered_report_markdown(self.baseline, self.records, self.limits, notes=notes,
+                                       policy=self.planning_policy or None,
+                                       policy_source=self.planning_policy_source), encoding="utf-8")
         self._write(self.root, "advisor-ordered-records.json", self.records)
 
     def longest_step(self) -> tuple | None:

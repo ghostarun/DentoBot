@@ -19,6 +19,12 @@ from . import step6_working_config
 
 class Step6AdvisorWidgetMixin:
     _ADVISOR_COLUMNS = ("Rank", "Setting change", "Result", "Failed step", "Reason", "Review", "Evidence")
+    _ADVISOR_KIND_TEXT = {
+        "all": "Blocks all: Start (with or without consent) and Apply",
+        "consent_apply": "Blocks consent search and Apply (Start without consent still runs)",
+        "auto": "Search fixes this automatically (checked for each candidate)",
+        "passes": "Blocks every candidate until fixed (the search cannot fix it)",
+    }
 
     # ---- entry point (6.3 button, action owner 3) -------------------------------------
     def _onStep6FindWorkingConfig(self) -> None:
@@ -98,7 +104,7 @@ class Step6AdvisorWidgetMixin:
                 "The window may stop repainting while one planning step runs (the length is not yet measured); "
                 "Cancel takes effect when that step finishes. "
                 "The search never moves the robot or uses different joints; unless you tick the Task Home consent "
-                "below it does not accept or re-validate Task Home either. Use Apply & Save to branch only after "
+                "below it does not accept or re-validate Task Home either. Use Apply && Save to branch only after "
                 "the search reports that baseline restoration completed."
             ),
             dialog,
@@ -114,7 +120,9 @@ class Step6AdvisorWidgetMixin:
         state["setupTable"].objectName = "DENTOBOTStep6AdvisorSetupTable"
         state["setupTable"].setHorizontalHeaderLabels([_("Issue"), _("Kind"), _("Fix")])
         state["setupTable"].horizontalHeader().setStretchLastSection(True)
-        state["setupTable"].setColumnWidth(0, 560)
+        state["setupTable"].setColumnWidth(0, 520)
+        state["setupTable"].setColumnWidth(1, 300)
+        state["setupTable"].wordWrap = True
         state["setupTable"].setMaximumHeight(150)
         setupLayout.addWidget(state["setupTable"])
         layout.addWidget(setupGroup)
@@ -171,7 +179,7 @@ class Step6AdvisorWidgetMixin:
             ("continueButton", "DENTOBOTStep6AdvisorContinueButton", _("Continue"), self._advisorOnContinue),
             ("moreButton", "DENTOBOTStep6AdvisorKeepSearchingButton", _("Keep searching for alternatives"),
              self._advisorOnKeepSearching),
-            ("applyButton", "DENTOBOTStep6AdvisorApplySaveButton", _("Apply & Save to branch"),
+            ("applyButton", "DENTOBOTStep6AdvisorApplySaveButton", _("Apply && Save to branch"),
              self._advisorOnApplyAndSave),
             ("exportButton", "DENTOBOTStep6AdvisorExportButton", _("Export evidence"), self._advisorOnExport),
             ("closeButton", "DENTOBOTStep6AdvisorCloseButton", _("Close"), self._advisorOnClose),
@@ -233,7 +241,7 @@ class Step6AdvisorWidgetMixin:
         for row, issue in enumerate(issues):
             table.insertRow(row)
             table.setItem(row, 0, qt.QTableWidgetItem(issue.message))
-            table.setItem(row, 1, qt.QTableWidgetItem(_("blocks the search") if issue.severity == "blocking" else _("the search applies this")))
+            table.setItem(row, 1, qt.QTableWidgetItem(_(self._ADVISOR_KIND_TEXT.get(issue.blocks, self._ADVISOR_KIND_TEXT["all"]))))
             if issue.fix_id:
                 button = qt.QPushButton(_(issue.fix_label), table)
                 button.objectName = f"DENTOBOTStep6AdvisorFixButton{row}"
@@ -244,6 +252,7 @@ class Step6AdvisorWidgetMixin:
         if not issues:
             table.insertRow(0)
             table.setItem(0, 0, qt.QTableWidgetItem(_("No setup issues found.")))
+        table.resizeRowsToContents()  # wrapped Issue/Kind text must not be clipped
 
     def _advisorOnFix(self, fix_id: str) -> None:
         """Operator-initiated fix actions run the same production handlers as their buttons."""
@@ -719,7 +728,7 @@ class Step6AdvisorWidgetMixin:
         box.setIcon(qt.QMessageBox.Question)
         box.setWindowTitle(_("Apply & Save to branch"))
         box.setText(text)
-        confirm = box.addButton(_("Apply & Save"), qt.QMessageBox.YesRole)
+        confirm = box.addButton(_("Apply && Save"), qt.QMessageBox.YesRole)
         cancel = box.addButton(_("Do not save"), qt.QMessageBox.NoRole)
         box.setDefaultButton(cancel)
         box.setEscapeButton(cancel)
@@ -729,7 +738,12 @@ class Step6AdvisorWidgetMixin:
         try:
             session.apply_and_save(acknowledged=items, record=best)
         except (PermissionError, ValueError, RuntimeError) as exc:
-            state["statusLabel"].text = _("Not saved: ") + str(exc)
+            # Refused by apply_and_save's gates. Qt labels treat "&" as a mnemonic marker, so the text is escaped.
+            refusal = (_("Not saved (refused): ") + str(exc)).replace("&", "&&")
+            state["statusLabel"].text = refusal
+            panel = getattr(self, "_robotSimulationPanel", None)
+            if panel is not None:
+                panel.showBranchConfigStatus(refusal, "error")
             return
         state["statusLabel"].text = _("Saved on this branch. Applying it through Restore Branch Step 6 Config…")
         restore_error = ""

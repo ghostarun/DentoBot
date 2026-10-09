@@ -7422,3 +7422,32 @@ def test_candidate_ranking_truncation_does_not_replay_the_accepted_prefix():
     final = source[source.index("# Operator policy 2b (2026-10-02) also applies to the final"):]
     final = final[:final.index("if shortened is not None:")]
     assert "revalidate" not in final  # final composed chain keeps the full re-validation
+
+
+def test_a_successful_61_scene_sync_records_the_matched_scene_status():
+    """S6-ADVISOR-GUI-01 F2: a successful 6.1 sync records the scene gate's real comparison (not 'not checked')."""
+    import DENTORobotWorkflowFacade as module
+    from types import SimpleNamespace
+
+    facade, parameter_node, logic, bridge = make_facade()
+    module.STEP6_SCENE_RESYNC_WAIT_SEC, saved_wait = 0.0, module.STEP6_SCENE_RESYNC_WAIT_SEC
+    try:
+        assert facade.lastMoveItSceneStatus is None  # before any gate run the advisor reads 'not checked'
+        logic.isRos2MotionControlActive = lambda transform: True
+        logic.taskHomeFreshnessIssues = lambda node: ("Task Home not revalidated in this fake",)
+        logic.collisionSceneAuditRecord = lambda node: SimpleNamespace(
+            object_records=[{"outgoing_collision_object_id": "t31", "outgoing_bounds_base_link_mm": [0, 1, 0, 1, 0, 1]}],
+            audit_fingerprint="audit-1", runtime_acknowledgement={"status": "Acknowledged"})
+        logic.syncStep6MoveItPlanningScene = lambda node: 1
+        bridge.read_moveit_world_object_bounds = lambda: (True, "1 object", [{"id": "t31", "bounds_mm": [0, 1, 0, 1, 0, 1]}])
+        result = facade.syncPlanningScene()
+        assert result.success, result.message
+        assert facade.lastMoveItSceneStatus["state"] == "matched"
+        assert facade.lastMoveItSceneStatus["comparison"]["matches"] is True
+
+        bridge.read_moveit_world_object_bounds = lambda: (True, "1 object", [{"id": "t31", "bounds_mm": [5, 6, 0, 1, 0, 1]}])
+        result = facade.syncPlanningScene()
+        assert result.success  # the sync itself succeeded; the status must not claim a match
+        assert facade.lastMoveItSceneStatus["state"] != "matched" and facade.lastMoveItSceneStatus["refuse"] is True
+    finally:
+        module.STEP6_SCENE_RESYNC_WAIT_SEC = saved_wait

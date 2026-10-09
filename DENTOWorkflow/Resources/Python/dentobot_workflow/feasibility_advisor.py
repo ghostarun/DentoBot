@@ -406,11 +406,18 @@ def advisory_lever_texts(cause_class: str) -> tuple:
     return tuple(text for _lever_id, text in CAUSE_CLASS_ADVISORY.get(cause_class, ()))
 
 
-def baseline_state(opening_mm: float) -> dict:
-    """Saved Base, default barrier and policy, no allowance, at ``opening_mm``."""
+def policy_values(policy: Mapping | None = None) -> dict:
+    """The three planning-policy fields of ``policy`` (the captured production policy), else ``DEFAULT_POLICY``."""
+    source = DEFAULT_POLICY if policy is None else policy
+    return {PLANNER_ID: str(source[PLANNER_ID]), PLANNING_ATTEMPTS: int(source[PLANNING_ATTEMPTS]),
+            PLANNING_TIME_SEC: float(source[PLANNING_TIME_SEC])}
+
+
+def baseline_state(opening_mm: float, policy: Mapping | None = None) -> dict:
+    """Saved Base, default barrier and planning policy (``policy`` or ``DEFAULT_POLICY``), no allowance, at ``opening_mm``."""
     return {
         MOUTH_OPENING_MM: float(opening_mm), BASE_U_MM: 0.0, BASE_V_MM: 0.0, BASE_DEPTH_MM: 0.0,
-        BASE_YAW_DEG: 0.0, **DEFAULT_BARRIER, **DEFAULT_POLICY, CORRIDOR_MARGIN_SAMPLES: 0,
+        BASE_YAW_DEG: 0.0, **DEFAULT_BARRIER, **policy_values(policy), CORRIDOR_MARGIN_SAMPLES: 0,
         SPINDLE_TEMPLATE_ALLOWANCE: False,
     }
 
@@ -476,8 +483,11 @@ def ordered_candidates(baseline: Mapping, limits: OrderedLimits = OrderedLimits(
 
 
 def state_violations(state: Mapping, baseline_opening_mm: float, limits: OrderedLimits = OrderedLimits(),
-                     *, expected_corridor_margin_samples: int = 0) -> list:
-    """Reasons a candidate state is outside the approved search (empty when valid)."""
+                     *, expected_corridor_margin_samples: int = 0, policy: Mapping | None = None) -> list:
+    """Reasons a candidate state is outside the approved search (empty when valid).
+
+    ``policy`` is the planning policy captured for this search (``DEFAULT_POLICY`` when None).
+    """
     issues = []
     if str(state.get(BARRIER_EDGE_MODE)) != DEFAULT_BARRIER[BARRIER_EDGE_MODE]:
         issues.append(f"mouth barrier edge mode must stay {DEFAULT_BARRIER[BARRIER_EDGE_MODE]!r} (barrier never disabled)")
@@ -490,7 +500,7 @@ def state_violations(state: Mapping, baseline_opening_mm: float, limits: Ordered
         issues.append("spindle-template allowance must be OFF")
     if int(state.get(CORRIDOR_MARGIN_SAMPLES, 0) or 0) != int(expected_corridor_margin_samples):
         issues.append("corridor margin differs from the captured immutable guard setting")
-    for key, value in DEFAULT_POLICY.items():
+    for key, value in policy_values(policy).items():
         if state.get(key) != value:
             issues.append(f"planning policy {key}={state.get(key)!r} differs from {value!r}")
     opening = float(state.get(MOUTH_OPENING_MM, -1.0))
@@ -811,7 +821,8 @@ def untested_summary(records: Sequence[Mapping], baseline: Mapping, limits: Orde
 
 
 def ordered_report_markdown(baseline: Mapping, records: Sequence[Mapping], limits: OrderedLimits = OrderedLimits(),
-                            *, extra_untested: Sequence[Mapping] = (), notes: Sequence[str] = ()) -> str:
+                            *, extra_untested: Sequence[Mapping] = (), notes: Sequence[str] = (),
+                            policy: Mapping | None = None, policy_source: str = "") -> str:
     lines = [
         "# Feasibility Advisor — ordered search report",
         "",
@@ -820,7 +831,8 @@ def ordered_report_markdown(baseline: Mapping, records: Sequence[Mapping], limit
         "",
         f"**Order:** {' → '.join(STAGE_ORDER)} · **Baseline:** `{state_key(baseline)}`",
         f"**Fixed:** barrier {DEFAULT_BARRIER} (never disabled), corridor minimum {limits.corridor_minimum_mm} mm, "
-        f"policy {DEFAULT_POLICY}, spindle-template allowance OFF",
+        f"planning policy {policy_values(policy)} ({policy_source or 'feasibility_advisor.DEFAULT_POLICY'}), "
+        "spindle-template allowance OFF",
         "",
         "| # | Stage | Change | Result | Failed step | Reason | Pairs | Corridor mm | Identity | Evidence |",
         "|---|---|---|---|---|---|---|---|---|---|",

@@ -4794,6 +4794,15 @@ class DENTORobotWorkflowFacade:
             audit = self._logic.collisionSceneAuditRecord(parameter_node)
             self._planning_scene_object_count = count
             self._planning_scene_synchronized = True
+            # Record the scene gate's outcome (one real MoveIt comparison) so lastMoveItSceneStatus,
+            # the 6.1 badge and the advisor setup check reflect this sync instead of "not checked".
+            try:
+                self.ensureMoveItSceneMatches()
+            except (RuntimeError, ValueError, TypeError, OSError) as exc:
+                self._last_moveit_scene_status = {
+                    "state": "unreadable", "refuse": True, "comparison": None,
+                    "message": "MoveIt scene could not be read after the sync: " + str(exc)[:200],
+                }
             if not self.taskHomeRuntimeValidated(parameter_node):
                 self._runtime_validated_workspace_key = ""
             return RobotActionResult(

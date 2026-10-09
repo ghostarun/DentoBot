@@ -1,6 +1,7 @@
 """Step 6 Feasibility Advisor GUI lifecycle and safety wiring checks."""
 
 import ast
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -26,6 +27,7 @@ METHODS = {
     "_advisorEnterPause",
     "_advisorOnContinue",
     "_advisorFinish",
+    "_advisorShowSetup",
 }
 
 
@@ -44,9 +46,10 @@ def _load_gui_methods():
     tree = ast.parse(GUI_PATH.read_text(encoding="utf-8"))
     source_class = next(node for node in tree.body if isinstance(node, ast.ClassDef)
                         and node.name == "Step6AdvisorWidgetMixin")
-    body = [node for node in source_class.body if isinstance(node, ast.FunctionDef)
-            and node.name in METHODS]
-    assert {node.name for node in body} == METHODS
+    body = [node for node in source_class.body if (isinstance(node, ast.FunctionDef) and node.name in METHODS)
+            or (isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_ADVISOR_KIND_TEXT"
+                                                     for t in node.targets))]
+    assert {node.name for node in body if isinstance(node, ast.FunctionDef)} == METHODS
 
     class FakeMessageBox:
         Question = 1
@@ -83,8 +86,14 @@ def _load_gui_methods():
 
         def clickedButton(self):
             if self.auto_confirm:
-                return next(button for button in self.buttons if button.text == "Apply & Save")
+                return next(button for button in self.buttons if button.text == "Apply && Save")
             return None
+
+    class FakePushButton:
+        def __init__(self, text="", parent=None):
+            self.text = text
+            self.enabled = True
+            self.clicked = SimpleNamespace(connect=lambda handler: None)
 
     class FakeQTimer:
         def __init__(self):
@@ -111,7 +120,8 @@ def _load_gui_methods():
         ),
         "advisor_home": SimpleNamespace(CONSENT_TEXT=CONSENT_TEXT),
         "step6_working_config": SimpleNamespace(normalize=lambda value: value),
-        "qt": SimpleNamespace(QMessageBox=FakeMessageBox, QTimer=FakeQTimer),
+        "qt": SimpleNamespace(QMessageBox=FakeMessageBox, QTimer=FakeQTimer,
+                              QTableWidgetItem=lambda text: SimpleNamespace(text=text), QPushButton=FakePushButton),
     }
     module = ast.fix_missing_locations(ast.Module(
         body=[ast.ClassDef(name="GuiMixin", bases=[], keywords=[], body=body, decorator_list=[])],
@@ -735,3 +745,95 @@ def test_close_is_disabled_while_a_search_runs_or_is_paused():
         state = AdvisorHost(ScriptedSession(), mode=mode)._advisorState
         assert state["closeButton"].enabled is False, mode
     assert AdvisorHost(ScriptedSession(), mode="idle")._advisorState["closeButton"].enabled is True
+
+
+class RefusingSession(ApplySession):
+    def apply_and_save(self, **kwargs):
+        raise PermissionError("Apply & Save refused because the original input identity is not current: "
+                              "safe input identity unavailable")
+
+
+def test_refused_apply_and_save_is_shown_in_the_dialog_and_on_the_branch_status():
+    widget = ApplyWidget(True)
+    widget._advisorState["session"] = RefusingSession()
+    widget._advisorOnApplyAndSave()
+    state = widget._advisorState
+    assert state["statusLabel"].text.startswith("Not saved (refused): ")
+    assert "Apply && Save refused" in state["statusLabel"].text  # escaped: a lone & is a Qt mnemonic marker
+    assert widget._robotSimulationPanel.errors[-1] == (state["statusLabel"].text, "error")
+    assert state["configurationApplied"] is False and state["restoreFailed"] is False
+
+
+def test_advisor_ui_strings_escape_the_qt_mnemonic_ampersand():
+    tree = ast.parse(GUI_PATH.read_text(encoding="utf-8"))
+    skipped = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef)) and node.body and isinstance(node.body[0], ast.Expr):
+            skipped.add(id(node.body[0].value))  # docstrings are not widget text
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "setWindowTitle":
+            skipped.update(id(child) for child in ast.walk(node))  # window titles take no mnemonic
+    lone = [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            and id(node) not in skipped and len(node.value) > 3 and re.search(r"(?<!&)&(?!&)", node.value)]
+    assert not lone, lone
+    assert '_("Apply && Save to branch")' in GUI_PATH.read_text(encoding="utf-8")
+    panel = (PY / "DENTORobotSimulationPanel.py").read_text(encoding="utf-8")
+    assert "Apply && Save retains" in panel and "Apply & Save retains" not in panel  # 6.3 button tooltip
+
+
+class FakeSetupTable:
+    def __init__(self):
+        self.rows = 0
+        self.items = {}
+        self.widgets = {}
+
+    def setRowCount(self, value):
+        self.rows = value
+        self.items.clear()
+        self.widgets.clear()
+
+    def insertRow(self, row):
+        self.rows += 1
+
+    def setItem(self, row, column, item):
+        self.items[(row, column)] = item
+
+    def setCellWidget(self, row, column, widget):
+        self.widgets[(row, column)] = widget
+
+    def resizeRowsToContents(self):
+        self.resized = True
+
+
+class SetupWidget(GuiMixin):
+    def __init__(self):
+        self._workflowActionBusy = False
+        self._advisorState = {"setupTable": FakeSetupTable(), "running": False, "fixButtons": []}
+
+
+def test_setup_kind_column_states_what_each_row_blocks():
+    rows = [
+        SimpleNamespace(message="ROS/MoveIt is not connected.", severity="blocking", blocks="all",
+                        fix_id="connect", fix_label="Connect"),
+        SimpleNamespace(message="stale task confirmation: Confirm the task", severity="advisory",
+                        blocks="consent_apply", fix_id="goto_6_3", fix_label="Confirm"),
+        SimpleNamespace(message="MoveIt scene does not match Slicer (not checked): ", severity="advisory",
+                        blocks="auto", fix_id="sync_scene", fix_label="Sync"),
+        SimpleNamespace(message="collision audit: stale", severity="advisory", blocks="passes", fix_id="",
+                        fix_label=""),
+    ]
+    widget = SetupWidget()
+    widget._advisorShowSetup(rows)
+    table = widget._advisorState["setupTable"]
+    kinds = [table.items[(row, 1)].text for row in range(len(rows))]
+    assert kinds == [
+        "Blocks all: Start (with or without consent) and Apply",
+        "Blocks consent search and Apply (Start without consent still runs)",
+        "Search fixes this automatically (checked for each candidate)",
+        "Blocks every candidate until fixed (the search cannot fix it)",
+    ]
+    assert "the search applies this" not in kinds and "blocks the search" not in kinds
+
+
+def test_setup_kind_column_is_wide_enough_and_wraps_in_the_dialog_source():
+    source = ast.get_source_segment(GUI_PATH.read_text(encoding="utf-8"), _dialog_build_source())
+    assert "setColumnWidth(1, 300)" in source and "wordWrap = True" in source
