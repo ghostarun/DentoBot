@@ -86,6 +86,12 @@
       "static.step6_pycompile",
       "pure.frame_sync",
       "runtime.step6_frame_sync"
+    ],
+    "step6-multi-jaw-stale": [
+      "static.git_diff_check",
+      "static.step6_pycompile",
+      "pure.step6_branch_config",
+      "runtime.step6_multi_jaw_stale"
     ]
   },
   "checks": [
@@ -1174,6 +1180,45 @@
       "entrypoint": "Testing/step6_frame_sync_export.py",
       "command_template": "Only under a separately approved, serialized simulation session, choose a de-identified source case copy and fresh data/dentobot-runs/YYYY-MM-DD/S6-FRAME-SYNC-01-<UTC-start>/ directory. First invoke test_DENTOWorkflowFrameSyncKnownTransforms in a separate offline Slicer fixture session with DENTOBOT_FRAME_SYNC_FIXTURE and DENTOBOT_FRAME_SYNC_EVIDENCE_DIR configured; it loads an isolated scene, never the operator's live scene. Then use production owners to establish the reviewed upper and lower targets at at least two distinct openings each, a Base translation/yaw, branch switch and save/reopen. Do not automate acceptance or motion. In each unchanged acknowledged case state: export_scene(namespace, case_dir/'slicer-export'); read-only python3 Testing/moveit_scene_dump.py --out <fresh case_dir/native-dump> in the sourced domain-73 container; analyse_scene(native_dump, slicer_export); kinematics_rows(namespace, states) with explicit SI states preentry, entry, drilling_end; collision_agreement({...namespace, 'acm': captured acm.json, 'scene_snapshot': captured scene-dump.json, 'phase': state_name}, joints, source_bodies(namespace)) per state. Save full returned JSON, explicit joint vectors, case/branch/target/opening/Base identity, source/code/native hashes and matched-state visuals under that case_dir. Bodies must include template, lip slab, cheek walls, selected target and neighbours, with exact audit IDs. Capture identities before/after and refuse changed scene inputs. No launch or command in this entry is authorized by matrix selection alone. Stop at every GUI result for Tarun's verdict and at the first unresolved layer disagreement; no automatic retries or geometry/policy changes. No hardware.",
       "pass_condition": "L3 offline known-transform fixture regression passes; captured coverage proves upper and lower targets, >=2 openings EACH, translated/yawed Base, branch switch and save/reopen. In EVERY case L2 matches EVERY native world object ID, vertex/triangle counts and sampled two-way exact surface Hausdorff <=0.05 mm; no missing, unsupported or skipped object. L4 all preentry/entry/drilling_end rows PASS at existing 0.01 mm / 0.01 degree tolerances. L5 every required link/body pair has complete authoritative same-state validity, current zero padding/unit scale and matching URDF identity, effective ACM and no disagreement, missing/truncated or unexamined contacts; intended terminal burr/target contact explicitly labelled. Retained identities must be stable and matched-state visuals/operator verdict recorded. Otherwise the case is NOT accepted. Agreement is not collision-free motion proof. Native production mesh gate remains deferred phase2."
+    },
+    {
+      "id": "pure.step6_branch_config",
+      "execution_kind": "host_pytest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [
+        "static.git_diff_check"
+      ],
+      "approval": "explain_then_approve",
+      "timeout_sec": 180,
+      "evidence_level": "host_pure",
+      "entrypoint": "Testing/test_step6_branch_restore_base.py",
+      "command_template": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider Testing/test_step6_working_config.py Testing/test_step6_case_load_config.py Testing/test_step6_jaw_stale.py Testing/test_step6_branch_restore_base.py Testing/test_step6_branch_switch_probe.py Testing/test_verification_matrix.py",
+      "pass_condition": "exit_code_zero; per-branch working-configuration records round-trip and bind to their branch; Yes on the restore dialog applies the opening, planning policy and Task Home staging through the production owners against a real transform and parameter-node model; a Base that needs a loaded robot stays pending with its next action (never unlocked or staged) and the restore is not reported as successful; case-load restore connects only after a successful restore; the read-only branch probe names every per-branch change and never calls a mutating owner. Synthetic fakes plus the real facade only; no Slicer, ROS, MoveIt or motion."
+    },
+    {
+      "id": "runtime.step6_multi_jaw_stale",
+      "execution_kind": "slicer_ros_moveit_headed",
+      "parallel_safe": false,
+      "resources": [
+        "docker:dentobot-slicerros2",
+        "ros_domain:73",
+        "slicer_process",
+        "mrml_scene",
+        "display"
+      ],
+      "depends_on": [
+        "static.step6_pycompile",
+        "static.git_diff_check",
+        "pure.step6_branch_config",
+        "build.slicer_ros2_if_changed"
+      ],
+      "approval": "explicit_runtime_approval",
+      "timeout_sec": 1800,
+      "evidence_level": "simulation_runtime_headed",
+      "entrypoint": "Testing/step6_branch_switch_probe.py",
+      "command_template": "Only under a separately approved, serialized headed session (one Slicer in container dentobot-slicerros2, ROS domain 73, one display). Work on a fresh copy of a reviewed case under data/dentobot-runs/YYYY-MM-DD/S6-MULTI-JAW-STALE-01-<UTC-start>/ with a run-local TMPDIR; never write the source case. Drive only production controls through the session driver (Testing/step6_session_driver.py, ASCII command scripts): (1) Step A: a case load that lands in Step 6 restores and connects only after a successful restore, with Task Home staged only; (2) a manual Import from 6.0 never connects; (3) select each lower and upper PreparedBranch through the production selector and press Import. The restore dialog's Yes applies the opening, planning policy and Task Home staging; the saved Base is accepted only with the ROS robot or local fallback loaded. Load / Reuse Robot before Yes when the saved Base differs. If Yes came first, the status reads 'Partly restored ... Saved Base is NOT applied yet': press Load / Reuse Robot, then Restore Branch Step 6 Config again. If it reads 'The Base is not accepted yet': press Accept Base only after the live origin equals the saved origin (the G4 guard). Expect 'Restored:' and a successful restore before connecting. (4) change the mouth opening on a lower-jaw branch through the production opening control and Apply, then return; (5) save the case to a new path, reopen it, and repeat (3) for one branch. Call Testing/step6_branch_switch_probe.capture_branch_switch_state(widget, label=...) before and after every step, write each capture with write_state() under the run directory, and compare consecutive captures with diff_branch_states(). Stop at the first unexpected modal, the first failed assertion, and every GUI result for the operator's verdict. No Task Home acceptance, no motion command, no hardware. Matrix selection alone authorizes nothing.",
+      "pass_condition": "exit_code_zero; after an opening change on a lower-jaw branch and after switching between lower and upper branches, branches_not_current is empty for every branch that was Current and the selected branch is VALID with no 4C/5C stale reason; each branch's stored digest (opening, Base, planning policy, Task Home) is unchanged across switching and save/reopen; a restore changes only the fields its diff names, applies the Base only with the robot loaded (otherwise the status names the pending Base and the next action, and the restore is not reported as successful), stages Task Home without accepting it, and never moves the robot; Import is blocked while ROS is connected and Disconnect works after reopen; Step A auto-connect fires only for a case load that lands in Step 6 after a successful restore; every probe diff is explained by an intended production action; upper and lower targets are each covered at two openings; the operator verdict is recorded. Not clinical acceptance."
     },
     {
       "id": "pure.step6_advisor_session_host",
