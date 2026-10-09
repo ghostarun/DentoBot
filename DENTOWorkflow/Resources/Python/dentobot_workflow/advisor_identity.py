@@ -299,3 +299,29 @@ class AdvisorIdentityMixin:
                 "fallback feasibility_advisor.DEFAULT_POLICY (facade planning policy unavailable: "
                 + str(exc)[:160] + ")")
         return policy, "facade DENTORobotWorkflowFacade.jointPlanningPolicy() at search start"
+
+    # ---- unconfirmed restoration (S6-ADVISOR-GUI-01 F7) ---------------------------------------------
+    def _unconfirmed_restore_reason(self) -> str:
+        getter = getattr(self.facade, "advisorRestoreUnconfirmed", None)
+        return str(getter() or "") if callable(getter) else ""
+
+    def _restore_is_current(self) -> bool:
+        """True only when the Base is locked, Task Home is validated against it and the task is confirmed again."""
+        node, logic = self.node, self.logic
+        return bool(
+            node.robotBaseMountLocked
+            and not logic.taskHomeFreshnessIssues(node)
+            and not self.facade.taskHomeValidationGap(node)
+            and not logic.confirmedTaskFreshnessIssues(node)
+        )
+
+    def _record_restore_outcome(self) -> None:
+        """An unconfirmed restore is recorded on the facade, so a closed and reopened advisor still blocks."""
+        if self.restore_issues:
+            setter = getattr(self.facade, "setAdvisorRestoreUnconfirmed", None)
+            if callable(setter):
+                setter("; ".join(self.restore_issues)[:400])
+        else:
+            clearer = getattr(self.facade, "clearAdvisorRestoreUnconfirmed", None)
+            if callable(clearer):
+                clearer()

@@ -40,6 +40,9 @@ class Step6AdvisorWidgetMixin:
         self._advisorNewSession()
         self._advisorBuildDialog()
         self._advisorShowSetup()
+        latch = self._advisorRestoreLatch()
+        if latch:  # an unconfirmed restore survives close and reopen (F7)
+            self._advisorShowRestoreUnconfirmed(latch)
         self._advisorState["dialog"].show()
 
     def _advisorNewSession(self) -> None:
@@ -545,6 +548,17 @@ class Step6AdvisorWidgetMixin:
                   "plan from this state; use Restore Branch Step 6 Config.")
             )
 
+    def _advisorRestoreLatch(self) -> str:
+        getter = getattr(getattr(self, "_robotWorkflowFacade", None), "advisorRestoreUnconfirmed", None)
+        return str(getter() or "") if callable(getter) else ""
+
+    def _advisorShowRestoreUnconfirmed(self, message: str) -> None:
+        state = self._advisorState
+        state["restoreFailed"] = True
+        state["statusLabel"].text = message
+        state["stagedLabel"].text = _("Baseline restoration is not confirmed. A candidate cannot be applied from this session.")
+        self._advisorSetButtons("restore_failed")
+
     def _advisorReportRestoreUnconfirmed(self, message: str) -> None:
         state = getattr(self, "_advisorState", None)
         if not state:
@@ -565,6 +579,14 @@ class Step6AdvisorWidgetMixin:
         if panel is not None:
             panel.showBranchConfigStatus(message, "error")
         self._updateStep6PlanningUi(message, error=True)
+        facade = getattr(self, "_robotWorkflowFacade", None)
+        setter = getattr(facade, "setAdvisorRestoreUnconfirmed", None)
+        if callable(setter):
+            setter(message)
+        try:
+            self._advisorShowSetup()  # the table shows the live blockers, not a stale "no issues"
+        except Exception:
+            pass
 
     def _advisorAskGate(self, event) -> bool:
         """Explicit review gate before the first candidate of a clinically sensitive stage."""

@@ -87,6 +87,7 @@ class World:
                  disconnect_drops_connection=False, full_identity=True, landmarks_present=True,
                  landmark_points=LANDMARK_POINTS):
         self.calls = []
+        self.restore_latch = ""  # the facade's unconfirmed-restore reason (F7)
         self.landmarks_present = landmarks_present  # False: no Step 6 case jaw landmarks node exists
         self.landmark_points = tuple(landmark_points)
         self.opening = opening
@@ -272,6 +273,15 @@ class World:
             @property
             def lastMoveItSceneStatus(self):
                 return w.last_scene_status
+
+            def advisorRestoreUnconfirmed(self):
+                return w.restore_latch
+
+            def setAdvisorRestoreUnconfirmed(self, reason):
+                w.restore_latch = str(reason)
+
+            def clearAdvisorRestoreUnconfirmed(self):
+                w.restore_latch = ""
 
             def taskHomeValidationGap(self, node):
                 if w.home_stale:
@@ -1516,3 +1526,54 @@ def test_setup_rows_state_what_they_block_from_the_gate_that_reads_them(tmp_path
     world.last_scene_status = {"state": "mismatch"}
     scene = [i for i in session(world, tmp_path / "scene").setup_report() if "MoveIt scene" in i.message]
     assert len(scene) == 1 and scene[0].blocks == "auto"
+
+
+# S6-ADVISOR-GUI-01 F7: an unconfirmed restore stays a blocking setup row across close and reopen.
+NOT_CONFIRMED = "Baseline restoration was not confirmed after the last advisor search: "
+
+
+def _latch_rows(issues):
+    return [issue for issue in issues if issue.message.startswith(NOT_CONFIRMED)]
+
+
+def test_an_unconfirmed_restore_stays_a_blocking_row_across_close_and_reopen(tmp_path):
+    world = World()
+    world.home_stale = True  # the Base was moved and Task Home is not current against it
+    s = session(world, tmp_path)
+    s.restore_issues = ["apply_base: Base identity was not reinstated: The reinstated Base does not match the captured Base identity."]
+    s._record_restore_outcome()
+    assert "not reinstated" in world.restore_latch
+    reopened = session(world, tmp_path)  # the advisor was closed and reopened over the same facade
+    rows = _latch_rows(reopened.setup_report())
+    assert len(rows) == 1 and rows[0].severity == "blocking" and rows[0].blocks == "all"
+    assert rows[0].fix_id == "goto_6_1" and "not reinstated" in rows[0].message
+    reopened.prepare()
+    assert reopened.phase == svc.DONE and reopened.outcome == svc.BLOCKED  # the search and Apply stay refused
+
+
+def test_the_unconfirmed_restore_row_clears_only_when_base_home_and_confirmation_are_current(tmp_path):
+    world = World()
+    world.home_stale = True
+    s = session(world, tmp_path)
+    s.restore_issues = ["apply_base: Base identity was not reinstated."]
+    s._record_restore_outcome()
+    assert _latch_rows(session(world, tmp_path).setup_report())
+    world.home_stale = False  # Task Home is validated against the Base again
+    assert not _latch_rows(session(world, tmp_path).setup_report())
+    assert world.restore_latch == ""
+
+
+def test_a_confirmed_restore_clears_the_recorded_latch(tmp_path):
+    world = World()
+    world.restore_latch = "apply_base: stale from an earlier attempt"
+    s = session(world, tmp_path)
+    s.restore_issues = []
+    s._record_restore_outcome()
+    assert world.restore_latch == ""
+
+
+def test_the_advisor_dialog_reads_the_unconfirmed_restore_latch_and_refreshes_its_setup_table():
+    source = (PYTHON / "dentobot_workflow" / "widget_step6_advisor.py").read_text(encoding="utf-8")
+    assert "latch = self._advisorRestoreLatch()" in source and "self._advisorShowRestoreUnconfirmed(latch)" in source
+    assert "setAdvisorRestoreUnconfirmed" in source
+    assert "self._advisorShowSetup()  # the table shows the live blockers" in source

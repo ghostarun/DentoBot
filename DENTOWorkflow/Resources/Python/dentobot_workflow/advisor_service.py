@@ -577,6 +577,12 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                 issues.append(SetupIssue("Apply & Save to branch and checkpoint reuse need a complete input identity: " + reason,
                                          severity="advisory", blocks="consent_apply", fix_id=fix[0] if fix else "",
                                          fix_label=fix[1] if fix else ""))
+        reason = self._unconfirmed_restore_reason()
+        if reason and self._restore_is_current():
+            self.facade.clearAdvisorRestoreUnconfirmed()
+        elif reason:
+            fix = ("goto_6_2", "Go to 6.2: review and accept Task Home") if "task home" in reason.lower() else ("goto_6_1", "Go to 6.1: review and accept the Base")
+            issues.insert(0, SetupIssue("Baseline restoration was not confirmed after the last advisor search: " + reason + " The search and Apply stay blocked until the Base, Task Home and task confirmation are current.", severity="blocking", blocks="all", fix_id=fix[0], fix_label=fix[1]))
         return issues
 
     # ---- lifecycle --------------------------------------------------------------
@@ -648,7 +654,6 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
 
     def cancel(self) -> None:
         """Request cancellation; takes effect at the next ``step()`` (never mid-step)."""
-
         if self.phase not in (DONE, RESTORING):
             self._cancel_requested = True
 
@@ -1097,6 +1102,10 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
             result = facade.reinstateManualBaseIdentity(snapshot)
             current.observed["base_accept"] = [bool(result.success), str(result.code), str(result.message)[:300]]
             if not result.success:
+                trace = list((result.details or {}).get("base_identity_trace") or [])
+                if trace:  # evidence only: where the fingerprint inputs stopped matching the captured identity
+                    current.observed["base_identity_trace"] = trace
+                    self._write(self.root, "restore-base-identity-trace.json", trace)
                 raise RuntimeError("Base identity was not reinstated: " + str(result.message)[:200])
             if self._home is not None:
                 self._home_stale_by_us = True  # consent ON: the saved Home is still revalidated at the restore Home step
@@ -1472,6 +1481,7 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                             self.restore_issues.append("original input identity changed: " + reason[:300])
             except Exception as exc:  # recorded, never hidden
                 self.restore_issues.append(f"restore check could not run: {exc}"[:300])
+        self._record_restore_outcome()
         self.phase = DONE
         if self._home is not None and self._home.ledger:
             done = [e for e in self._home.ledger if e["outcome"] == "validated"]

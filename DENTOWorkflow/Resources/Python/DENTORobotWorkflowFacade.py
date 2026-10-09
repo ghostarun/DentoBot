@@ -470,6 +470,8 @@ class DENTORobotWorkflowFacade:
         self._manual_base_review_failure: Optional[dict[str, object]] = None
         self._manual_base_acceptance_uncertain = ""
         self._manual_base_acceptance_in_progress = False
+        # Advisor restore not confirmed (S6-ADVISOR-GUI-01 F7): keeps blocking the advisor across close and reopen.
+        self._advisor_restore_unconfirmed = ""
         self._manual_task_home_review: Optional[dict[str, object]] = None
         self._manual_task_home_review_failure: Optional[dict[str, object]] = None
         self._manual_task_home_review_status = "review"
@@ -4778,6 +4780,16 @@ class DENTORobotWorkflowFacade:
         except (RuntimeError, ValueError, OSError) as exc:
             return RobotActionResult(False, "base_unlock_failed", str(exc))
 
+    def advisorRestoreUnconfirmed(self) -> str:
+        """The reason an advisor baseline restoration is not confirmed ("" when none); read by every advisor dialog."""
+        return str(self._advisor_restore_unconfirmed or "")
+
+    def setAdvisorRestoreUnconfirmed(self, reason: str) -> None:
+        self._advisor_restore_unconfirmed = str(reason or "")[:400]
+
+    def clearAdvisorRestoreUnconfirmed(self) -> None:
+        self._advisor_restore_unconfirmed = ""
+
     def manualBaseIdentitySnapshot(self) -> dict[str, object]:
         """Read-only capture of the accepted Base identity an advisor restore can reinstate exactly.
 
@@ -4927,7 +4939,11 @@ class DENTORobotWorkflowFacade:
                 unavailable_reason="The Base identity was reinstated, but no complete pre-commit recording identity was available.",
             )
         except (RuntimeError, ValueError, TypeError, OSError, KeyError, AttributeError) as exc:
-            return RobotActionResult(False, "base_identity_reinstate_failed", _bounded_text(exc))
+            # The checkpoint trace shows where the fingerprint inputs stopped matching the captured identity.
+            return RobotActionResult(
+                False, "base_identity_reinstate_failed", _bounded_text(exc),
+                details={"base_identity_trace": list(getattr(exc, "base_identity_trace", None) or [])},
+            )
 
     def syncPlanningScene(self) -> RobotActionResult:
         try:

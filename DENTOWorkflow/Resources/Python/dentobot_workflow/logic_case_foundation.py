@@ -887,6 +887,98 @@ class CaseFoundationLogicMixin:
         self.recordStep6BasePlacementRevision(parameterNode, issued)
         return issued
 
+    def restoreStep6BaseIdentity(self, parameterNode, snapshot) -> None:
+        """Reinstate the exact accepted Base identity captured before an advisor search.
+
+        Only the advisor's exact-restore path calls this, after the production setBasePose owner has put the
+        captured pose back.  It writes the captured lock, status, source, authority, foundation/profile
+        attributes and revision WITHOUT advancing the revision, then refuses unless the resulting Base
+        fingerprint equals the captured one.  Any other pose or binding stays a normal, revision-bumping edit.
+        """
+
+        base_transform = parameterNode.robotBaseTransform
+        if not self.isRobotBaseTransformNode(base_transform):
+            raise ValueError(_("Load the local Step 6 robot before restoring its base."))
+        if not bool(snapshot.get("locked")):
+            raise ValueError(_("The captured Base was not locked; its identity cannot be reinstated."))
+        status = normalize_base_status(str(snapshot.get("status") or ""))
+        if status not in {
+            BasePlacementStatus.PROVISIONAL_LOCKED,
+            BasePlacementStatus.REGISTERED_LOCKED,
+        }:
+            raise ValueError(_("The captured Base status is not a reviewed locked status."))
+        trace = [self._baseIdentityCheckpoint(parameterNode, base_transform, "before-restore-writes")]
+        was_modifying = parameterNode.StartModify()
+        try:
+            parameterNode.robotBaseMountLocked = True
+            parameterNode.step6BasePlacementStatus = status.value
+            parameterNode.step6BasePlacementSource = str(snapshot.get("source") or "")
+            self.recordStep6BasePlacementRevision(parameterNode, int(snapshot["revision"]))
+        finally:
+            parameterNode.EndModify(was_modifying)
+        trace.append(self._baseIdentityCheckpoint(parameterNode, base_transform, "after-lock-block"))
+        base_transform.SetAttribute(
+            self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE,
+            str(snapshot.get("authority") or ""),
+        )
+        base_transform.SetAttribute(
+            "DENTOBOT.CaseFoundationFingerprint",
+            str(snapshot.get("case_foundation_fingerprint") or ""),
+        )
+        base_transform.SetAttribute(
+            "DENTOBOT.RobotProfileFingerprint",
+            str(snapshot.get("robot_profile_fingerprint") or ""),
+        )
+        base_transform.SetAttribute(
+            "DENTOBOT.PlacementWarning",
+            str(snapshot.get("placement_warning") or "") or None,
+        )
+        trace.append(self._baseIdentityCheckpoint(parameterNode, base_transform, "after-attribute-writes"))
+        self._applyRobotBaseMountInteractionState(parameterNode, True)
+        trace.append(self._baseIdentityCheckpoint(parameterNode, base_transform, "after-interaction-state"))
+        if self.robotBaseFingerprint(parameterNode) != str(
+            snapshot.get("base_fingerprint") or ""
+        ):
+            trace.append(self._baseIdentityCheckpoint(parameterNode, base_transform, "at-fingerprint-check"))
+            error = ValueError(
+                _("The reinstated Base does not match the captured Base identity.")
+                + " " + self._baseIdentityDifferences(parameterNode, base_transform, snapshot)
+            )
+            error.base_identity_trace = trace
+            raise error
+
+    def _baseIdentityCheckpoint(self, parameterNode, base_transform, label: str) -> dict:
+        """Read-only snapshot of every field the Base fingerprint hashes, for the restore trace."""
+        matrix = self._worldMatrixFromTransform(base_transform)
+        return {
+            "label": label,
+            "locked": bool(parameterNode.robotBaseMountLocked),
+            "status": str(normalize_base_status(parameterNode.step6BasePlacementStatus).value),
+            "source": str(parameterNode.step6BasePlacementSource or ""),
+            "revision": int(parameterNode.step6BasePlacementRevision),
+            "authority": str(base_transform.GetAttribute(self.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE) or ""),
+            "pose_9dp": [round(float(matrix.GetElement(row, column)), 9) for row in range(4) for column in range(4)],
+        }
+
+    def _baseIdentityDifferences(self, parameterNode, base_transform, snapshot) -> str:
+        """Names each hashed field that differs from the captured identity (bounded; for the operator and evidence)."""
+        live = self._baseIdentityCheckpoint(parameterNode, base_transform, "at-fingerprint-check")
+        captured_status = str(normalize_base_status(snapshot.get("status") or "").value)
+        differing = []
+        if live["status"] != captured_status:
+            differing.append(f"status {live['status']} != captured {captured_status}")
+        if live["revision"] != int(snapshot.get("revision") or 0):
+            differing.append(f"sourceRevision {live['revision']} != captured {int(snapshot.get('revision') or 0)}")
+        if live["source"] != str(snapshot.get("source") or ""):
+            differing.append(f"source {live['source']} != captured {snapshot.get('source')}")
+        if live["authority"] != str(snapshot.get("authority") or ""):
+            differing.append(f"authority {live['authority']} != captured {snapshot.get('authority')}")
+        captured_matrix = [round(float(value), 9) for value in (snapshot.get("matrix") or [])]
+        moved = sum(1 for a, b in zip(live["pose_9dp"], captured_matrix) if a != b)
+        if len(captured_matrix) != 16 or moved:
+            differing.append(f"pose elements differing at 9 dp: {moved}")
+        return ("Differs: " + "; ".join(differing) + ".") if differing else "All hashed inputs equal the captured values."
+
     def invalidateCaseFoundationBase(self, parameterNode, reason: str) -> None:
         base = parameterNode.robotBaseTransform
         if not self.isRobotBaseTransformNode(base):

@@ -729,7 +729,57 @@ def test_exact_base_identity_restore_refuses_an_unlocked_snapshot_or_a_fingerpri
 _BASE_REVISION_METHODS = (
     "setRobotBaseMountLocked", "robotBaseFingerprint", "robotBasePoseFingerprint", "restoreStep6BaseIdentity",
     "step6BasePlacementRevisionHighWater", "recordStep6BasePlacementRevision", "issueStep6BasePlacementRevision",
+    "_baseIdentityCheckpoint", "_baseIdentityDifferences",
 )
+
+
+class _BaseIdentityDisplay:
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, name):
+        return lambda value: self.calls.append((name, value))
+
+
+def _base_identity_host_with_real_notifications(*, reverter=None):
+    """Like _base_identity_host, but the production interaction-state method is real and every EndModify delivers
+    the parameter notification to ``reverter`` (what an observer that re-derives Base state would do)."""
+
+    functions = _base_owner_functions(_BASE_REVISION_METHODS + ("_applyRobotBaseMountInteractionState",))
+    namespace = _base_owner_namespace()
+    exec(compile(ast.fix_missing_locations(ast.Module(body=functions, type_ignores=[])),
+                 "<base-identity-notify>", "exec"), namespace)
+    base = _BaseIdentityTransform(np.eye(4).tolist())
+    display = _BaseIdentityDisplay()
+    base.GetDisplayNode = lambda: display
+    host = type("BaseIdentityNotifyHost", (), {})()
+    host.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE = "authority"
+    host.ROBOT_BASE_CIRCULAR_SNAP_AUTHORITY = "circular"
+    host.ROBOT_BASE_MANUAL_REVIEWED_AUTHORITY = "ManualSimulationBaseReviewed"
+    host.ROBOT_BASE_MANUAL_UNREVIEWED_AUTHORITY = "ManualSimulationBaseUnreviewed"
+    host.requireCaseFoundationPose = lambda _node: {"planning_pose_fingerprint": "current-pose"}
+    host.isRobotBaseTransformNode = lambda value: value is base
+    host.isRobotMountPlaneNode = lambda _value: False
+    host.robotProfileFingerprint = lambda: "current-profile"
+    host.invalidateStep6TaskConfirmation = lambda *_args: None
+    host._worldMatrixFromTransform = lambda value: value.matrix
+    for name in _BASE_REVISION_METHODS + ("_applyRobotBaseMountInteractionState",):
+        setattr(type(host), name, namespace[name])
+    node = SimpleNamespace(
+        robotBaseTransform=base, robotBaseMountLocked=True, robotMountPlane=None,
+        step6BasePlacementStatus="ProvisionalLocked", step6BasePlacementSource="ManualSimulationBase",
+        step6BasePlacementRevision=37, notifications=[],
+    )
+
+    def end_modify(_old):
+        node.notifications.append("parameter-modified")
+        if reverter is not None:
+            reverter(node, base)
+
+    node.StartModify = lambda: 0
+    node.EndModify = end_modify
+    base.SetAttribute("authority", "ManualSimulationBaseReviewed")
+    return host, node, base, display
 _MOVED_POSE_TWO = [[1.0, 0.0, 0.0, 9.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
 _IDENTITY_POSE = np.eye(4).tolist()
 
@@ -848,3 +898,47 @@ def test_every_base_revision_write_in_production_goes_through_the_high_water_own
         _Visitor(path).visit(ast.parse(path.read_text(encoding="utf-8")))
     assert offenders == []
 
+
+def test_exact_restore_with_the_real_interaction_state_and_notifications_reproduces_the_captured_fingerprint():
+    host, node, base, display = _base_identity_host_with_real_notifications()
+    captured = _base_identity_snapshot(host, node, base)
+    host.setRobotBaseMountLocked(node, False)
+    base.matrix = _BaseIdentityMatrix(_MOVED_POSE)
+    host.setRobotBaseMountLocked(node, True)
+    base.matrix = _BaseIdentityMatrix(np.eye(4).tolist())
+    node.robotBaseMountLocked, node.step6BasePlacementStatus = False, "Unlocked"
+
+    host.restoreStep6BaseIdentity(node, captured)
+
+    assert host.robotBaseFingerprint(node) == captured["base_fingerprint"]
+    assert base.GetAttribute("DENTOBOT.RobotBaseMountLocked") == "true"  # the real interaction state ran
+    assert ("SetEditorVisibility", False) in display.calls
+
+
+def test_a_later_revert_of_status_and_revision_is_refused_with_the_named_fields_and_the_divergence_point():
+    def revert_to_trial_end(node, _base):
+        # What a parameter-notified re-derivation would leave behind: the Base is stale and at the trial's revision.
+        node.robotBaseMountLocked = False
+        node.step6BasePlacementStatus = "Stale"
+        node.step6BasePlacementRevision = 42
+
+    host, node, base, _display = _base_identity_host_with_real_notifications()
+    captured = _base_identity_snapshot(host, node, base)
+    host.setRobotBaseMountLocked(node, False)
+    base.matrix = _BaseIdentityMatrix(_MOVED_POSE)
+    host.setRobotBaseMountLocked(node, True)
+    base.matrix = _BaseIdentityMatrix(np.eye(4).tolist())
+    node.robotBaseMountLocked, node.step6BasePlacementStatus = False, "Unlocked"
+    node.EndModify = lambda _old: (node.notifications.append("parameter-modified"), revert_to_trial_end(node, base))
+
+    with pytest.raises(ValueError, match="does not match") as raised:
+        host.restoreStep6BaseIdentity(node, captured)
+
+    message = str(raised.value)
+    assert "status Stale != captured ProvisionalLocked" in message
+    assert "sourceRevision 42 != captured 37" in message
+    trace = raised.value.base_identity_trace
+    assert [step["label"] for step in trace] == [
+        "before-restore-writes", "after-lock-block", "after-attribute-writes",
+        "after-interaction-state", "at-fingerprint-check"]
+    assert trace[1]["status"] == "Stale" and trace[1]["revision"] == 42  # the revert happened inside the lock block
