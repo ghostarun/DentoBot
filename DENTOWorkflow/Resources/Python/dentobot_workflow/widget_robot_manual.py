@@ -7,7 +7,7 @@ from math import isfinite
 
 from .runtime import *
 from .task_home_gate import format_blockers, task_home_action_blockers
-from .step6_control_reasons import CONTROL_PREREQUISITES, apply_step6_control_tooltips
+from .step6_control_reasons import REFRESH_CONTROLS, annotate_step6_controls
 from .workflow_progress import WorkflowProgress
 
 from DENTOROS2Bridge import (
@@ -84,104 +84,110 @@ class RobotManualWidgetMixin:
                 button.toolTip = (base + "\n\n" if base else "") + "Unavailable: " + why
 
     def _applyStep6ControlReasons(self, refresh: Mapping[str, object]) -> None:
-        """Put the named reason on each registered 6.1/6.3 control that is disabled or hidden.
+        """Put the named reason on each refresh-owned 6.1/6.3 control that is disabled or hidden.
 
         ``refresh`` is the caller's locals at the end of ``_updateStep6PlanningUi``.
-        The flags below restate the gate booleans that block computes, so one
-        table explains every control; the widgets' real enabled/visible states
-        decide which reason is shown.
+        The flags restate the gate booleans the enable block computes, and the
+        widgets' real enabled/visible states decide which reason is shown. The
+        annotation is guarded: a failure is logged and never breaks the refresh.
         """
 
-        g = refresh.get
-        panel = self._robotSimulationPanel
-        facade = self._robotWorkflowFacade
-        parameter = self._parameterNode
-        locked = bool(g("locked"))
-        ros2 = bool(g("ros2_active"))
-        stage = bool(g("robot_stage_active"))
-        review = g("review_result")
-        control = self._manualBaseReviewControlState(
-            bool(g("scene_prepared")), bool(g("robot_present")), locked, review, ros2
-        )
-        staged = bool(g("manual_base_review_staged"))
-        identity = bool(g("manual_base_identity_current"))
-        unknown = bool(g("manual_base_acceptance_unknown"))
-        success = bool(getattr(review, "success", False))
-        branch = g("branchEligibility")
-        home_controls = g("task_home_controls") or {}
-        plan = g("facade_plan")
-        preview = bool(g("preview_active"))
-        away = bool(g("away_from_home"))
-        flags = {
-            "scene_prepared": bool(g("scene_prepared")),
-            "robot_present": bool(g("robot_present")),
-            "base_locked": locked,
-            "base_unlocked": not locked,
-            "base_unlocked_or_recovery": not locked or bool(g("robot_recovery_allowed")),
-            "base_stage_active": stage,
-            "base_stage_idle": not stage,
-            "base_accept_ready": not stage or (staged and identity and not unknown and success),
-            "base_begin_ready": control["begin"],
-            "base_candidate_cancellable": control["cancel"],
-            "base_reconcile_available": control["reconcile"],
-            "base_review_group": control["group"],
-            "base_transform_node": bool(self.logic.isRobotBaseTransformNode(parameter.robotBaseTransform)),
-            "action_idle": not getattr(self, "_workflowActionBusy", False),
-            "ros2_active": ros2,
-            "ros2_inactive": not ros2,
-            "imported": bool(g("imported")),
-            "branch_eligible": bool(branch and branch["eligible"]),
-            "planning_anatomy_ready": bool(g("planning_anatomy_ready")),
-            "home_runtime_validated": bool(g("home_runtime_validated")),
-            "workspace_validated": bool(g("workspace_runtime_validated")),
-            "workspace_validation_pending": not g("workspace_runtime_validated"),
-            "workspace_model_present": bool(self.logic.robotWorkspaceModelNode()),
-            "limit_proposal_present": bool(str(parameter.step6AssistedLimitProposalJson or "").strip()),
-            "limit_review_pending": not g("assisted_reviewed"),
-            "motion_preview_active": bool(
-                getattr(self, "_step6MotionPreviewTimer", None) is not None
-                or bool(facade and facade.previewActive)
-            ),
-            "motion_diagnostic_recorded": bool(str(parameter.step6MotionDiagnosticJson or "").strip()),
-            "planner_comparison_recorded": bool(str(parameter.step6PlannerComparisonJson or "").strip()),
-            "pre_entry_ik_ready": bool(panel is not None and panel.checkPreEntryIKButton.enabled),
-            "template_model_present": parameter.finalPrintableTemplateModel is not None,
-            "historical_template_override_enabled": os.environ.get(
-                "DENTOBOT_ENABLE_HISTORICAL_TEMPLATE_OVERRIDE", ""
-            ) == "1",
-            "anatomy_review_available": bool(
-                (facade and facade.anatomyReviewState.get("exists"))
-                or (g("planning_anatomy_ready") and ros2 and os.environ.get(
-                    "DENTOBOT_ENABLE_HISTORICAL_ANATOMY_REVIEW", ""
-                ) == "1")
-            ),
-            "away_from_home": away,
-            "not_away_from_home": not away,
-            "no_preview_active": not preview,
-            "task_ready": bool(g("task_ready")),
-            "runtime_ready": bool(g("runtime_ready")),
-            "approach_plan_ready": bool(
-                isinstance(plan, PhasePlan) and plan.success
-                and plan.requested_phase == MotionPhase.APPROACH.value
-            ),
-            "drill_plan_ready": bool(
-                isinstance(plan, PhasePlan) and plan.success
-                and plan.requested_phase == MotionPhase.DRILLING.value
-            ),
-            "approach_complete": bool(g("approach_complete")),
-            "drilling_preflight_ready": bool(g("drilling_preflight_ready")),
-            "task_home_cancellable": bool(home_controls.get("cancel")),
-            "task_home_reconcile_available": bool(home_controls.get("reconcile")),
-        }
-        widgets = {}
-        for name in CONTROL_PREREQUISITES:
-            widget = getattr(self.ui, name, None)
-            if widget is None and panel is not None:
-                widget = getattr(panel, name, None)
-            if widget is not None:
-                widgets[name] = widget
-        apply_step6_control_tooltips(
-            widgets, flags, self.__dict__.setdefault("_step6ControlBaseTips", {})
+        def flags():
+            g = refresh.get
+            panel = self._robotSimulationPanel
+            facade = self._robotWorkflowFacade
+            parameter = self._parameterNode
+            locked = bool(g("locked"))
+            ros2 = bool(g("ros2_active"))
+            stage = bool(g("robot_stage_active"))
+            review = g("review_result")
+            control = self._manualBaseReviewControlState(
+                bool(g("scene_prepared")), bool(g("robot_present")), locked, review, ros2
+            )
+            staged = bool(g("manual_base_review_staged"))
+            identity = bool(g("manual_base_identity_current"))
+            unknown = bool(g("manual_base_acceptance_unknown"))
+            success = bool(getattr(review, "success", False))
+            branch = g("branchEligibility")
+            home_controls = g("task_home_controls") or {}
+            plan = g("facade_plan")
+            preview = bool(g("preview_active"))
+            away = bool(g("away_from_home"))
+            return {
+                "scene_prepared": bool(g("scene_prepared")),
+                "robot_present": bool(g("robot_present")),
+                "base_locked": locked,
+                "base_unlocked": not locked,
+                "base_unlocked_or_recovery": not locked or bool(g("robot_recovery_allowed")),
+                "base_stage_active": stage,
+                "base_stage_idle": not stage,
+                "base_accept_ready": not stage or (staged and identity and not unknown and success),
+                "base_begin_ready": control["begin"],
+                "base_candidate_cancellable": control["cancel"],
+                "base_reconcile_available": control["reconcile"],
+                "base_review_group": control["group"],
+                "base_transform_node": bool(self.logic.isRobotBaseTransformNode(parameter.robotBaseTransform)),
+                "action_idle": not getattr(self, "_workflowActionBusy", False),
+                "ros2_active": ros2,
+                "ros2_inactive": not ros2,
+                "imported": bool(g("imported")),
+                "branch_eligible": bool(branch and branch["eligible"]),
+                "planning_anatomy_ready": bool(g("planning_anatomy_ready")),
+                "home_runtime_validated": bool(g("home_runtime_validated")),
+                "workspace_validated": bool(g("workspace_runtime_validated")),
+                "workspace_validation_pending": not g("workspace_runtime_validated"),
+                "workspace_model_present": bool(self.logic.robotWorkspaceModelNode()),
+                "limit_proposal_present": bool(str(parameter.step6AssistedLimitProposalJson or "").strip()),
+                "limit_review_pending": not g("assisted_reviewed"),
+                "motion_preview_active": bool(
+                    getattr(self, "_step6MotionPreviewTimer", None) is not None
+                    or bool(facade and facade.previewActive)
+                ),
+                "motion_diagnostic_recorded": bool(str(parameter.step6MotionDiagnosticJson or "").strip()),
+                "planner_comparison_recorded": bool(str(parameter.step6PlannerComparisonJson or "").strip()),
+                "pre_entry_ik_ready": bool(panel is not None and panel.checkPreEntryIKButton.enabled),
+                "template_model_present": parameter.finalPrintableTemplateModel is not None,
+                "historical_template_override_enabled": os.environ.get(
+                    "DENTOBOT_ENABLE_HISTORICAL_TEMPLATE_OVERRIDE", ""
+                ) == "1",
+                "anatomy_review_available": bool(
+                    (facade and facade.anatomyReviewState.get("exists"))
+                    or (g("planning_anatomy_ready") and ros2 and os.environ.get(
+                        "DENTOBOT_ENABLE_HISTORICAL_ANATOMY_REVIEW", ""
+                    ) == "1")
+                ),
+                "away_from_home": away,
+                "not_away_from_home": not away,
+                "no_preview_active": not preview,
+                "task_ready": bool(g("task_ready")),
+                "runtime_ready": bool(g("runtime_ready")),
+                "approach_plan_ready": bool(
+                    isinstance(plan, PhasePlan) and plan.success
+                    and plan.requested_phase == MotionPhase.APPROACH.value
+                ),
+                "drill_plan_ready": bool(
+                    isinstance(plan, PhasePlan) and plan.success
+                    and plan.requested_phase == MotionPhase.DRILLING.value
+                ),
+                "approach_complete": bool(g("approach_complete")),
+                "drilling_preflight_ready": bool(g("drilling_preflight_ready")),
+                "task_home_cancellable": bool(home_controls.get("cancel")),
+                "task_home_reconcile_available": bool(home_controls.get("reconcile")),
+            }
+
+        def entries():
+            panel = self._robotSimulationPanel
+            pairs = {}
+            for name in REFRESH_CONTROLS:
+                widget = getattr(self.ui, name, None)
+                if widget is None and panel is not None:
+                    widget = getattr(panel, name, None)
+                if widget is not None:
+                    pairs[name] = widget
+            return pairs
+
+        annotate_step6_controls(
+            "6.1 refresh", entries, flags, self.__dict__.setdefault("_step6ControlBaseTips", {})
         )
 
     def _explainTaskHomeActionBlockers(

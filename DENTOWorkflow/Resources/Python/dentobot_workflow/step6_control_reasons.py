@@ -11,7 +11,8 @@ control that is always disabled (retired or quarantined); its text is the reason
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import logging
+from collections.abc import Iterable, Mapping
 
 PREFIX = "Unavailable: "
 _GENERIC = "{name} has no matched prerequisite in the current Step 6 state; report this state."
@@ -42,8 +43,8 @@ _NUDGE_BUTTONS = (
     "robotRyMinusButton", "robotRyPlusButton", "robotRzMinusButton", "robotRzPlusButton",
 )
 
-# control attribute name -> ordered (flag, text) prerequisites
-CONTROL_PREREQUISITES: dict[str, tuple[tuple[str | None, str], ...]] = {
+# Refresh-owned controls (widget_robot*.py _updateStep6PlanningUi): widget attribute -> (flag, text) prerequisites
+REFRESH_CONTROLS: dict[str, tuple[tuple[str | None, str], ...]] = {
     # 6.1 groups and Base buttons (widget_robot.py refresh)
     "step6MountLockGroupBox": (_SCENE,),
     "step6TaskJointLimitsGroupBox": (_SCENE, _ROBOT, _ROS),
@@ -181,6 +182,51 @@ CONTROL_PREREQUISITES: dict[str, tuple[tuple[str | None, str], ...]] = {
     ),
 }
 
+# Advisor-owned controls (widget_step6_advisor.py): "advisor.<state key>" -> prerequisites
+_ADVISOR_NOT_UNAVAILABLE = ("not_unavailable", "This advisor run applied its configuration or its restore did not confirm.")
+_ADVISOR_NOT_BUSY = ("not_busy", "Another Step 6 action is still running; wait for it to finish.")
+ADVISOR_CONTROLS: dict[str, tuple[tuple[str | None, str], ...]] = {
+    "advisor.startButton": (
+        ("idle", "A search is already running, paused or finished; close this run to start another."),
+        _ADVISOR_NOT_UNAVAILABLE, _ADVISOR_NOT_BUSY,
+    ),
+    "advisor.cancelButton": (
+        ("cancellable", "Cancel is available only while a search is running or paused."),
+        ("cancel_not_requested", "Cancellation is already requested; baseline restoration is running."),
+    ),
+    "advisor.consentBox": (
+        ("consent_window", "Consent is asked before a search starts or before Keep searching."),
+        _ADVISOR_NOT_UNAVAILABLE, _ADVISOR_NOT_BUSY,
+    ),
+    "advisor.pauseConnectButton": (
+        ("paused", "Connect ROS + MoveIt (6.1) appears only when the search is paused for a live connection."),
+    ),
+    "advisor.continueButton": (("paused", "Continue appears only when the search is paused."),),
+    "advisor.moreButton": (
+        ("done", "Keep searching is available after a finished search."),
+        ("found", "The finished search found no candidate to continue from."),
+        _ADVISOR_NOT_UNAVAILABLE,
+    ),
+    "advisor.applyButton": (
+        ("done", "Apply & Save needs a finished search."),
+        _ADVISOR_NOT_UNAVAILABLE,
+        ("best_candidate", "Apply & Save needs a passing candidate from the finished search."),
+    ),
+    "advisor.exportButton": (
+        ("not_running", "Export is unavailable while a search runs."),
+        _ADVISOR_NOT_BUSY,
+        ("has_baseline", "Export needs an advisor session with its recorded baseline."),
+    ),
+    "advisor.closeButton": (
+        ("not_active", "Close is unavailable while a search runs or is paused; cancel it first."),
+    ),
+    "advisor.fixButton": (
+        ("fix_idle", "Setup fixes wait until the running or paused search ends."),
+        _ADVISOR_NOT_BUSY,
+    ),
+}
+CONTROL_PREREQUISITES: dict[str, tuple[tuple[str | None, str], ...]] = {**REFRESH_CONTROLS, **ADVISOR_CONTROLS}
+
 # Controls whose reasons come from a dedicated explainer (named in the test).
 EXPLAINED_ELSEWHERE: dict[str, str] = {
     "reviewTaskHomeButton": "setTaskHomeActionBlockers",
@@ -244,23 +290,43 @@ def _own_visible(widget: object) -> bool:
 
 
 def apply_step6_control_tooltips(
-    widgets: Mapping[str, object], flags: Mapping[str, object], base_tips: dict[str, str]
+    entries: Mapping[str, object] | Iterable[tuple[str, object]],
+    flags: Mapping[str, object],
+    base_tips: dict[int, str],
 ) -> dict[str, str]:
     """Append each control's reason to its tooltip; return the reasons written.
 
-    ``base_tips`` remembers the tooltip the widget sets itself, so a refresh that
-    re-assigns the tooltip is not doubled. Only tooltips are written.
+    ``entries`` maps a registry name to a widget, or yields ``(name, widget)``
+    pairs when one name covers several widgets. ``base_tips`` remembers each
+    widget's own tooltip (keyed by ``id``), so a refresh that re-assigns the
+    tooltip is not doubled. Only tooltips are written.
     """
 
+    items = entries.items() if isinstance(entries, Mapping) else entries
     reasons: dict[str, str] = {}
-    for name, widget in widgets.items():
+    for name, widget in items:
+        key = id(widget)
         tip = str(getattr(widget, "toolTip", "") or "")
-        if (PREFIX not in tip) or name not in base_tips:
-            base_tips[name] = tip.partition("\n\n" + PREFIX)[0]
+        if PREFIX not in tip or key not in base_tips:
+            base_tips[key] = tip.partition("\n\n" + PREFIX)[0]
         reason = step6_control_reason(
             name, bool(getattr(widget, "enabled", True)), _own_visible(widget), flags
         )
         reasons[name] = reason
-        base = base_tips[name]
-        widget.toolTip = base + ("\n\n" + reason if reason else "")
+        base = base_tips[key]
+        widget.toolTip = (base + "\n\n" + reason) if (base and reason) else (base or reason)
     return reasons
+
+
+def annotate_step6_controls(label, entries, flags, base_tips: dict[int, str]) -> dict[str, str]:
+    """Run one owner's annotation; a failure is logged and swallowed.
+
+    ``entries()`` and ``flags()`` are called inside the guard, so a missing
+    attribute or a bad branch dict cannot break the Step 6 refresh.
+    """
+
+    try:
+        return apply_step6_control_tooltips(entries(), flags(), base_tips)
+    except Exception:  # an annotation must never break the Step 6 refresh
+        logging.exception("Step 6 control reasons skipped for %s", label)
+        return {}

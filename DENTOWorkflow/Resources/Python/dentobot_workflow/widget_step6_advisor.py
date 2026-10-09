@@ -15,6 +15,7 @@ from .runtime import *
 from . import advisor_home
 from . import advisor_service as advisor
 from . import step6_working_config
+from .step6_control_reasons import ADVISOR_CONTROLS, annotate_step6_controls
 
 
 class Step6AdvisorWidgetMixin:
@@ -204,6 +205,7 @@ class Step6AdvisorWidgetMixin:
         state = getattr(self, "_advisorState", None)
         if not state:
             return
+        state["mode"] = mode
         session = state["session"]
         best = session.best_candidate() if session is not None and session.finished else None
         unavailable = bool(state.get("restoreFailed") or state.get("configurationApplied"))
@@ -232,6 +234,50 @@ class Step6AdvisorWidgetMixin:
               "through the normal Restore owner. Clinically sensitive changes are listed for your confirmation.")
             if best is not None and not unavailable else _("Available only after a passing candidate and confirmed baseline restoration.")
         )
+        self._advisorExplainControls()
+
+    def _advisorExplainControls(self) -> None:
+        """Name why each advisor control is disabled or hidden; annotation only, never raises."""
+
+        state = getattr(self, "_advisorState", None)
+        if not state:
+            return
+
+        def flags():
+            mode = state.get("mode", "idle")
+            session = state.get("session")
+            unavailable = bool(state.get("restoreFailed") or state.get("configurationApplied"))
+            busy = bool(state.get("running") or getattr(self, "_workflowActionBusy", False))
+            best = session.best_candidate() if session is not None and session.finished else None
+            active = mode in ("running", "paused")
+            return {
+                "idle": mode == "idle",
+                "not_unavailable": not unavailable,
+                "not_busy": not busy,
+                "cancellable": active,
+                "cancel_not_requested": not state.get("cancelRequested"),
+                "consent_window": mode in ("idle", "done"),
+                "paused": mode == "paused",
+                "done": mode == "done",
+                "found": session is not None and session.outcome == advisor.FOUND,
+                "best_candidate": best is not None,
+                "not_active": not active,
+                "not_running": mode != "running",
+                "has_baseline": session is not None and bool(session.baseline),
+                "fix_idle": not busy and not active,
+            }
+
+        def entries():
+            pairs = []
+            for name in ADVISOR_CONTROLS:
+                key = name.split(".", 1)[1]
+                widgets = state.get("fixButtons", ()) if key == "fixButton" else (state.get(key),)
+                pairs.extend((name, widget) for widget in widgets if widget is not None)
+            return pairs
+
+        annotate_step6_controls(
+            "advisor", entries, flags, self.__dict__.setdefault("_step6ControlBaseTips", {})
+        )
 
     # ---- setup diagnostics ------------------------------------------------------------------
     def _advisorShowSetup(self, issues=None) -> None:
@@ -256,6 +302,7 @@ class Step6AdvisorWidgetMixin:
             table.insertRow(0)
             table.setItem(0, 0, qt.QTableWidgetItem(_("No setup issues found.")))
         table.resizeRowsToContents()  # wrapped Issue/Kind text must not be clipped
+        self._advisorExplainControls()
 
     def _advisorOnFix(self, fix_id: str) -> None:
         """Operator-initiated fix actions run the same production handlers as their buttons."""
@@ -361,6 +408,7 @@ class Step6AdvisorWidgetMixin:
             return
         state["cancelRequested"] = True
         state["cancelButton"].enabled = False
+        self._advisorExplainControls()
         state["statusLabel"].text = _(
             "Cancellation requested. The current step will finish, then baseline restoration will be attempted…"
         )
@@ -371,6 +419,7 @@ class Step6AdvisorWidgetMixin:
             self._workflowActionBusy = True
             self._advisorSetButtons("running")
             state["cancelButton"].enabled = False
+            self._advisorExplainControls()
             state["timer"].start()
 
     def _advisorOnContinue(self) -> None:
@@ -540,6 +589,7 @@ class Step6AdvisorWidgetMixin:
         ).replace("%1", str(error)[:240])
         self._advisorSetButtons("running")
         state["cancelButton"].enabled = False
+        self._advisorExplainControls()
         if state.get("timer") is not None:
             state["timer"].start()
         else:
