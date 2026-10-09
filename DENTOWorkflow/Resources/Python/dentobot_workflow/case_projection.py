@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import time
+from dataclasses import replace
 
 
 def _clear_future_node_attributes(node, checkpoint_order):
@@ -21,6 +22,36 @@ def _clear_future_node_attributes(node, checkpoint_order):
                 "NotVerified" if attribute == "DENTOBOT.VerificationState" else None)
 
 
+def _replan_restored_projection(source, inspection, digest, source_stat,
+                                saved_inventory, actual_inventory, actual_mapping,
+                                target, checkpoint, branch):
+    """Use the complete restored ownership contract for every destructive step."""
+    from dentobot_case.inspection import inventory_from_inspection
+    from dentobot_case.projection import prepare_projection
+
+    if not actual_inventory["ownershipComplete"]:
+        raise ValueError("Restored ownership audit failed: " + "; ".join(actual_inventory["unknownOwnership"]))
+    saved_mapping = saved_inventory.metadata["projection"]
+    if actual_mapping["parameterNodeId"] != saved_mapping["parameterNodeId"]:
+        raise ValueError("Restored parameter node differs from the saved audit.")
+    if saved_inventory.ownership_complete and any(
+            actual_mapping["nodeOwners"].get(node_id) != owners
+            for node_id, owners in saved_mapping["nodeOwners"].items()):
+        raise ValueError("Restored persistent ownership differs from the saved audit.")
+    extra = set(actual_mapping["nodeOwners"]) - set(saved_mapping["nodeOwners"])
+    if any(actual_mapping["nodeOwners"][node_id] != ["@display"] for node_id in extra):
+        raise ValueError("Restore introduced unaudited persistent geometry or state.")
+
+    audited_workflow = dict(inspection.workflow)
+    audited_workflow["checkpointInventory"] = actual_inventory
+    audited_workflow["projectionOwnership"] = actual_mapping
+    inventory = inventory_from_inspection(
+        source, replace(inspection, workflow=audited_workflow), digest, source_stat,
+    )
+    plan = prepare_projection(inventory, target, checkpoint, branch)
+    return inventory, actual_mapping, plan
+
+
 def _inspect_prefix(source, destination, target, checkpoint, branch):
     from dentobot_case.inspection import inspect_package
     from dentobot_case.projection import prepare_projection
@@ -28,7 +59,7 @@ def _inspect_prefix(source, destination, target, checkpoint, branch):
     if source == destination or (destination.exists() and os.path.samefile(source, destination)):
         raise ValueError("Partial Save As requires a destination distinct from the source.")
     inventory = inspect_package(source)
-    if inventory.ownership_complete:
+    if inventory.ownership_complete and inventory.archive_schema != "3.0":
         prepare_projection(inventory, target, checkpoint, branch)
     elif (inventory.archive_schema != "3.0" or not isinstance(inventory.metadata.get("projection"), dict)):
         raise ValueError("Saved ownership cannot be re-audited for this package schema.")
@@ -148,7 +179,6 @@ def run_offline(request_path):
     from .parameter_state import DENTOWorkflowParameterNode
     import importlib.util
     import sys
-    from dataclasses import replace
 
     started = time.monotonic()
     print("DENTOCASE_PROJECTOR_READY", f"{started:.6f}", flush=True)
@@ -168,9 +198,8 @@ def run_offline(request_path):
             if digest != request["sourceSha256"]:
                 raise ValueError("Source changed after selection.")
             inventory = inventory_from_inspection(source, inspection, digest, after)
-            complete_at_save = inventory.ownership_complete
-            if complete_at_save:
-                plan = prepare_projection(inventory, request["target"], request["checkpoint"], request["branch"])
+            if inventory.ownership_complete and inventory.archive_schema != "3.0":
+                prepare_projection(inventory, request["target"], request["checkpoint"], request["branch"])
             phase("source_preparation")
             if not slicer.util.loadScene(str(scene_path), {"clear": True}):
                 raise ValueError("Source MRB could not be restored.")
@@ -191,28 +220,11 @@ def run_offline(request_path):
             logic = module.DENTOWorkflowLogic()
             logic.validateLoadedCaseBundleWorkflow(parameter, inspection.workflow)
             actual_inventory, actual_mapping = capture_inventory(parameter, slicer.mrmlScene, inspection.workflow)
-            if not actual_inventory["ownershipComplete"]:
-                raise ValueError("Restored ownership audit failed: " + "; ".join(actual_inventory["unknownOwnership"]))
-            # Re-audit IDs and owners before deleting a single node. A source
-            # that was marked incomplete can replace its old map only with this
-            # complete audit of the same package scene and validated lineage.
-            if complete_at_save and any(actual_mapping["nodeOwners"].get(node_id) != owners
-                                    for node_id, owners in mapping["nodeOwners"].items()):
-                raise ValueError("Restored persistent ownership differs from the saved audit.")
-            extra = set(actual_mapping["nodeOwners"]) - set(mapping["nodeOwners"])
-            if any(actual_mapping["nodeOwners"][node_id] != ["@display"] for node_id in extra):
-                raise ValueError("Restore introduced unaudited persistent geometry or state.")
-            if not complete_at_save:
-                repaired_workflow = dict(inspection.workflow)
-                repaired_workflow["checkpointInventory"] = actual_inventory
-                repaired_workflow["projectionOwnership"] = actual_mapping
-                inventory = inventory_from_inspection(
-                    source, replace(inspection, workflow=repaired_workflow), digest, after,
-                )
-                mapping = actual_mapping
-                plan = prepare_projection(
-                    inventory, request["target"], request["checkpoint"], request["branch"],
-                )
+            inventory, mapping, plan = _replan_restored_projection(
+                source, inspection, digest, after, inventory, actual_inventory, actual_mapping,
+                request["target"], request["checkpoint"], request["branch"],
+            )
+            phase("restored_audit_complete")
             from dentobot_case.ownership import LEGACY_PARAMETER_OWNERS
             for name in plan["clearParameters"]:
                 if name in LEGACY_PARAMETER_OWNERS:

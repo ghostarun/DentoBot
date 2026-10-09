@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 import sys
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = ROOT / "DENTOWorkflow/Resources/Python"
@@ -282,6 +284,7 @@ def _add_step5c_template(
         "DENTOBOT.PreparedBranchRevision": revision,
         "DENTOBOT.PlanningPoseFingerprint": planning_pose,
         "DENTOBOT.GeometryState": "Current",
+        "DENTOBOT.UpdatedUtc": "2026-10-09T00:00:00+00:00",
         "DENTOBOT.VerificationState": state,
         "DENTOBOT.VerificationJson": verification_json,
     }
@@ -582,6 +585,21 @@ def test_mismatched_persisted_template_verification_fails_closed():
         "DENTOBOT.VerificationJson",
         json.dumps(verification, sort_keys=True, separators=(",", ":")),
     )
+
+    inventory, _projection = capture_inventory(wrapper, scene, summary)
+    assert inventory["ownershipComplete"] is False
+    assert not any(item["id"] == "verification:branch-1" for item in inventory["artifacts"])
+    assert any("persisted Step 5C verification does not match its prepared branch" in reason
+               for reason in inventory["unknownOwnership"])
+
+
+@pytest.mark.parametrize("updated_utc", ["2026-10-10T00:00:00+00:00", None])
+def test_changed_or_missing_template_update_invalidates_saved_verification(updated_utc):
+    wrapper, scene, summary = _fixture()
+    template, _verification = _add_step5c_template(
+        wrapper, scene, summary, remove_legacy_template=True,
+    )
+    template.SetAttribute("DENTOBOT.UpdatedUtc", updated_utc)
 
     inventory, _projection = capture_inventory(wrapper, scene, summary)
     assert inventory["ownershipComplete"] is False

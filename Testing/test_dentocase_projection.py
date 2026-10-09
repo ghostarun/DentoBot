@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import sys
 from pathlib import Path
 
@@ -16,7 +16,9 @@ sys.path.insert(0, str(ROOT / "DENTOWorkflow/Resources/Python"))
 from dentobot_case.contracts import Artifact, Branch, CaseInventory, CHECKPOINTS  # noqa: E402
 from dentobot_case.ownership import DEFAULTS, RESUME_INDICES  # noqa: E402
 from dentobot_case.projection import filter_registry, prepare_projection  # noqa: E402
-from dentobot_workflow.case_projection import _clear_future_node_attributes, _inspect_prefix  # noqa: E402
+from dentobot_workflow.case_projection import (  # noqa: E402
+    _clear_future_node_attributes, _inspect_prefix, _replan_restored_projection,
+)
 
 
 def _inventory() -> CaseInventory:
@@ -246,6 +248,77 @@ def test_incomplete_schema3_source_defers_selection_until_restored_scene_audit(m
     monkeypatch.setattr("dentobot_case.inspection.inspect_package", lambda _path: blocked)
     with pytest.raises(ValueError, match="cannot be re-audited"):
         _inspect_prefix(source, destination, "target-1", "source.volume", "")
+
+
+def test_complete_schema3_source_defers_stale_saved_plan_until_restored_audit(monkeypatch, tmp_path):
+    source = tmp_path / "source.dentocase"
+    source.write_bytes(b"fixture")
+    inventory = replace(_inventory(), archive_schema="3.0")
+    inventory.metadata["projection"]["resumeIndices"].pop("source.volume")
+    monkeypatch.setattr("dentobot_case.inspection.inspect_package", lambda _path: inventory)
+
+    result, actual_source, destination = _inspect_prefix(
+        source, tmp_path / "partial.dentocase", "target-1", "source.volume", "",
+    )
+    assert result is inventory
+    assert actual_source == source
+    assert destination == tmp_path / "partial.dentocase"
+
+
+@pytest.mark.parametrize("complete_at_save", [True, False])
+def test_restored_audit_replans_from_fresh_full_ownership_contract(monkeypatch, complete_at_save):
+    @dataclass
+    class Inspection:
+        workflow: dict
+
+    fresh = _inventory()
+    actual_mapping = deepcopy(fresh.metadata["projection"])
+    saved_mapping = deepcopy(actual_mapping)
+    saved_mapping["parameterOwners"]["future"] = "shared"
+    saved_mapping["referenceOwners"]["futureReference"] = "shared"
+    saved_mapping["defaults"]["future"] = "stale"
+    saved_mapping["resumeIndices"]["source.volume"] = 7
+    saved = replace(fresh, ownership_complete=complete_at_save,
+                    metadata={"projection": saved_mapping})
+    actual_inventory = {"ownershipComplete": True, "unknownOwnership": []}
+    observed = []
+
+    def fresh_inventory(_source, inspection, _digest, _source_stat):
+        observed.append(inspection.workflow)
+        return replace(fresh, metadata={"projection": inspection.workflow["projectionOwnership"]})
+
+    monkeypatch.setattr("dentobot_case.inspection.inventory_from_inspection", fresh_inventory)
+    inventory, mapping, plan = _replan_restored_projection(
+        "source.dentocase", Inspection({"caseLabel": "Case"}), "digest", None,
+        saved, actual_inventory, actual_mapping, "target-1", "source.volume", "",
+    )
+    assert observed[0]["checkpointInventory"] is actual_inventory
+    assert observed[0]["projectionOwnership"] is actual_mapping
+    assert inventory.metadata["projection"] is actual_mapping
+    assert mapping is actual_mapping
+    assert "future" in plan["clearParameters"]
+    assert "futureReference" in plan["clearReferenceRoles"]
+    assert plan["defaults"]["future"] == ""
+    assert plan["workflowStageIndex"] == 0
+    assert saved.metadata["projection"] == saved_mapping
+
+
+def test_restored_audit_rejects_changed_persistent_owner_before_replanning(monkeypatch):
+    @dataclass
+    class Inspection:
+        workflow: dict
+
+    saved = _inventory()
+    actual_mapping = deepcopy(saved.metadata["projection"])
+    actual_mapping["nodeOwners"]["future-node"] = ["source"]
+    monkeypatch.setattr("dentobot_case.inspection.inventory_from_inspection",
+                        lambda *_args: pytest.fail("mismatched owner must not be replanned"))
+    with pytest.raises(ValueError, match="Restored persistent ownership differs"):
+        _replan_restored_projection(
+            "source.dentocase", Inspection({}), "digest", None, saved,
+            {"ownershipComplete": True, "unknownOwnership": []}, actual_mapping,
+            "target-1", "source.volume", "",
+        )
 
 
 def test_retained_geometry_loses_saved_step6_config_and_base_authority():

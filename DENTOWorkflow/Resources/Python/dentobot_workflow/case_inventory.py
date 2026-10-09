@@ -757,6 +757,8 @@ def _step5c_verification_artifacts(
             isinstance(verification, dict)
             and verification.get("schemaVersion") == "1.0"
             and verification.get("overall") == state
+            and bool(verification.get("finalModelUpdatedUtc"))
+            and verification.get("finalModelUpdatedUtc") == _attr(template, "DENTOBOT.UpdatedUtc")
             and verification.get("preparedBranchId") == branch_id
             and verification.get("preparedBranchRevision") == revision
             and verification.get("planningPoseFingerprint") == planning_pose
