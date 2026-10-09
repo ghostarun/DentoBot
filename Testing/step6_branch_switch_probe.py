@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 
 from DENTOStep6State import empty_trajectory_registry, parse_trajectory_registry
@@ -155,6 +156,45 @@ def diff_branch_states(before: dict, after: dict) -> list:
 
     walk(before, after, "")
     return sorted(changes, key=lambda change: change["path"])
+
+
+# Task Home compare tolerance. The jog and Task Home draft spinboxes show two decimals (degrees for revolute joints,
+# mm for slider joints; DENTORobotSimulationPanel.py:1018 and :1133, value.decimals = 2). A saved joint therefore comes
+# back rounded to 0.01 of its display unit, so the staged value can differ from the saved one by at most half of that
+# step. The compare bound is that quantization (plus float slack), not a tighter physical tolerance.
+TASK_HOME_DECIMALS = 2
+TASK_HOME_HALF_STEP_DEG = 0.5 * 10 ** -TASK_HOME_DECIMALS  # 0.005 degree
+TASK_HOME_HALF_STEP_MM = 0.5 * 10 ** -TASK_HOME_DECIMALS  # 0.005 mm
+_TASK_HOME_FLOAT_SLACK = 1e-9
+
+
+def task_home_quantization_bound_si(joint: str) -> float:
+    """Largest staged-vs-saved difference, in SI units (rad or m), that display rounding can produce for ``joint``."""
+
+    if "Slider" in joint:
+        return TASK_HOME_HALF_STEP_MM / 1000.0 * (1.0 + _TASK_HOME_FLOAT_SLACK)
+    return math.radians(TASK_HOME_HALF_STEP_DEG) * (1.0 + _TASK_HOME_FLOAT_SLACK)
+
+
+def task_home_within_quantization(staged_si: dict, saved_si: dict) -> tuple[bool, dict]:
+    """Compare a staged Task Home with the saved one at the displayed quantization.
+
+    Returns (ok, detail). ``detail`` maps each joint to its difference and bound, so a failure names the joint.
+    A joint that is missing on either side fails.
+    """
+
+    detail = {}
+    ok = set(staged_si) == set(saved_si)
+    for joint in sorted(set(staged_si) | set(saved_si)):
+        if joint not in staged_si or joint not in saved_si:
+            detail[joint] = {"staged": staged_si.get(joint), "saved": saved_si.get(joint), "within": False}
+            continue
+        delta = abs(float(staged_si[joint]) - float(saved_si[joint]))
+        bound = task_home_quantization_bound_si(joint)
+        within = delta <= bound
+        detail[joint] = {"delta_si": delta, "bound_si": bound, "within": within}
+        ok = ok and within
+    return ok, detail
 
 
 def write_state(state: dict, path) -> Path:

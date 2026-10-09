@@ -2,9 +2,12 @@
 
 import ast
 import json
+import math
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -290,3 +293,46 @@ def test_missing_ui_controls_are_reported_not_faked():
     state = probe.capture_branch_switch_state(widget)
     assert state["ui"]["import_button"] == {"present": False}
     assert state["ui"]["lock_base_button"] == {"present": False}
+
+
+# --- Task Home compare tolerance: the display quantization (DENTORobotSimulationPanel.py:1018, :1133) -----------
+
+LIVE_FDI14_REVOLUTE = "link-1_Revolute-1"  # saved 0.006981317 rad (0.4 degree); live staged delta was 6.98e-5 rad
+
+
+def test_the_live_fdi14_delta_passes_the_quantization_compare():
+    saved = 0.006981317
+    ok, detail = probe.task_home_within_quantization({LIVE_FDI14_REVOLUTE: saved + 6.98e-5},
+                                                     {LIVE_FDI14_REVOLUTE: saved})
+    assert ok, detail
+    assert detail[LIVE_FDI14_REVOLUTE]["bound_si"] == pytest.approx(math.radians(0.005), rel=1e-6)
+
+
+def test_one_full_display_step_is_outside_the_quantization_bound():
+    saved = 0.006981317
+    ok, detail = probe.task_home_within_quantization({LIVE_FDI14_REVOLUTE: saved + math.radians(0.01)},
+                                                     {LIVE_FDI14_REVOLUTE: saved})
+    assert not ok and detail[LIVE_FDI14_REVOLUTE]["within"] is False
+
+
+def test_slider_joints_use_the_millimetre_quantization_in_metres():
+    joint = "link-2_Slider-2"
+    assert probe.task_home_quantization_bound_si(joint) == pytest.approx(5e-6, rel=1e-6)
+    assert probe.task_home_within_quantization({joint: 0.03044 + 4e-6}, {joint: 0.03044})[0] is True
+    assert probe.task_home_within_quantization({joint: 0.03044 + 6e-6}, {joint: 0.03044})[0] is False
+
+
+def test_identical_and_mismatched_joint_sets_are_judged_by_name():
+    assert probe.task_home_within_quantization({"a_Revolute-1": 0.1}, {"a_Revolute-1": 0.1})[0] is True
+    ok, detail = probe.task_home_within_quantization({"a_Revolute-1": 0.1}, {"b_Revolute-2": 0.1})
+    assert ok is False and detail["a_Revolute-1"]["within"] is False and detail["b_Revolute-2"]["within"] is False
+
+
+def test_the_spin_rounding_of_any_saved_angle_is_inside_the_bound():
+    # The gate's staged value is what the 2-decimal spin shows: round(degrees, 2). Every such value must pass.
+    for degrees in (0.0, 0.4, 7.0, 12.345, 179.999, -33.333, 0.005, 0.015, 90.0):
+        saved = math.radians(degrees)
+        staged = math.radians(round(degrees, probe.TASK_HOME_DECIMALS))
+        ok, detail = probe.task_home_within_quantization({LIVE_FDI14_REVOLUTE: staged},
+                                                         {LIVE_FDI14_REVOLUTE: saved})
+        assert ok, (degrees, detail)

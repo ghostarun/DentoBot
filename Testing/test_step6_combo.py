@@ -164,11 +164,13 @@ class World:
     """The combo, its popup and the pointer. ``rows_valid_after`` delays row geometry after opening;
     ``popup_x_mapped`` False keeps the popup off the X stack; ``opens``/``selects`` break the press."""
 
-    def __init__(self, *, rows_valid_after=0.0, popup_x_mapped=True, selects=True, opens=True):
+    def __init__(self, *, rows_valid_after=0.0, popup_x_mapped=True, selects=True, opens=True, wheel=True):
         self.rows_valid_after = rows_valid_after
         self.popup_x_mapped = popup_x_mapped
         self.selects = selects
         self.opens = opens
+        self.wheel = wheel
+        self.scroll = 0  # pixels the popup list is scrolled by wheel notches
         self.popup_open = False
         self.opened_at = None
         self.position = (0, 0)
@@ -202,7 +204,10 @@ class World:
             return FakeQRect(0, 0, 0, 0)
         if not 0 <= row < len(TEXTS):
             return FakeQRect(0, 0, 0, 0)
-        return FakeQRect(0, row * ROW_H, POPUP_W - 2, ROW_H)
+        return FakeQRect(0, row * ROW_H - self.scroll, POPUP_W - 2, ROW_H)
+
+    def max_scroll(self):
+        return max(0, len(TEXTS) * ROW_H - POPUP_H)
 
     # --- pointer ---
     def move(self, x, y):
@@ -216,6 +221,11 @@ class World:
 
     def button(self, button, pressed):
         self.events.append(("button", int(button), bool(pressed)))
+        if int(button) in (ui.POPUP_WHEEL_UP, ui.POPUP_WHEEL_DOWN):
+            if pressed and self.wheel and self.popup_open and self.in_popup(self.position):
+                step = 3 * ROW_H if int(button) == ui.POPUP_WHEEL_DOWN else -3 * ROW_H
+                self.scroll = min(max(self.scroll + step, 0), self.max_scroll())
+            return
         if not pressed:
             self._release()
 
@@ -227,7 +237,7 @@ class World:
                 self.opened_at = ui._NOW()
             return
         if self.in_popup(point) and self.popup_x_mapped:
-            row = (point[1] - POPUP_Y) // ROW_H
+            row = (point[1] - POPUP_Y + self.scroll) // ROW_H
             if self.selects and 0 <= row < len(TEXTS):
                 self.current = row
         self.popup_open = False
@@ -459,3 +469,67 @@ def test_xtest_mode_selects_the_row_through_the_same_path(monkeypatch, clock, tm
     install(monkeypatch, world)
     record, refusal, _ledger = run_select(world, tmp_path, mode="xtest")
     assert refusal is None and world.current == TARGET_ROW and record["mode"] == "xtest"
+
+
+# --- the stage combo: 11 rows in a popup that shows 10 (Qt maxVisibleItems default) ----------------------
+# The row "6 · Robot Placement" (row 10) is below the visible list; select_combo_item must scroll the list with
+# real wheel notches over the popup before it presses the row. Visible rows get no wheel.
+STAGE_TEXTS = [f"{index} · Stage {index}" for index in range(11)]
+STAGE_TARGET = 10
+
+
+@pytest.fixture
+def stage_popup(monkeypatch):
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "TEXTS", STAGE_TEXTS)
+    monkeypatch.setattr(module, "POPUP_H", 10 * ROW_H + 2)  # ten rows visible
+    return STAGE_TEXTS
+
+
+def _presses(world):
+    return [event for event in world.events if event[0] == "button" and event[2] and event[1] == 1]
+
+
+def test_a_row_below_the_visible_popup_is_reached_with_wheel_notches_then_pressed(stage_popup, monkeypatch, clock, tmp_path):
+    world = World()
+    install(monkeypatch, world)
+    record, refusal, ledger = run_select(world, tmp_path, text=stage_popup[STAGE_TARGET], row=STAGE_TARGET, mode="xtest")
+    assert refusal is None, refusal
+    assert world.current == STAGE_TARGET and world.combo.currentText == stage_popup[STAGE_TARGET]
+    wheel_down = [event for event in world.events if event[0] == "button" and event[1] == ui.POPUP_WHEEL_DOWN]
+    assert wheel_down and all(event[2] for event in wheel_down[::2])  # press/release pairs, all downward
+    assert not [event for event in world.events if event[0] == "button" and event[1] == ui.POPUP_WHEEL_UP]
+    scroll = next(step for step in record["steps"] if step["step"] == "popup_scroll")
+    assert scroll["notches"] == len([event for event in wheel_down if event[2]]) >= 1
+    assert record["delivered"] is True
+    assert json.loads(ledger.read_text().splitlines()[0])["delivered"] is True
+
+
+def test_a_wheel_that_never_brings_the_row_into_the_popup_is_refused_before_the_row_press(stage_popup, monkeypatch, clock, tmp_path):
+    world = World(wheel=False)
+    install(monkeypatch, world)
+    record, refusal, ledger = run_select(world, tmp_path, text=stage_popup[STAGE_TARGET], row=STAGE_TARGET, mode="xtest")
+    assert record is None and "did not come into the popup" in str(refusal)
+    assert world.current == START_ROW
+    assert len(_presses(world)) == 1  # only the press that opened the popup
+    entry = json.loads(ledger.read_text().splitlines()[0])
+    assert entry["delivered"] is False and "did not come into the popup" in entry["refused"]
+
+
+def test_uinput_mode_refuses_the_wheel_and_presses_nothing_for_a_row_below_the_popup(stage_popup, monkeypatch, clock, tmp_path):
+    world = World()
+    install(monkeypatch, world)
+    record, refusal, _ledger = run_select(world, tmp_path, text=stage_popup[STAGE_TARGET], row=STAGE_TARGET, mode="uinput")
+    assert record is None and "wheel is not sent in uinput mode" in str(refusal)
+    assert world.current == START_ROW
+    assert not [event for event in world.events if event[0] == "button" and event[1] in (ui.POPUP_WHEEL_UP, ui.POPUP_WHEEL_DOWN)]
+    assert len(_presses(world)) == 1
+
+
+def test_a_visible_row_is_pressed_without_any_wheel_notch(stage_popup, monkeypatch, clock, tmp_path):
+    world = World()
+    install(monkeypatch, world)
+    record, refusal, _ledger = run_select(world, tmp_path, text=stage_popup[3], row=3, mode="xtest")
+    assert refusal is None and world.current == 3
+    assert not [event for event in world.events if event[0] == "button" and event[1] in (ui.POPUP_WHEEL_UP, ui.POPUP_WHEEL_DOWN)]
+    assert not [step for step in record["steps"] if step["step"] == "popup_scroll"]

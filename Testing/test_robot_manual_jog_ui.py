@@ -1522,6 +1522,7 @@ def test_explicit_base_and_task_home_acceptance_use_the_facade_owners():
         _captureCaseFoundationSessionSnapshot=lambda: None,
         _isStep3BActive=lambda: False,
         _updateStep6PlanningUi=lambda *_args, **_kwargs: None,
+        _refreshStep6WorkingConfigurationStatus=lambda: None,
     )
     base_accept(base_host)
 
@@ -1920,6 +1921,7 @@ def test_step6_base_accept_mirrors_only_after_facade_acknowledgement():
             _isStep6ManualBaseReviewActive=lambda: True,
             _updateStep6PlanningUi=lambda *_args, **_kwargs: None,
             _updateRobotPlacement=lambda: calls.append("mirror"),
+            _refreshStep6WorkingConfigurationStatus=lambda: calls.append("status"),
         )
         accept(host)
         assert calls.count("accept") == 1
