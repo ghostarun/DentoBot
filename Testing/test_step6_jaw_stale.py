@@ -394,6 +394,25 @@ def test_case_summary_does_not_migrate_legacy_registry_during_integrity_audit(le
     assert summary["freshnessIssuesAtSave"] == (None if legacy else ["not ready"])
 
 
+def test_public_case_summary_preserves_full_save_default_and_forwards_projection_provenance():
+    path = LOGIC / "logic_case_validation.py"
+    tree = ast.parse(path.read_text())
+    method = next(n for cls in tree.body if isinstance(cls, ast.ClassDef)
+                  for n in cls.body if isinstance(n, ast.FunctionDef)
+                  and n.name == "caseBundleWorkflowSummary")
+    namespace = {}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[])),
+                 str(path), "exec"), namespace)
+    calls = []
+    logic = SimpleNamespace(_caseBundleWorkflowSummary=lambda node, *, legacyProvenance: (
+        calls.append(legacyProvenance), {"legacy": legacyProvenance}
+    )[1])
+    assert namespace["caseBundleWorkflowSummary"](logic, object()) == {"legacy": False}
+    assert namespace["caseBundleWorkflowSummary"](
+        logic, object(), legacyProvenance=True) == {"legacy": True}
+    assert calls == [False, True]
+
+
 def _migration_node_audit_fixture():
     import copy
     path = LOGIC / "logic_case_validation.py"

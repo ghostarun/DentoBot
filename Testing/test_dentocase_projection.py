@@ -18,16 +18,34 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "DENTOWorkflow/Resources/Python"))
 
+from DENTOStep6State import REGISTRY_PROVENANCE_FRAME_KEY  # noqa: E402
 from dentobot_case.contracts import Artifact, Branch, CaseInventory, CHECKPOINTS  # noqa: E402
 from dentobot_case.ownership import DEFAULTS, RESUME_INDICES  # noqa: E402
 from dentobot_case.projection import filter_registry, prepare_projection  # noqa: E402
 from dentobot_workflow.case_projection import (  # noqa: E402
     _clear_future_node_attributes, _inspect_prefix, _replan_restored_projection,
+    _legacy_projection_provenance,
     _check_projector_result, _log_projected_unknown_ownership,
     _new_projector_evidence_dir, _offline_child_workspace,
     _record_projected_ownership_failure,
     _retain_failed_projected_scene, _retain_projector_log,
 )
+
+
+def test_projection_uses_validated_registry_provenance_without_promoting_unknown_evidence():
+    legacy = _registry()
+    workflow = {"step6": {"trajectoryRegistry": legacy}}
+    assert _legacy_projection_provenance(workflow)
+    selected = filter_registry(legacy, "target-1", ("trajectory-1",), "branch-1", 100)
+    assert selected["prepared_branches"]["branch-1"]["verification_revision"] == "saved-5c"
+    # A pre-verification prefix must still discard saved verification authority.
+    early = filter_registry(legacy, "target-1", ("trajectory-1",), "branch-1", 90)
+    assert early["prepared_branches"]["branch-1"]["verification_revision"] == ""
+    current = deepcopy(legacy)
+    current[REGISTRY_PROVENANCE_FRAME_KEY] = "OwningJawRASmm"
+    assert not _legacy_projection_provenance({"step6": {"trajectoryRegistry": current}})
+    with pytest.raises(ValueError, match="registry is malformed"):
+        _legacy_projection_provenance({"step6": {"trajectoryRegistry": None}})
 
 
 def _inventory() -> CaseInventory:

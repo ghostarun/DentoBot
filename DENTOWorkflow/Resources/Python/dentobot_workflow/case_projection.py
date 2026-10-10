@@ -27,6 +27,16 @@ def _clear_future_node_attributes(node, checkpoint_order):
                 "NotVerified" if attribute == "DENTOBOT.VerificationState" else None)
 
 
+def _legacy_projection_provenance(workflow):
+    """Use the source's validated registry frame for an independent prefix."""
+    from DENTOStep6State import REGISTRY_PROVENANCE_FRAME_KEY
+
+    registry = workflow["step6"]["trajectoryRegistry"]
+    if not isinstance(registry, dict):
+        raise ValueError("Saved trajectory registry is malformed.")
+    return REGISTRY_PROVENANCE_FRAME_KEY not in registry
+
+
 def _replan_restored_projection(source, inspection, digest, source_stat,
                                 saved_inventory, actual_inventory, actual_mapping,
                                 target, checkpoint, branch):
@@ -497,7 +507,13 @@ def run_offline(request_path):
             parameter.dentoCaseId = plan["newCaseId"]
             parameter.dentoCaseResumeCheckpoint = plan["checkpointId"]
             parameter.workflowStageIndex = plan["workflowStageIndex"]
-            summary = logic.caseBundleWorkflowSummary(parameter)
+            # Validation above audited the saved registry under its recorded
+            # provenance. Keep that provenance while constructing a prefix:
+            # an ordinary sync would migrate a legacy branch after pruning,
+            # changing its revision while leaving the saved Step 5C evidence.
+            summary = logic.caseBundleWorkflowSummary(
+                parameter, legacyProvenance=_legacy_projection_provenance(inspection.workflow),
+            )
             summary["caseIdentity"] = {"id": plan["newCaseId"]}
             phase("projection")
             projected_scene = Path(directory) / "projected.mrb"

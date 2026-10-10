@@ -141,8 +141,8 @@ class CaseValidationLogicMixin:
             )
         return record
 
-    def caseBundleWorkflowSummary(self, parameterNode) -> dict[str, object]:
-        return self._caseBundleWorkflowSummary(parameterNode)
+    def caseBundleWorkflowSummary(self, parameterNode, *, legacyProvenance=False) -> dict[str, object]:
+        return self._caseBundleWorkflowSummary(parameterNode, legacyProvenance=legacyProvenance)
 
     def _caseBundleWorkflowSummary(self, parameterNode, *, legacyProvenance=False) -> dict[str, object]:
         """Describe persistent case state without duplicating its geometry."""
