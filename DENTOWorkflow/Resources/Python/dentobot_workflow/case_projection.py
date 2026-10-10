@@ -537,6 +537,10 @@ def run_offline(request_path):
             parameter.dentoCaseId = plan["newCaseId"]
             parameter.dentoCaseResumeCheckpoint = plan["checkpointId"]
             parameter.workflowStageIndex = plan["workflowStageIndex"]
+            # Schema-3 always carries a Case Foundation snapshot. Build it only
+            # after the selected prefix has cleared Step 6 authority, so it is
+            # derived from the projected scene instead of the source payload.
+            logic.buildDentoCaseRobotEnvironment(parameter)
             # Validation above audited the saved registry under its recorded
             # provenance. Keep that provenance while constructing a prefix:
             # an ordinary sync would migrate a legacy branch after pruning,

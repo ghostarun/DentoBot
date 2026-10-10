@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import ast
 from copy import deepcopy
 from dataclasses import dataclass, replace
 import hashlib
+import io
 import json
 import os
 from io import StringIO
 import sys
 from pathlib import Path
 import tempfile
+import zipfile
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -18,7 +22,15 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "DENTOWorkflow/Resources/Python"))
 
-from DENTOStep6State import REGISTRY_PROVENANCE_FRAME_KEY  # noqa: E402
+from DENTOStep6State import (  # noqa: E402
+    REGISTRY_PROVENANCE_FRAME_KEY, build_robot_environment_snapshot,
+    canonical_json, fingerprint, parse_robot_environment_snapshot,
+)
+from DENTOStep6Planning import (  # noqa: E402
+    apply_task_joint_limits_to_display_ranges,
+    build_task_joint_limits_from_parameter_values,
+    default_task_joint_limits_from_urdf,
+)
 from dentobot_case.contracts import Artifact, Branch, CaseInventory, CHECKPOINTS  # noqa: E402
 from dentobot_case.ownership import DEFAULTS, RESUME_INDICES  # noqa: E402
 from dentobot_case.projection import filter_registry, prepare_projection  # noqa: E402
@@ -207,6 +219,176 @@ def test_prepare_projection_blocks_incomplete_or_unknown_ownership():
         assert "resume index" in str(exc)
     else:
         raise AssertionError("missing resume index must block projection")
+
+
+def _case_package(path):
+    with zipfile.ZipFile(path) as archive:
+        lineage = json.loads(archive.read("workflow/lineage.json"))
+        robot = json.loads(archive.read("robot/robot-profile.json"))
+        scene = archive.read("scene/case.mrb")
+    with zipfile.ZipFile(io.BytesIO(scene)) as mrb:
+        mrml_name = next(name for name in mrb.namelist() if name.endswith(".mrml"))
+        mrml = ET.fromstring(mrb.read(mrml_name))
+    scene_node_ids = {node.get("id") for node in mrml.iter() if node.get("id")}
+    scripted = next(
+        node for node in mrml.findall(".//ScriptedModule")
+        if node.get("name") == "DENTOWorkflow"
+    )
+    parameters = {}
+    for key, value in scripted.attrib.items():
+        if key.startswith("parameter") and " " in value:
+            name, text = value.split(" ", 1)
+            parameters[name] = text
+    return lineage, robot, parameters, scene_node_ids
+
+
+def _snapshot_from_projected_case(lineage, robot, params):
+    nodes = {node["field"]: node for node in lineage["nodes"]}
+    foundation = lineage["caseFoundation"]
+    jaw = nodes["step6CaseJawTransform"]
+    base = nodes["robotBaseTransform"]
+    preparation = json.loads(params["step6CaseJawPreparationJson"] or "{}")
+    tool = params["step6ToolFrame"]
+    jaw_matrix = tuple(round(float(value), 9) for value in jaw["matrixToWorldRas"])
+    base_matrix = tuple(round(float(value), 9) for value in base["matrixToWorldRas"])
+    anatomy = fingerprint(nodes["teethSegmentation"])
+    limits = build_task_joint_limits_from_parameter_values(
+        j1_min=float(params["robotJoint1TaskMinDeg"]), j1_max=float(params["robotJoint1TaskMaxDeg"]),
+        j2_min=float(params["robotJoint2TaskMinMm"]), j2_max=float(params["robotJoint2TaskMaxMm"]),
+        j3_min=float(params["robotJoint3TaskMinDeg"]), j3_max=float(params["robotJoint3TaskMaxDeg"]),
+        j4_min=float(params["robotJoint4TaskMinMm"]), j4_max=float(params["robotJoint4TaskMaxMm"]),
+        j5_min=float(params["robotJoint5TaskMinDeg"]), j5_max=float(params["robotJoint5TaskMaxDeg"]),
+    )
+    limits = apply_task_joint_limits_to_display_ranges(
+        limits, default_task_joint_limits_from_urdf(ROOT / "dentobot_description/urdf/dentobot.urdf")
+    )
+    return build_robot_environment_snapshot(
+        case_identity=f"case-{fingerprint([str(lineage['caseLabel']), anatomy])[:20]}",
+        anatomy_fingerprint=anatomy,
+        source_volume_fingerprint=foundation["source_volume_fingerprint"],
+        source_segmentation_fingerprint=foundation["source_segmentation_fingerprint"],
+        jaw_source_fingerprint=jaw["attributes"]["DENTOBOT.SourceGeometryFingerprint"],
+        hinge_model_schema=preparation.get(
+            "hingeModelSchema", jaw["attributes"].get("DENTOBOT.HingeModelSchema", "")
+        ),
+        jaw_configuration_fingerprint=fingerprint(preparation),
+        jaw_transform_matrix=jaw_matrix,
+        mouth_gap_mm=float(params["step6CaseJawTargetGapMm"]),
+        opening_revision=int(params["caseFoundationOpeningRevision"]),
+        robot_profile_fingerprint=robot["identitySha256"],
+        tool_identity=tool,
+        tool_fingerprint=fingerprint({"toolFrame": tool}),
+        base_matrix=base_matrix,
+        base_status=params["step6BasePlacementStatus"],
+        base_locked=params["robotBaseMountLocked"].lower() == "true",
+        base_fingerprint=lineage["step6"]["basePlacement"]["fingerprint"],
+        base_authority=params["step6BasePlacementSource"],
+        base_revision=int(params["step6BasePlacementRevision"]),
+        task_home_configuration=None,
+        common_collision_fingerprint=fingerprint({
+            "anatomy": anatomy, "jaw": jaw_matrix,
+            "robot": robot["identitySha256"], "tool": tool,
+        }),
+        limits_fingerprint=fingerprint({
+            "minimumDisplay": limits.as_display_vector(),
+            "maximumDisplay": limits.as_display_max_vector(),
+        }),
+        workspace_fingerprint=fingerprint(params["step6AssistedLimitProposalJson"]),
+    )
+
+
+@pytest.mark.skipif(
+    not (os.environ.get("DENTOCASE_FDI34_SOURCE") and os.environ.get("DENTOCASE_FDI34_PROJECTED")),
+    reason="set exact copied FDI34 source and retained projected package paths",
+)
+def test_exact_fdi34_projection_rebuilds_environment_and_preserves_prefix():
+    source_path = Path(os.environ["DENTOCASE_FDI34_SOURCE"])
+    projected_path = Path(os.environ["DENTOCASE_FDI34_PROJECTED"])
+    assert hashlib.sha256(source_path.read_bytes()).hexdigest() == (
+        "be58b2431c4829c3101a2dd732c3dcfde823013461a399b0e9f071f0f34f7e54"
+    )
+    source, _source_robot, _source_parameters, _source_nodes = _case_package(source_path)
+    projected, robot, params, scene_node_ids = _case_package(projected_path)
+    old_environment = parse_robot_environment_snapshot(source["step6"]["environment"])
+    registry = projected["step6"]["trajectoryRegistry"]
+    assert set(registry["prepared_branches"]) == {registry["selected_branch_id"]}
+    branch = registry["prepared_branches"][registry["selected_branch_id"]]
+    assert branch["target_id"] == "target-81e6605865c1261dd534"
+    assert branch["trajectory_ids"] == ["trajectory-e552bb693d7d23b7cf3b"]
+    source_registry = source["step6"]["trajectoryRegistry"]
+    source_branch = source_registry["prepared_branches"][branch["branch_id"]]
+    assert branch["model_node_ids"] == source_branch["model_node_ids"]
+    assert set(branch["model_node_ids"]) <= scene_node_ids
+    unselected = {
+        item["branch_id"] for item in source_registry["prepared_branches"].values()
+        if item["branch_id"] != branch["branch_id"]
+    }
+    assert not unselected.intersection(registry["prepared_branches"])
+    assert all(
+        other["target_id"] not in json.dumps(registry)
+        and not set(other["trajectory_ids"]).intersection(
+            json.loads(json.dumps(registry))["prepared_branches"][branch["branch_id"]]["trajectory_ids"]
+        )
+        for other in source_registry["prepared_branches"].values()
+        if other["branch_id"] != branch["branch_id"]
+    )
+    nodes = {node["id"]: node for node in projected["nodes"]}
+    template = nodes[branch["template_node_id"]]
+    assert template["mesh"] == {"points": 41202, "cells": 82708}
+    assert template["attributes"]["DENTOBOT.VerificationState"] == "WARNING"
+    assert projected["step6"]["taskHome"] is None
+    assert projected["step6"]["confirmedTask"] is None
+    assert params["step6EnvironmentJson"] == ""
+    assert params["step6TaskHomeJson"] == ""
+    assert params["step6ConfirmedTaskJson"] == ""
+    assert params["step6BasePlacementStatus"] == "Unlocked"
+    assert params["step6BasePlacementRevision"] == "0"
+    base_record = next(node for node in projected["nodes"] if node["field"] == "robotBaseTransform")
+    assert "DENTOBOT.RobotBasePlacementAuthority" not in base_record.get("attributes", {})
+    checkpoint_order = {item.id: item.order for item in CHECKPOINTS}
+    assert all(checkpoint_order[item["checkpoint_id"]] <= 100
+               for item in projected["checkpointInventory"]["artifacts"])
+
+    bundle_source = ast.parse(
+        (ROOT / "DENTOWorkflow/Resources/Python/dentobot_workflow/logic_case_bundle.py").read_text()
+    )
+    mixin = next(node for node in bundle_source.body if isinstance(node, ast.ClassDef)
+                 and node.name == "CaseBundleLogicMixin")
+    method = next(node for node in mixin.body if isinstance(node, ast.FunctionDef)
+                  and node.name == "buildDentoCaseRobotEnvironment")
+    namespace = {"canonical_json": canonical_json}
+    exec(compile(ast.Module(body=[method], type_ignores=[]), "logic_case_bundle.py", "exec"), namespace)
+
+    projection_source = ast.parse(
+        (ROOT / "DENTOWorkflow/Resources/Python/dentobot_workflow/case_projection.py").read_text()
+    )
+    run_offline = next(node for node in projection_source.body if isinstance(node, ast.FunctionDef)
+                       and node.name == "run_offline")
+    call_lines = {
+        (call.func.attr if isinstance(call.func, ast.Attribute) else call.func.id): call.lineno
+        for call in ast.walk(run_offline) if isinstance(call, ast.Call)
+        and isinstance(call.func, (ast.Attribute, ast.Name))
+    }
+    assert call_lines["_clear_future_node_attributes"] < call_lines["buildDentoCaseRobotEnvironment"]
+    assert call_lines["buildDentoCaseRobotEnvironment"] < call_lines["caseBundleWorkflowSummary"]
+
+    class Parameter:
+        step6EnvironmentJson = ""
+
+    class Logic:
+        def buildCaseFoundationSnapshot(self, _parameter):
+            return _snapshot_from_projected_case(projected, robot, params)
+
+    parameter = Parameter()
+    namespace["buildDentoCaseRobotEnvironment"](Logic(), parameter)
+    fresh = parse_robot_environment_snapshot(parameter.step6EnvironmentJson)
+    assert fresh.planning_pose_fingerprint == projected["caseFoundation"]["planning_pose_fingerprint"]
+    assert fresh.base_setup_fingerprint == projected["caseFoundation"]["base_setup_fingerprint"]
+    assert fresh.foundation_fingerprint == projected["caseFoundation"]["foundation_fingerprint"]
+    assert fresh.base_locked is False and fresh.base_revision == 0
+    assert fresh.task_home_configuration is None
+    assert fresh.tool_identity == params["step6ToolFrame"] == "dentobot_drill_tcp"
+    assert fresh.environment_fingerprint != old_environment.environment_fingerprint
 
 
 def test_verified_prefix_keeps_foundation_geometry_but_resets_step6_authority():
