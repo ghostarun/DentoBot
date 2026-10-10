@@ -92,6 +92,36 @@ def _new_projector_evidence_dir():
     return evidence_dir
 
 
+def retain_failed_partial_load(package_path, error):
+    """Preserve a completed child package when parent hydration rejects it."""
+    evidence_dir = _new_projector_evidence_dir()
+    retained = evidence_dir / "parent-rejected.dentocase"
+    staging = evidence_dir / "parent-rejected.dentocase.tmp"
+    digest = hashlib.sha256()
+    try:
+        with staging.open("xb") as target, Path(package_path).open("rb") as source:
+            os.chmod(staging, 0o600)
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                target.write(block)
+                digest.update(block)
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(staging, retained)
+    finally:
+        staging.unlink(missing_ok=True)
+    status = evidence_dir / "parent-load-failure.json"
+    cause = error.__cause__
+    status.write_text(json.dumps({
+        "schemaVersion": "1.0",
+        "packageName": retained.name,
+        "packageSha256": digest.hexdigest(),
+        "exceptionType": type(error).__name__,
+        "causeType": type(cause).__name__ if cause is not None else "",
+    }, indent=2, sort_keys=True) + "\n")
+    os.chmod(status, 0o600)
+    return retained
+
+
 def _retain_failed_projected_scene(scene_path, evidence_dir, *, save_complete):
     """Keep a private MRB only after saveScene reported completion."""
     scene_path = Path(scene_path) if scene_path is not None else None

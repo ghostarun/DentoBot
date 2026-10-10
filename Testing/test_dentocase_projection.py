@@ -29,7 +29,21 @@ from dentobot_workflow.case_projection import (  # noqa: E402
     _new_projector_evidence_dir, _offline_child_workspace,
     _record_projected_ownership_failure,
     _retain_failed_projected_scene, _retain_projector_log,
+    retain_failed_partial_load,
 )
+
+
+def test_parent_rejection_retains_private_child_without_changing_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("DENTOCASE_EVIDENCE_DIR", str(tmp_path / "evidence"))
+    source = tmp_path / "child.dentocase"
+    source.write_bytes(b"completed child package")
+    retained = retain_failed_partial_load(source, ValueError("secret diagnostic detail"))
+    assert retained.read_bytes() == source.read_bytes()
+    assert retained.stat().st_mode & 0o777 == 0o600
+    assert retained.parent.stat().st_mode & 0o777 == 0o700
+    receipt = json.loads((retained.parent / "parent-load-failure.json").read_text())
+    assert receipt["packageSha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
+    assert "secret diagnostic detail" not in json.dumps(receipt)
 
 
 def test_projection_uses_validated_registry_provenance_without_promoting_unknown_evidence():

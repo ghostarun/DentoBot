@@ -92,12 +92,20 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
             self.ui.caseBundleStatusLabel.text = "Saved independent partial case; active scene unchanged."
 
     def _openLibraryPartialCase(self, path, target, checkpoint, branch):
-        from .case_projection import project_package_offline
+        from .case_projection import project_package_offline, retain_failed_partial_load
         with slicer.util.tryWithErrorDisplay("Could not load the independent partial case."):
             with tempfile.TemporaryDirectory(prefix="dentocase-partial-load-", dir=slicer.app.temporaryPath) as directory:
                 destination = Path(directory) / "independent.dentocase"
                 project_package_offline(path, destination, target, checkpoint, branch)
-                self._openCaseBundle(destination)
+                try:
+                    self._openCaseBundle(destination)
+                except Exception as exc:
+                    try:
+                        retained = retain_failed_partial_load(destination, exc)
+                        logging.error("DENTOCASE_PRIVATE_PARENT_REJECTED_PACKAGE %s", retained)
+                    except Exception:
+                        logging.exception("Could not retain the parent-rejected partial package")
+                    raise
             self._loadedCaseBundlePath = ""
             slicer.mrmlScene.SetURL("")
             slicer.mrmlScene.Modified()

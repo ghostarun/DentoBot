@@ -950,10 +950,17 @@ class CaseBundleLogicMixin(CaseValidationLogicMixin):
                 savedEnvironment = parse_robot_environment_snapshot(
                     environmentPayload
                 )
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                logging.exception("Saved Step 6 environment parse failed")
+                raise CaseBundleError(
+                    _("The saved Step 6 environment or trajectory registry is invalid.")
+                ) from exc
+            try:
                 savedRegistry = parse_trajectory_registry(
                     registryPayload
                 )
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                logging.exception("Saved Step 6 trajectory registry parse failed")
                 raise CaseBundleError(
                     _("The saved Step 6 environment or trajectory registry is invalid.")
                 ) from exc
