@@ -14,6 +14,7 @@ from dentobot_workflow.auto_task_home import auto_task_home_geometry, pose_resid
 
 
 REAL_SOURCE_ADAPTER = module.incisor_biting_edge_source
+REAL_BARRIER_SOURCE_ADAPTER = module.mouth_barrier_task_home_source
 
 
 @dataclass
@@ -41,6 +42,7 @@ def source_adapter_for_proposal_fakes(monkeypatch):
             raise ValueError(result.message)
         return result.payload
     monkeypatch.setattr(module, "incisor_biting_edge_source", source)
+    monkeypatch.setattr(module, "mouth_barrier_task_home_source", source)
 
 
 def facade():
@@ -394,7 +396,7 @@ def test_one_outward_hint_can_produce_draft_after_midpoint_branch_exhaustion(mon
     f._bridge.solve_moveit_tcp_position_axis_goal = solve
     result = propose_auto_task_home(f, Result, POLICY)
     assert result.success and result.details['depthMm'] == -3
-    assert len(result.details['midpointAttempt']['ikAttempts']) == 17
+    assert len(result.details['anchorAttempt']['ikAttempts']) == 17
     assert len(result.details['ikAttempts']) == 1
     assert result.details['outwardHint']['clearanceAuthority'] is False
     assert sum(c[0] == 'goal' for c in state.calls) == 2
@@ -470,7 +472,7 @@ def test_production_outward_adapter_uses_audit_mesh_and_rotated_base(monkeypatch
         monkeypatch.setitem(sys.modules, name, mod)
     parameter = SimpleNamespace(robotBaseTransform=SimpleNamespace(GetMatrixTransformToWorld=lambda m: None))
     f._require_context = lambda: parameter
-    details = {'midpointWorldRasMm': (0, 0, 0),
+    details = {'anchorWorldRasMm': (0, 0, 0),
         'trajectoryWorldRasMm': {'entry': (0, 10, 0), 'target': (0, 10, 10)},
         'ikAttempts': [{'ikDiagnostic': {'termination_reason': 'colliding',
             'collision_pairs': [('jaw', 'pneumatic_spindle-Copy')], 'best_joint_positions_si': q}}]}
@@ -503,3 +505,52 @@ def test_lip_plane_hint_accounts_for_entire_spindle_and_oblique_retreat():
         module.outward_plane_hint_mm([[0,0,-5]], [0,0,0], [0,0,1], [0,1,0], 8)
     with pytest.raises(ValueError):
         module.outward_plane_hint_mm([[0,0,float('nan')]], [0,0,0], [0,0,1], [0,0,1], 8)
+
+
+def barrier(vertices=None, thickness=8, normal=(0, 0, 1)):
+    return SimpleNamespace(opening=SimpleNamespace(
+        vertices_mm=vertices or [(-10,-5,0),(10,-5,0),(10,5,0),(-10,5,0)],
+        normal_outward=normal), summary={'lip_thickness_mm': thickness})
+
+
+def test_barrier_anchor_follows_opening_geometry_and_slab_adjustments():
+    assert module.mouth_barrier_opening_center(barrier()) == (0, 0, 4)
+    shifted = [(x+20, y-3, z+2) for x,y,z in barrier().opening.vertices_mm]
+    assert module.mouth_barrier_opening_center(barrier(shifted, thickness=4)) == (20,-3,4)
+    assert module.mouth_barrier_opening_center(barrier(normal=(0,1,0))) == (0,4,0)
+
+
+@pytest.mark.parametrize('value', [None, barrier(thickness=0), barrier(thickness=float('nan')),
+    barrier(vertices=[(0,0,0)]), barrier(normal=(0,0,0))])
+def test_invalid_or_missing_current_barrier_cannot_define_home(value):
+    with pytest.raises(ValueError):
+        module.mouth_barrier_opening_center(value)
+
+
+def test_barrier_source_retains_incisor_reference_and_tracks_current_barrier():
+    f, state = facade()
+    state.midpoint = (100,200,300)
+    b = barrier()
+    f._logic.step6MouthBarrier = lambda p: b
+    source = REAL_BARRIER_SOURCE_ADAPTER(f, f._require_context())
+    assert source['centerWorldRasMm'] == (0,0,4)
+    assert source['incisorMidpointWorldRasMm'] == (100,200,300)
+    assert source['anchorKind'] == 'mouth_barrier_opening_center'
+    b.summary['lip_thickness_mm'] = 4
+    assert REAL_BARRIER_SOURCE_ADAPTER(f, f._require_context())['centerWorldRasMm'] == (0,0,2)
+
+
+def test_actual_barrier_adapter_drives_goal_and_rejects_changed_slab(monkeypatch):
+    f, state = facade()
+    b = barrier()
+    f._logic.step6MouthBarrier = lambda p: b
+    monkeypatch.setattr(module, 'mouth_barrier_task_home_source', REAL_BARRIER_SOURCE_ADAPTER)
+    state.fk_z = 4
+    result = propose_auto_task_home(f, Result, POLICY)
+    assert result.success and result.details['anchorWorldRasMm'] == (0,0,4)
+    assert state.calls[0][1][2][3] == 4
+    state.calls.clear()
+    state.after_fk = lambda: b.summary.update(lip_thickness_mm=6)
+    result = propose_auto_task_home(f, Result, POLICY)
+    assert not result.success and result.payload is None
+    assert 'inputs changed' in result.message

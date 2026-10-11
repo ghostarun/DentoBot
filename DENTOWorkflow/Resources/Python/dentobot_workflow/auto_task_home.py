@@ -1,7 +1,7 @@
 """Experimental Auto Task Home geometry and draft-only orchestration.
 
 World RAS millimetres throughout. Depth is independent of the drill axis:
-positive depth moves from the incisor midpoint toward the selected Entry.
+positive depth moves from the current barrier-opening anchor toward Entry.
 Runtime IK, static collision checks and FK remain owned by the existing bridge.
 """
 from __future__ import annotations
@@ -37,8 +37,8 @@ class AutoTaskHomeGeometry:
 
 
 def auto_task_home_geometry(midpoint, entry, target, *, depth_mm=DEFAULT_DEPTH_MM):
-    """Offset an existing biting-edge midpoint without recomputing landmarks."""
-    midpoint = _xyz(midpoint, "Incisor midpoint")
+    """Offset a reviewed Home anchor without recomputing landmarks."""
+    midpoint = _xyz(midpoint, "Home anchor")
     entry = _xyz(entry, "Entry")
     target = _xyz(target, "Target")
     depth_mm = float(depth_mm)
@@ -47,7 +47,7 @@ def auto_task_home_geometry(midpoint, entry, target, *, depth_mm=DEFAULT_DEPTH_M
     drill_axis = _unit(tuple(t - e for e, t in zip(entry, target)), "Entry→Target axis")
     position = midpoint
     if depth_mm != 0.0:
-        inward = _unit(tuple(e - m for m, e in zip(midpoint, entry)), "Midpoint→Entry depth axis")
+        inward = _unit(tuple(e - m for m, e in zip(midpoint, entry)), "Anchor→Entry depth axis")
         position = _xyz(tuple(m + depth_mm * d for m, d in zip(midpoint, inward)), "Offset Home")
     return AutoTaskHomeGeometry(midpoint, position, drill_axis, depth_mm)
 
@@ -112,6 +112,35 @@ def incisor_biting_edge_source(facade, parameter):
             world = logic._step6CaseJawPolydataWorld(parameter, world)
         clouds[fdi] = vtk_to_numpy(world.GetPoints().GetData()).astype(float)
     return {**dict(roi.payload), **incisor_biting_edge_midpoint(clouds)}
+
+
+def mouth_barrier_opening_center(barrier):
+    """Centre of the current usable aperture, halfway through its lip slab."""
+    import numpy as np
+    if barrier is None:
+        raise ValueError("An enabled current mouth barrier is required for Auto Task Home.")
+    vertices = np.asarray(barrier.opening.vertices_mm, dtype=float)
+    if vertices.shape != (4, 3) or not np.isfinite(vertices).all():
+        raise ValueError("The current mouth barrier needs four finite opening vertices.")
+    normal = np.asarray(_unit(_xyz(barrier.opening.normal_outward, "Barrier normal"), "Barrier normal"))
+    thickness = float(barrier.summary["lip_thickness_mm"])
+    if not isfinite(thickness) or thickness <= 0.0:
+        raise ValueError("The current lip-slab thickness must be finite and positive.")
+    return _xyz(tuple(vertices.mean(axis=0) + .5 * thickness * normal), "Barrier opening centre")
+
+
+def mouth_barrier_task_home_source(facade, parameter):
+    """Current generated barrier centre; retain incisor geometry as reference."""
+    reference = incisor_biting_edge_source(facade, parameter)
+    barrier = facade._logic.step6MouthBarrier(parameter)
+    center = mouth_barrier_opening_center(barrier)
+    return {**reference, "incisorMidpointWorldRasMm": reference["centerWorldRasMm"],
+            "centerWorldRasMm": center, "anchorKind": "mouth_barrier_opening_center",
+            "barrierOpeningVerticesWorldRasMm": tuple(tuple(float(v) for v in row)
+                                                       for row in barrier.opening.vertices_mm),
+            "barrierNormalOutwardWorldRasUnit": _unit(tuple(barrier.opening.normal_outward), "Barrier normal"),
+            "barrierLipSlabThicknessMm": float(barrier.summary["lip_thickness_mm"]),
+            "barrierSummary": dict(barrier.summary)}
 
 
 def auto_task_home_ik_seeds(facade):
@@ -201,7 +230,7 @@ def _propose_auto_task_home_at_depth(facade, result_type, bridge_policy, *, dept
                     or facade._manual_jog_in_progress
                     or facade._manual_jog_reconciliation_required):
                 raise ValueError("Resolve the outstanding Home or manual-jog operation first.")
-            source = incisor_biting_edge_source(facade, parameter)
+            source = mouth_barrier_task_home_source(facade, parameter)
             trajectory = facade._logic.step6TrajectorySummary(parameter)
             if trajectory.get("isValid") is not True:
                 raise ValueError("Select a valid Entry→Target trajectory before Auto Task Home.")
@@ -216,7 +245,9 @@ def _propose_auto_task_home_at_depth(facade, result_type, bridge_policy, *, dept
         if scene is None or scene.get("matches") is not True:
             raise ValueError("Synchronize and verify the current MoveIt collision scene before Auto Task Home.")
         identity, roi, trajectory, geometry = before
-        details.update({"midpointWorldRasMm": geometry.midpoint_world_ras_mm,
+        details.update({"anchorWorldRasMm": geometry.midpoint_world_ras_mm,
+                        "anchorKind": "mouth_barrier_opening_center",
+                        "incisorMidpointWorldRasMm": roi.get("incisorMidpointWorldRasMm"),
                         "positionWorldRasMm": geometry.position_world_ras_mm,
                         "drillAxisWorldRasUnit": geometry.drill_axis_world_ras_unit,
                         "depthMm": geometry.depth_mm, "source": roi,
@@ -278,7 +309,7 @@ def _propose_auto_task_home_at_depth(facade, result_type, bridge_policy, *, dept
             raise ValueError("MoveIt collision scene changed during Auto Task Home IK.")
         return result_type(
             True, "auto_task_home_draft_ready",
-            "Auto Task Home draft ready at the opened incisor biting-edge midpoint "
+            "Auto Task Home draft ready relative to the current mouth-barrier opening centre "
             f"(depth {geometry.depth_mm:g} mm), facing Entry→Target. Review, Plan + Apply, "
             "then Accept & Validate to save Home. No motion was sent.",
             details=details, payload=solved.payload,
@@ -347,7 +378,7 @@ def _outward_home_depth_hint(facade, details, bridge_policy):
     facade._manual_task_home_candidate_within_mechanical_limits(candidate)
     ok, message, fk = facade._bridge.compute_moveit_tcp_pose_world_ras_mm(
         candidate, base_transform=parameter.robotBaseTransform)
-    geometry = auto_task_home_geometry(details["midpointWorldRasMm"],
+    geometry = auto_task_home_geometry(details["anchorWorldRasMm"],
                                       details["trajectoryWorldRasMm"]["entry"],
                                       details["trajectoryWorldRasMm"]["target"])
     if ok is not True or fk is None:
@@ -382,7 +413,7 @@ def _outward_home_depth_hint(facade, details, bridge_policy):
     base = vtk.vtkMatrix4x4()
     parameter.robotBaseTransform.GetMatrixTransformToWorld(base)
     rotation = np.array([[base.GetElement(i, j) for j in range(3)] for i in range(3)])
-    midpoint = np.asarray(details["midpointWorldRasMm"])
+    midpoint = np.asarray(details["anchorWorldRasMm"])
     entry = np.asarray(details["trajectoryWorldRasMm"]["entry"])
     outward = np.asarray(_unit(tuple(midpoint - entry), "Outward Home depth direction"))
     direction_base = rotation.T @ outward
@@ -410,7 +441,7 @@ def _outward_home_depth_hint(facade, details, bridge_policy):
 
 
 def propose_auto_task_home(facade, result_type, bridge_policy, *, depth_mm=DEFAULT_DEPTH_MM):
-    """Try the midpoint, then one contact-derived outward draft at most."""
+    """Try the barrier centre, then one contact-derived outward draft at most."""
     first = _propose_auto_task_home_at_depth(facade, result_type, bridge_policy, depth_mm=depth_mm)
     if (first.success is True or first.code != "auto_task_home_ik_failed" or float(depth_mm) != 0.0
             or first.details.get("branchMiss") is not True
@@ -428,7 +459,7 @@ def propose_auto_task_home(facade, result_type, bridge_policy, *, depth_mm=DEFAU
         if not current():
             raise ValueError("Home inputs changed during outward hint generation.")
         result = _propose_auto_task_home_at_depth(facade, result_type, bridge_policy, depth_mm=depth)
-        result.details["midpointAttempt"] = dict(first.details)
+        result.details["anchorAttempt"] = dict(first.details)
         result.details["outwardHint"] = hint
         if (result.details.get("taskHomeReviewIdentity") != original_identity
                 or result.details.get("source") != first.details.get("source")

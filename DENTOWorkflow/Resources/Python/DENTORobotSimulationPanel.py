@@ -2479,7 +2479,7 @@ class DENTORobotSimulationPanel:
         auto_allowed = bool(self._activeSubstep == 2 and connected and self._tcpIkAvailable)
         self.autoTaskHomeButton.enabled = auto_allowed
         self.autoTaskHomeButton.toolTip = (
-            "Generate a draft at the current opened incisor biting-edge midpoint, "
+            "Generate a draft from the current mouth-barrier opening centre, "
             "facing Entry→Target. Review / Plan + Apply / Accept remain explicit."
             if auto_allowed else
             "Auto Task Home requires Step 6.2, connected simulation runtime and IK availability."
