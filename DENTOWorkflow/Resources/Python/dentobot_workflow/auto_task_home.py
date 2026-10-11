@@ -287,7 +287,7 @@ def _propose_auto_task_home_at_depth(facade, result_type, bridge_policy, *, dept
         return result_type(False, "auto_task_home_blocked", str(exc), details=details)
 
 
-MAX_OUTWARD_HOME_HINT_MM = 20.0
+MAX_OUTWARD_HOME_HINT_MM = 40.0
 
 
 def outward_separation_hint_mm(tool_bounds, obstacle_bounds, direction, *, margin_mm=1.0):
@@ -306,6 +306,23 @@ def outward_separation_hint_mm(tool_bounds, obstacle_bounds, direction, *, margi
         elif speed < -1e-9:
             exits.append((tool[i, 1] - obstacle[i, 0] + margin_mm) / -speed)
     return max(0.0, min(exits))
+
+
+def outward_plane_hint_mm(points, origin, normal, direction, front_mm):
+    """Displace the whole spindle beyond a fixed lip-slab front plane."""
+    import numpy as np
+    points = np.asarray(points, dtype=float)
+    origin = np.asarray(_xyz(origin, "Lip plane origin"))
+    normal = np.asarray(_unit(_xyz(normal, "Lip plane normal"), "Lip plane normal"))
+    direction = np.asarray(_unit(_xyz(direction, "Outward direction"), "Outward direction"))
+    front_mm = float(front_mm)
+    if (points.ndim != 2 or points.shape[1] != 3 or len(points) == 0
+            or not np.isfinite(points).all() or not isfinite(front_mm) or front_mm < 0):
+        raise ValueError("Lip-plane hint needs finite spindle geometry and thickness.")
+    speed = float(direction @ normal)
+    if speed <= 1e-6:
+        raise ValueError("Home depth direction does not retreat out of the mouth barrier.")
+    return max(0.0, (front_mm + 1.0 - float(((points - origin) @ normal).min())) / speed)
 
 
 def _outward_home_depth_hint(facade, details, bridge_policy):
@@ -376,9 +393,16 @@ def _outward_home_depth_hint(facade, details, bridge_policy):
     distances = {name: outward_separation_hint_mm(
         tool_bounds, records[name]["outgoing_bounds_base_link_mm"], direction_base)
         for name in sorted(obstacles)}
+    barrier = facade._logic.step6MouthBarrier(parameter)
+    if barrier is None:
+        raise ValueError("Current mouth barrier geometry is unavailable for an outward Home hint.")
+    world_points = points @ rotation.T + np.array([base.GetElement(i, 3) for i in range(3)])
+    distances["mouth_barrier_front_plane"] = outward_plane_hint_mm(
+        world_points, barrier.opening.origin_mm, barrier.opening.normal_outward,
+        outward, barrier.summary["lip_thickness_mm"])
     distance = max(distances.values())
     if not 0.0 < distance <= MAX_OUTWARD_HOME_HINT_MM:
-        raise ValueError("Derived outward Home hint exceeds the bounded 20 mm proposal range.")
+        raise ValueError("Derived outward Home hint exceeds the bounded 40 mm proposal range.")
     return -distance, {"method": "resolved_spindle_contact_AABB_separation_hint",
                        "outwardDistanceMm": distance, "perObjectDistanceMm": distances,
                        "maximumHintMm": MAX_OUTWARD_HOME_HINT_MM,

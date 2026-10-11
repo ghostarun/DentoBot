@@ -474,9 +474,12 @@ def test_production_outward_adapter_uses_audit_mesh_and_rotated_base(monkeypatch
         'trajectoryWorldRasMm': {'entry': (0, 10, 0), 'target': (0, 10, 10)},
         'ikAttempts': [{'ikDiagnostic': {'termination_reason': 'colliding',
             'collision_pairs': [('jaw', 'pneumatic_spindle-Copy')], 'best_joint_positions_si': q}}]}
+    f._logic.step6MouthBarrier = lambda p: SimpleNamespace(opening=SimpleNamespace(
+        origin_mm=(0, 1000, 0), normal_outward=(0, -1, 0)), summary={'lip_thickness_mm': 8})
     depth, hint = module._outward_home_depth_hint(f, details, POLICY)
     assert depth == pytest.approx(-6)
-    assert hint['perObjectDistanceMm'] == {'jaw': pytest.approx(6)}
+    assert hint['perObjectDistanceMm']['jaw'] == pytest.approx(6)
+    assert hint['perObjectDistanceMm']['mouth_barrier_front_plane'] == 0
     assert hint['clearanceAuthority'] is False
     # Same adapter refuses missing current audit objects before another candidate.
     f._logic.collisionSceneAuditRecord = lambda p: SimpleNamespace(object_records=[])
@@ -489,3 +492,14 @@ def test_production_outward_adapter_uses_audit_mesh_and_rotated_base(monkeypatch
     monkeypatch.setattr(ElementTree, 'parse', lambda *args: tree)
     with pytest.raises(ValueError, match='visual/collision geometry differs'):
         module._outward_home_depth_hint(f, details, POLICY)
+
+
+def test_lip_plane_hint_accounts_for_entire_spindle_and_oblique_retreat():
+    assert module.outward_plane_hint_mm([[0, 0, -5], [0, 0, 2]], [0,0,0],
+                                       [0,0,1], [0,0,1], 8) == 14
+    assert module.outward_plane_hint_mm([[0, 0, -5], [0, 0, 2]], [0,0,0],
+                                       [0,0,1], [0,3,4], 8) == pytest.approx(17.5)
+    with pytest.raises(ValueError, match='does not retreat'):
+        module.outward_plane_hint_mm([[0,0,-5]], [0,0,0], [0,0,1], [0,1,0], 8)
+    with pytest.raises(ValueError):
+        module.outward_plane_hint_mm([[0,0,float('nan')]], [0,0,0], [0,0,1], [0,0,1], 8)
