@@ -3342,16 +3342,25 @@ def test_clean_setup_refuses_inherited_authority_before_capture(connected, locke
     assert captures == []
 
 
-def test_clean_setup_captures_review_boundary_without_owners():
+@pytest.mark.parametrize("review_success", [True, False])
+def test_clean_setup_captures_review_boundary_without_owners(review_success):
     captures = []; report = {}
     helpers = _clean_setup_helpers({}, lambda *args: captures.append(args))
     facade = SimpleNamespace(capabilities=lambda: SimpleNamespace(connected=False),
-                             manualBaseReview=lambda: SimpleNamespace(success=False, message="Unreviewed", details={}))
+                             manualBaseReview=lambda: SimpleNamespace(
+                                 success=review_success, message="Base review message",
+                                 details={"identityStatus": "current" if review_success else "unknown"}))
     node = SimpleNamespace(robotBaseMountLocked=False, step6TaskHomeJson="",
                            step6BasePlacementStatus="Unlocked", step6PlanningContextImported=True)
     helpers["_capture_clean_setup"](None, facade, node, report, None, "run")
-    assert report["clean_setup"]["status"] == "READY_FOR_CONFIGURATION_REVIEW"
-    assert report["clean_setup"]["base_home_acceptance_attempted"] is False
+    captured = report["clean_setup"]
+    assert captured["status"] == "CAPTURED_FOR_CONFIGURATION_REVIEW"
+    assert captured["status"] not in {"READY_FOR_CONFIGURATION_REVIEW", "ACCEPTED"}
+    assert captured["base_review_success"] is review_success
+    assert captured["base_review_message"] == "Base review message"
+    assert captured["base_review_details"] == {
+        "identityStatus": "current" if review_success else "unknown"}
+    assert captured["base_home_acceptance_attempted"] is False
     assert len(captures) == 1
     hook = SOURCE.index("if clean_setup_only:")
     assert SOURCE.index('active_check = "planning_context_imported"') < hook

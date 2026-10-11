@@ -1447,7 +1447,7 @@ def _capture_clean_setup(widget, facade, parameter_node, report, evidence_dir, r
         raise RuntimeError("Clean setup contains inherited Base or Task Home authority.")
     base_review = facade.manualBaseReview()
     report["clean_setup"] = {
-        "status": "READY_FOR_CONFIGURATION_REVIEW", "connected": False,
+        "status": "CAPTURED_FOR_CONFIGURATION_REVIEW", "connected": False,
         "base_locked": False, "task_home_present": False,
         "base_status": str(parameter_node.step6BasePlacementStatus),
         "base_review_success": bool(base_review.success),
