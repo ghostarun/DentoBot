@@ -510,12 +510,13 @@ class FeasibilityAdvisorSession(AdvisorIdentityMixin):
                                      fix_id="goto_6_1", fix_label="Go to 6.1: review and accept the Base"))
         home = logic.taskHomeRecord(node)
         if home is None:
-            issues.append(SetupIssue("No saved Task Home for this Base.", fix_id="goto_6_2",
-                                     fix_label="Go to 6.2: review and accept Task Home"))
+            issues.append(SetupIssue(
+                "No saved Task Home. An automatic Task Home draft is available for the selected tooth and trajectory.",
+                fix_id="propose_auto_home", fix_label="Propose automatic Task Home draft"))
         elif not any(abs(float(v)) > 1e-12 for v in home.joint_positions_si):
             issues.append(SetupIssue("The saved Task Home is all zeros (not a reviewed Home).", fix_id="goto_6_2",
                                      fix_label="Go to 6.2: review and accept Task Home"))
-        home_gap = str(facade.taskHomeValidationGap(node) or "")
+        home_gap = str(facade.taskHomeValidationGap(node) or "") if home is not None else ""
         if home_gap:
             issues.append(SetupIssue("Task Home needs explicit 6.2 review: " + home_gap,
                                      fix_id="goto_6_2", fix_label="Go to 6.2: review and accept Task Home"))

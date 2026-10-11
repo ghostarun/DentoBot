@@ -1439,6 +1439,15 @@ def _clean_setup_requested() -> bool:
     return True
 
 
+def _capture_clean_base_identity_checkpoint(facade, report, stage):
+    """Observe the production candidate without cancellation or restaging."""
+    review = facade.manualBaseReview()
+    report.setdefault("clean_base_identity_checkpoints", []).append({
+        "stage": stage, "success": bool(review.success),
+        "code": str(review.code), "details": _json_safe(dict(review.details or {})),
+    })
+
+
 def _capture_clean_setup(widget, facade, parameter_node, report, evidence_dir, run_id):
     """Read current configuration only; never infer acceptance from retained geometry."""
     if facade.capabilities().connected:
@@ -3984,6 +3993,8 @@ def run() -> int:
         active_check = "simulation_robot_models_loaded"
         widget._configureRobotSimulationShellSubstep(1)
         widget._updateStep6PlanningUi()
+        if clean_setup_only:
+            _capture_clean_base_identity_checkpoint(facade, report, "before_robot_load")
         load_button = panel.loadFallbackButton
         if not load_button.enabled:
             fail(active_check, "Production Load Robot control is not enabled.",
@@ -4012,6 +4023,8 @@ def run() -> int:
                 screenshot_framing=load_frame)
 
         active_check = "planning_context_imported"
+        if clean_setup_only:
+            _capture_clean_base_identity_checkpoint(facade, report, "robot_loaded_before_import")
         widget._configureRobotSimulationShellSubstep(0)
         widget._updateStep6PlanningUi()
         import_button = widget.ui.importStep6PlanningContextButton
@@ -4048,6 +4061,8 @@ def run() -> int:
                 screenshot_framing=import_frame)
 
         active_check = "base_controls_and_accepted_status"
+        if clean_setup_only:
+            _capture_clean_base_identity_checkpoint(facade, report, "imported_before_base_navigation")
         widget._configureRobotSimulationShellSubstep(1)
         widget._updateStep6PlanningUi()
         if clean_setup_only:

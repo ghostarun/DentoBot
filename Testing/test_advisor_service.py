@@ -1043,10 +1043,19 @@ def test_the_storing_call_exists_only_inside_apply_and_save():
 def test_unavailable_setup_is_reported_with_fix_actions_and_blocks_the_search(tmp_path):
     world = World(home=None)
     s = session(world, tmp_path)
-    issues = s.prepare()
-    assert s.finished and s.outcome == svc.BLOCKED
+    issues = s.setup_report()
+    automatic_home = [i for i in issues if i.fix_id == "propose_auto_home"]
+    assert len(automatic_home) == 1
+    assert "available for the selected tooth and trajectory" in automatic_home[0].message
+    assert automatic_home[0].fix_label == "Propose automatic Task Home draft"
+    assert automatic_home[0].severity == "blocking"
+    assert not any(i.fix_id == "goto_6_2" and i.severity == "blocking" for i in issues)
+
+    prepared_issues = s.prepare()
+    assert s.finished and s.phase == svc.DONE and s.outcome == svc.BLOCKED
+    assert any(i.fix_id == "propose_auto_home" for i in prepared_issues)
     blocking = [i for i in issues if i.severity == "blocking"]
-    assert blocking and blocking[0].fix_id == "goto_6_2"
+    assert blocking and any(i.fix_id == "propose_auto_home" for i in blocking)
     assert s.step().kind == "done"
 
     world = World()
@@ -1056,7 +1065,14 @@ def test_unavailable_setup_is_reported_with_fix_actions_and_blocks_the_search(tm
 
     world = World(home=dict.fromkeys(HOME, 0.0))
     issues = session(world, tmp_path / "zero").setup_report()
-    assert any("all zeros" in i.message for i in issues)
+    zero_home = next(i for i in issues if "all zeros" in i.message)
+    assert zero_home.fix_id == "goto_6_2"
+
+    world = World()
+    world.home_stale = True
+    stale = [i for i in session(world, tmp_path / "stale-home").setup_report()
+             if "Task Home needs explicit 6.2 review" in i.message]
+    assert len(stale) == 1 and stale[0].fix_id == "goto_6_2"
 
 
 def test_setup_report_reads_the_moveit_scene_status_property_when_ros_is_connected(tmp_path):

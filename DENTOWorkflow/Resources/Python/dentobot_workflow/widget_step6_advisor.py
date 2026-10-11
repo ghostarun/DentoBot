@@ -311,6 +311,13 @@ class Step6AdvisorWidgetMixin:
         if not state or state.get("running") or getattr(self, "_workflowActionBusy", False):
             return
 
+        if fix_id == "propose_auto_home":
+            if state.get("paused") or not self._advisorCloseForNavigation():
+                return
+            self._configureRobotSimulationShellSubstep(2)
+            self._onStep6AutoTaskHome()
+            return
+
         handlers = {
             "connect": self._onShellConnectRobot,
             "disconnect": self._onShellDisconnectRobot,

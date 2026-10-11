@@ -3904,16 +3904,31 @@ class DENTORobotWorkflowFacade:
             self._require_context().robotBaseTransform,
             accepted,
         )
+        # Report field names only: preserve the frozen candidate and fail-closed
+        # identity comparison without exposing source node contents.
+        changed_fields = []
+        frozen_identity = self._manual_base_review["identity"]
+        for key in sorted(set(identity) | set(frozen_identity)):
+            before, after = frozen_identity.get(key), identity.get(key)
+            if before == after:
+                continue
+            if isinstance(before, dict) and isinstance(after, dict):
+                changed_fields.extend(
+                    f"{key}.{field}" for field in sorted(set(before) | set(after))
+                    if before.get(field) != after.get(field)
+                )
+            else:
+                changed_fields.append(key)
         result = RobotActionResult(
             current,
             "manual_base_review_current" if current else "manual_base_review_stale",
             "Detached Base candidate is current." if current else "Detached Base candidate is stale: " + status,
-            details=self._manual_base_review_details(
+            details={**self._manual_base_review_details(
                 candidate=self._manual_base_review["candidateMatrixWorldRasMm"],
                 accepted=accepted,
                 staged=True,
                 identity_status="current" if current else status,
-            ),
+            ), "identityChangedFields": changed_fields},
         )
         return result
 

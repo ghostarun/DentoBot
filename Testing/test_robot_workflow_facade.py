@@ -740,6 +740,30 @@ def test_detached_manual_base_candidate_rejects_changed_case_identity():
     assert not parameter_node.robotBaseMountLocked
 
 
+def test_manual_base_stale_review_names_changed_fields_without_rebinding():
+    facade, parameter_node, _logic, _bridge = make_facade()
+    volume = SimpleNamespace(GetMTime=lambda: 12)
+    parameter_node.inputVolume = volume
+    assert facade.stageManualBaseReview(_manual_base_test_matrix(7.0)).success
+    frozen = dict(facade._manual_base_review["identity"])
+    volume.GetMTime = lambda: 13
+    result = facade.manualBaseReview()
+    assert not result.success and result.code == "manual_base_review_stale"
+    assert result.details["identityChangedFields"] == ["caseNodeRevisions.inputVolume"]
+    assert facade._manual_base_review["identity"] == frozen
+    assert result.details["candidateMatrixWorldRasMm"] == _manual_base_test_matrix(7.0)
+    assert parameter_node.robotBaseTransform.matrix is None
+    assert not parameter_node.robotBaseMountLocked
+    assert not facade.acceptManualBaseReview().success
+
+
+def test_current_manual_base_review_reports_no_identity_changes():
+    facade, _parameter_node, _logic, _bridge = make_facade()
+    assert facade.stageManualBaseReview(_manual_base_test_matrix()).success
+    result = facade.manualBaseReview()
+    assert result.success and result.details["identityChangedFields"] == []
+
+
 def test_manual_base_candidate_cannot_be_replaced_while_acceptance_is_uncertain():
     facade, parameter_node, _logic, _bridge = make_facade()
     candidate = _manual_base_test_matrix(18.0)

@@ -10,6 +10,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / "DENTOWorkflow" / "Resources" / "Python"
 GUI_PATH = PY / "dentobot_workflow" / "widget_step6_advisor.py"
+MANUAL_WIDGET_PATH = PY / "dentobot_workflow" / "widget_robot_manual.py"
 if str(PY) not in sys.path:
     sys.path.insert(0, str(PY))
 from dentobot_workflow.step6_control_reasons import ADVISOR_CONTROLS, annotate_step6_controls  # noqa: E402
@@ -140,6 +141,17 @@ def _load_gui_methods():
 
 
 GuiMixin = _load_gui_methods()
+
+
+def _load_production_auto_task_home_owner():
+    tree = ast.parse(MANUAL_WIDGET_PATH.read_text(encoding="utf-8"))
+    owner = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                 and node.name == "RobotManualWidgetMixin")
+    method = next(node for node in owner.body if isinstance(node, ast.FunctionDef)
+                  and node.name == "_onStep6AutoTaskHome")
+    scope = {}
+    exec(compile(ast.Module(body=[method], type_ignores=[]), str(MANUAL_WIDGET_PATH), "exec"), scope)
+    return scope[method.name]
 
 
 class Button:
@@ -326,6 +338,84 @@ def test_navigation_fix_closes_and_releases_application_modal_dialog():
     assert dialog.hidden and dialog.deleted
     assert dialog.shown is False
     assert widget._advisorState is None
+
+
+def test_auto_home_fix_releases_the_modal_before_using_the_existing_draft_owner():
+    widget = AdvisorHost(ScriptedSession())
+    state = widget._advisorState
+    dialog = state["dialog"]
+    events = []
+    panel = SimpleNamespace(
+        taskHomeReviewStatusLabel=SimpleNamespace(
+            text="", setProperty=lambda name, value: events.append(("label_state", name, value))),
+        stageTcpIkSolution=lambda payload: events.append(("stage", payload)) or True,
+        setManualJogDraftDisplayResult=lambda staged, message: events.append(("display", staged, message)),
+        setManualJogStatus=lambda status, message: events.append(("status", status, message)),
+    )
+    widget._robotSimulationPanel = panel
+
+    def propose_failure():
+        events.append(("propose", widget._advisorState, dialog.hidden, dialog.deleted))
+        return SimpleNamespace(success=False, payload=None, message="No guarded Home draft was found.")
+
+    widget._robotWorkflowFacade = SimpleNamespace(proposeAutoTaskHome=propose_failure)
+    production_owner = _load_production_auto_task_home_owner()
+
+    def configure_substep(substep):
+        events.append(("substep", substep, widget._advisorState, dialog.hidden, dialog.deleted))
+
+    def run_owner():
+        events.append(("owner", widget._advisorState, dialog.hidden, dialog.deleted))
+        production_owner(widget)
+
+    widget._configureRobotSimulationShellSubstep = configure_substep
+    widget._onStep6AutoTaskHome = run_owner
+    widget._advisorOnFix("propose_auto_home")
+
+    assert events[:3] == [
+        ("substep", 2, None, True, True),
+        ("owner", None, True, True),
+        ("propose", None, True, True),
+    ]
+    assert not any(event[0] == "stage" for event in events)
+    assert panel.taskHomeReviewStatusLabel.text == "No guarded Home draft was found."
+    assert ("label_state", "dentobotState", "blocked") in events
+    assert ("display", False, "No guarded Home draft was found.") in events
+    assert ("status", "blocked", "No guarded Home draft was found.") in events
+    assert widget._advisorState is None
+
+
+def test_auto_home_fix_does_not_run_if_modal_navigation_close_fails():
+    widget = AdvisorHost(ScriptedSession())
+    state = widget._advisorState
+    dialog = state["dialog"]
+    calls = []
+    widget._advisorCloseForNavigation = lambda: False
+    widget._configureRobotSimulationShellSubstep = lambda substep: calls.append(("substep", substep))
+    widget._onStep6AutoTaskHome = lambda: calls.append("auto_home")
+
+    widget._advisorOnFix("propose_auto_home")
+
+    assert calls == []
+    assert widget._advisorState is state
+    assert dialog.hidden is False and dialog.deleted is False
+
+
+def test_auto_home_fix_is_refused_while_running_busy_or_paused():
+    for mode, busy in (("running", False), ("idle", True), ("paused", False)):
+        widget = AdvisorHost(ScriptedSession(), mode=mode)
+        widget._workflowActionBusy = busy
+        state = widget._advisorState
+        dialog = state["dialog"]
+        calls = []
+        widget._configureRobotSimulationShellSubstep = lambda substep: calls.append(("substep", substep))
+        widget._onStep6AutoTaskHome = lambda: calls.append("auto_home")
+
+        widget._advisorOnFix("propose_auto_home")
+
+        assert calls == [], mode
+        assert widget._advisorState is state, mode
+        assert dialog.hidden is False and dialog.deleted is False, mode
 
 
 def test_window_reject_requests_cancel_and_keeps_dialog_visible_until_done():

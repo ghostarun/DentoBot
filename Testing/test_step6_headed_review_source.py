@@ -3301,7 +3301,8 @@ def test_headed_runner_presses_every_production_control_through_the_press_owner(
 
 
 def _clean_setup_helpers(environment, capture=None):
-    names = {"_clean_setup_requested", "_exact_env_opt_in", "_capture_clean_setup"}
+    names = {"_clean_setup_requested", "_exact_env_opt_in", "_capture_clean_setup",
+             "_capture_clean_base_identity_checkpoint"}
     module = ast.Module(body=[node for node in ast.parse(SOURCE).body
                              if isinstance(node, ast.FunctionDef) and node.name in names], type_ignores=[])
     namespace = {"os": SimpleNamespace(environ=environment),
@@ -3313,6 +3314,25 @@ def _clean_setup_helpers(environment, capture=None):
 
 def test_clean_setup_default_preserves_existing_runner():
     assert _clean_setup_helpers({})["_clean_setup_requested"]() is False
+
+
+def test_clean_base_identity_checkpoints_preserve_stale_evidence_without_owners():
+    calls = []
+    details = {"staged": True, "identityChangedFields": ["caseNodeRevisions.teethSegmentation"]}
+    def review():
+        calls.append("read")
+        return SimpleNamespace(success=False, code="manual_base_review_stale", details=details)
+    helpers = _clean_setup_helpers({})
+    report = {}
+    capture = helpers["_capture_clean_base_identity_checkpoint"]
+    facade = SimpleNamespace(manualBaseReview=review)
+    capture(facade, report, "before")
+    capture(facade, report, "after")
+    rows = report["clean_base_identity_checkpoints"]
+    assert [row["stage"] for row in rows] == ["before", "after"]
+    assert calls == ["read", "read"]
+    assert all(row["success"] is False and row["details"] == details for row in rows)
+    assert details["staged"] is True
 
 
 @pytest.mark.parametrize("option", ["SESSION", "ALLOW_JOG", "ALLOW_BASE_HOME_ACCEPT",
@@ -3362,7 +3382,7 @@ def test_clean_setup_captures_review_boundary_without_owners(review_success):
         "identityStatus": "current" if review_success else "unknown"}
     assert captured["base_home_acceptance_attempted"] is False
     assert len(captures) == 1
-    hook = SOURCE.index("if clean_setup_only:")
+    hook = SOURCE.index("if clean_setup_only:\n            _capture_clean_setup")
     assert SOURCE.index('active_check = "planning_context_imported"') < hook
     assert hook < SOURCE.index('if _exact_env_opt_in("DENTOBOT_HEADED_DISCARD_STAGED_BASE"):', hook)
     stop = SOURCE[hook:SOURCE.index('if _exact_env_opt_in("DENTOBOT_HEADED_DISCARD_STAGED_BASE"):', hook)]
