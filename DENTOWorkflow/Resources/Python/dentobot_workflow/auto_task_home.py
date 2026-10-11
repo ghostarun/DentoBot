@@ -114,6 +114,75 @@ def incisor_biting_edge_source(facade, parameter):
     return {**dict(roi.payload), **incisor_biting_edge_midpoint(clouds)}
 
 
+def auto_task_home_ik_seeds(facade):
+    """Default native seed then sixteen bounded elbow/yaw branch hints.
+
+    These are solver inputs only, never saved Home or collision authority.
+    Reuse the local URDF limit owner and the reference PreEntry seed pattern.
+    """
+    from DENTOStep6Planning import default_task_joint_limits_from_urdf
+    from DENTORobotPlacement import joint_positions_si_from_display
+
+    paths = facade._logic.robotDescriptionPaths()
+    if not paths or not paths[0]:
+        raise ValueError("The local robot URDF is unavailable for Auto Task Home seeds.")
+    limits = default_task_joint_limits_from_urdf(paths[0])
+    ranges = [getattr(limits, f"joint_{i}") for i in range(1, 6)]
+    bounds = [(float(r.minimum), float(r.maximum)) for r in ranges]
+    if any(not isfinite(lo) or not isfinite(hi) or lo > hi for lo, hi in bounds):
+        raise ValueError("Auto Task Home mechanical seed limits are invalid.")
+    middle = [(lo + hi) / 2.0 for lo, hi in bounds]
+    seeds = [None]
+    seen = set()
+    for first in (0.0, 1.5, 3.0, 4.5):
+        for third in (0.0, 1.5, 3.0, 4.5):
+            display = list(middle)
+            for index, angle in ((0, first), (2, third)):
+                lo, hi = bounds[index]
+                display[index] = min(hi, max(lo, degrees(angle)))
+            seed = joint_positions_si_from_display(*display)
+            key = tuple(seed.values())
+            if key not in seen:
+                seen.add(key)
+                seeds.append(seed)
+    return seeds
+
+
+def _solve_home_ik(facade, result_type, seed):
+    """Classify branch misses separately from unavailable validation authority."""
+    bridge = facade._bridge
+    ok, message, positions, diagnostic = bridge.solve_moveit_tcp_position_axis_goal(
+        seed_joint_positions_si=seed, avoid_collisions=True,
+    )
+    diagnostic = dict(diagnostic or {})
+    details = {"ikDiagnostic": diagnostic, "authoritativeStaticValidity": False,
+               "collisionAwareValidated": False, "branchMiss": False}
+    if ok is not True:
+        # Only defined native branch outcomes may advance to another seed.
+        details["branchMiss"] = diagnostic.get("termination_reason") in {
+            "colliding", "iteration_limit", "timeout", "stalled",
+        }
+        return result_type(False, "auto_task_home_ik_failed", str(message), details=details)
+    names = tuple(bridge.ROS2_JOINT_SI_ORDER)
+    if not isinstance(positions, dict) or set(positions) != set(names):
+        raise ValueError("Auto Task Home IK returned an incomplete joint vector.")
+    candidate = {name: float(positions[name]) for name in names}
+    if not all(isfinite(value) for value in candidate.values()):
+        raise ValueError("Auto Task Home IK returned non-finite joints.")
+    valid, static_message, authoritative = bridge.check_moveit_static_joint_state(candidate)
+    details["staticValidityMessage"] = str(static_message)
+    details["authoritativeStaticValidity"] = authoritative is True
+    if authoritative is not True:
+        return result_type(False, "auto_task_home_ik_failed",
+                           "Authoritative static validity unavailable: " + str(static_message), details=details)
+    if valid is not True:
+        details["branchMiss"] = True
+        return result_type(False, "auto_task_home_ik_failed",
+                           "Auto Task Home candidate collided: " + str(static_message), details=details)
+    details["collisionAwareValidated"] = True
+    return result_type(True, "ik_solved", str(message), details=details, payload=candidate)
+
+
 def propose_auto_task_home(facade, result_type, bridge_policy, *, depth_mm=DEFAULT_DEPTH_MM):
     """Return a guarded five-joint draft, never review/save/plan/apply it."""
     details = {"depthMm": depth_mm, "draftOnly": True}
@@ -164,10 +233,33 @@ def propose_auto_task_home(facade, result_type, bridge_policy, *, depth_mm=DEFAU
         goal = facade.setTcpGoal(pose)
         if goal.success is not True:
             raise ValueError(goal.message)
-        solved = facade.solveIk()
-        details.update(dict(solved.details or {}))
+        seeds = auto_task_home_ik_seeds(facade)
+        details["ikSeedBudget"] = len(seeds)
+        details["ikAttempts"] = []
+        solved = None
+        for index, seed in enumerate(seeds):
+            if inputs() != before:
+                raise ValueError("Auto Task Home inputs changed between IK seeds.")
+            current_scene = facade.moveItSceneComparison()
+            if current_scene is None or current_scene.get("matches") is not True:
+                raise ValueError("MoveIt collision scene changed between Auto Task Home seeds.")
+            solved = _solve_home_ik(facade, result_type, seed)
+            details["ikAttempts"].append({
+                "index": index, "seedJointPositionsSi": seed,
+                "success": solved.success is True, "message": solved.message,
+                **dict(solved.details or {}),
+            })
+            details.update(dict(solved.details or {}))
+            if solved.success is True:
+                details["selectedIkSeedIndex"] = index
+                break
+            if solved.details.get("branchMiss") is not True:
+                return result_type(False, "auto_task_home_ik_failed", solved.message, details=details)
         if solved.success is not True:
-            return result_type(False, "auto_task_home_ik_failed", solved.message, details=details)
+            return result_type(False, "auto_task_home_ik_failed",
+                               "Bounded same-pose IK seed search found no valid Home; "
+                               "this does not prove infeasibility. Last outcome: " + solved.message,
+                               details=details)
         facade._manual_task_home_candidate_within_mechanical_limits(solved.payload)
         ok, message, actual_pose = facade._bridge.compute_moveit_tcp_pose_world_ras_mm(
             solved.payload, base_transform=parameter.robotBaseTransform,

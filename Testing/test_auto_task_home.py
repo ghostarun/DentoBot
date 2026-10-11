@@ -47,7 +47,8 @@ def facade():
     state = SimpleNamespace(identity='current', scene=True, ik=True, fk=True, fk_z=0.0,
                             axis=1.0, calls=[], after_fk=None, midpoint=(0., 0., 0.))
     parameter = SimpleNamespace(robotBaseTransform='base')
-    joints = {f'j{i}': i / 10 for i in range(1, 6)}
+    from DENTORobotPlacement import joint_positions_si_from_display
+    joints = joint_positions_si_from_display(0, 20, 0, 20, 0)
     def fk(q, *, base_transform):
         state.calls.append(('fk', q, base_transform))
         pose = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, state.axis, state.fk_z], [0, 0, 0, 1]]
@@ -57,20 +58,26 @@ def facade():
     def goal(pose):
         state.calls.append(('goal', pose.rows))
         return Result(True, 'goal', 'goal')
-    def solve():
-        state.calls.append(('ik',))
-        return Result(state.ik, 'ik', 'IK unavailable' if not state.ik else 'IK',
-                      {'authoritativeStaticValidity': state.ik}, joints if state.ik else None)
+    def solve(**kwargs):
+        state.calls.append(('ik', kwargs))
+        return state.ik, 'IK unavailable' if not state.ik else 'IK', joints if state.ik else {}, {
+            'termination_reason': 'converged' if state.ik else 'collision_check_unavailable'}
+    def static(q):
+        state.calls.append(('static', q))
+        return True, 'static clear', True
     f = SimpleNamespace(
         _require_context=lambda: parameter,
         _manual_jog_current_identity=lambda p, **kw: {'identity':state.identity},
         defaultTaskSpaceRoi=lambda: Result(True, 'roi', 'ROI', payload={
             'centerWorldRasMm':state.midpoint, 'openingRevision':1, 'gapLineNodeId':'line'}),
-        _logic=SimpleNamespace(step6TrajectorySummary=lambda p: {
+        _logic=SimpleNamespace(robotDescriptionPaths=lambda: [str(PY.parents[2] / 'dentobot_description/urdf/dentobot.urdf')], step6TrajectorySummary=lambda p: {
             'isValid':True, 'entryRas':(0,0,10), 'targetRas':(0,0,20)}),
         moveItSceneComparison=lambda: {'matches':state.scene},
         _bridge=SimpleNamespace(tool_pose_matrices_world_mm=lambda *a: [Matrix(), Matrix()],
-                                compute_moveit_tcp_pose_world_ras_mm=fk),
+                                compute_moveit_tcp_pose_world_ras_mm=fk,
+                                ROS2_JOINT_SI_ORDER=tuple(joints),
+                                solve_moveit_tcp_position_axis_goal=solve,
+                                check_moveit_static_joint_state=static),
         setTcpGoal=goal, solveIk=solve,
         _manual_task_home_candidate_within_mechanical_limits=lambda q: state.calls.append(('limits', q)),
     )
@@ -125,7 +132,7 @@ def test_proposal_calls_existing_ik_and_fk_and_returns_only_draft():
     result = propose_auto_task_home(f, Result, POLICY)
     assert result.success
     assert result.details['draftOnly'] is True
-    assert [c[0] for c in state.calls] == ['goal', 'ik', 'limits', 'fk']
+    assert [c[0] for c in state.calls] == ['goal', 'ik', 'static', 'limits', 'fk']
     assert result.details['source']['gapLineNodeId'] == 'line'
     assert result.details['taskHomeReviewIdentity'] == {'identity': 'current'}
     assert result.details['trajectoryWorldRasMm'] == {'entry': (0., 0., 10.), 'target': (0., 0., 20.)}
@@ -280,3 +287,85 @@ def test_auto_button_capability_gate_has_a_reason(substep, connected, ik, expect
     update(p)
     assert p.autoTaskHomeButton.enabled is expected
     assert p.autoTaskHomeButton.toolTip
+
+
+def test_same_pose_branch_search_preserves_geometry_and_records_all_attempts():
+    f, state = facade()
+    original = f._bridge.solve_moveit_tcp_position_axis_goal
+    def branches(**kwargs):
+        if kwargs['seed_joint_positions_si'] is None:
+            state.calls.append(('ik', kwargs))
+            return False, 'colliding', {}, {'termination_reason': 'colliding'}
+        return original(**kwargs)
+    f._bridge.solve_moveit_tcp_position_axis_goal = branches
+    result = propose_auto_task_home(f, Result, POLICY)
+    assert result.success and result.details['selectedIkSeedIndex'] == 1
+    assert len(result.details['ikAttempts']) == 2
+    assert sum(c[0] == 'goal' for c in state.calls) == 1
+    assert all(c[1]['avoid_collisions'] is True for c in state.calls if c[0] == 'ik')
+    assert result.details['positionWorldRasMm'] == (0, 0, 0)
+
+
+def test_seed_budget_exhaustion_is_refusal_not_infeasibility():
+    f, state = facade()
+    calls = []
+    f._bridge.solve_moveit_tcp_position_axis_goal = lambda **kw: (
+        calls.append(kw) or False, 'colliding', {}, {'termination_reason': 'colliding'})
+    result = propose_auto_task_home(f, Result, POLICY)
+    assert not result.success and result.payload is None
+    assert len(calls) == result.details['ikSeedBudget'] == 17
+    assert 'does not prove infeasibility' in result.message
+
+
+def test_unknown_static_authority_stops_before_next_seed():
+    f, state = facade()
+    f._bridge.check_moveit_static_joint_state = lambda q: (False, 'unavailable', False)
+    result = propose_auto_task_home(f, Result, POLICY)
+    assert not result.success and len(result.details['ikAttempts']) == 1
+    assert result.details['authoritativeStaticValidity'] is False
+
+
+def test_identity_change_between_seeds_stops_search():
+    f, state = facade()
+    def changed(**kw):
+        state.identity = 'changed'
+        return False, 'colliding', {}, {'termination_reason': 'colliding'}
+    f._bridge.solve_moveit_tcp_position_axis_goal = changed
+    result = propose_auto_task_home(f, Result, POLICY)
+    assert not result.success and len(result.details['ikAttempts']) == 1
+    assert 'changed between' in result.message
+
+
+def test_seed_hints_stay_inside_actual_mechanical_limits():
+    f, state = facade()
+    seeds = module.auto_task_home_ik_seeds(f)
+    assert seeds[0] is None and len(seeds) == 17
+    from DENTOStep6Planning import default_task_joint_limits_from_urdf
+    from math import degrees
+    limits = default_task_joint_limits_from_urdf(f._logic.robotDescriptionPaths()[0])
+    for seed in seeds[1:]:
+        for index, value in enumerate(seed.values()):
+            limit = getattr(limits, f'joint_{index + 1}')
+            display = degrees(value) if limit.unit == 'deg' else value * 1000
+            assert limit.minimum <= display <= limit.maximum
+
+
+def test_native_collision_authority_unavailable_stops_after_one_attempt():
+    f, state = facade()
+    state.ik = False
+    result = propose_auto_task_home(f, Result, POLICY)
+    assert not result.success and len(result.details['ikAttempts']) == 1
+    assert result.details['ikAttempts'][0]['ikDiagnostic']['termination_reason'] == 'collision_check_unavailable'
+
+
+def test_authoritative_collision_rejection_can_try_next_seed():
+    f, state = facade()
+    calls = []
+    def static(q):
+        calls.append(q)
+        return len(calls) > 1, 'collision' if len(calls) == 1 else 'clear', True
+    f._bridge.check_moveit_static_joint_state = static
+    result = propose_auto_task_home(f, Result, POLICY)
+    assert result.success and len(calls) == 2
+    assert result.details['ikAttempts'][0]['authoritativeStaticValidity'] is True
+    assert result.details['ikAttempts'][0]['collisionAwareValidated'] is False
