@@ -2,11 +2,14 @@
 
 import ast
 import json
+import math
 import os
 import re
 import sys
+from collections.abc import Mapping
+from numbers import Real
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +19,8 @@ MANUAL_WIDGET_PATH = PY / "dentobot_workflow" / "widget_robot_manual.py"
 if str(PY) not in sys.path:
     sys.path.insert(0, str(PY))
 from dentobot_workflow.step6_control_reasons import ADVISOR_CONTROLS, annotate_step6_controls  # noqa: E402
-from dentobot_workflow import advisor_home_proposal  # noqa: E402
+from dentobot_workflow import advisor_home, advisor_home_proposal  # noqa: E402
+from DENTOStep6State import JOINT_NAMES  # noqa: E402
 ADVISOR_HOME_PATH = PY / "dentobot_workflow" / "advisor_home.py"
 
 METHODS = {
@@ -125,6 +129,10 @@ def _load_gui_methods():
 
     namespace = {
         "_": lambda text: text,
+        "Mapping": Mapping,
+        "Real": Real,
+        "math": math,
+        "MappingProxyType": MappingProxyType,
         "ADVISOR_CONTROLS": ADVISOR_CONTROLS,
         "annotate_step6_controls": annotate_step6_controls,
         "advisor_home_proposal": advisor_home_proposal,
@@ -134,9 +142,10 @@ def _load_gui_methods():
             SetupIssue=lambda message, **kwargs: SimpleNamespace(message=message, **kwargs),
             APPLY_STEPS=("apply_base", "apply_policy"),
             DONE="done", EVALUATING="evaluating", FOUND="found", IDLE="idle", RESTORING="restoring",
+            JOINT_NAMES=JOINT_NAMES,
             working_configuration_record=lambda *args, **kwargs: {"config": "fake"},
         ),
-        "advisor_home": SimpleNamespace(CONSENT_TEXT=CONSENT_TEXT),
+        "advisor_home": SimpleNamespace(CONSENT_TEXT=CONSENT_TEXT, record_identity=advisor_home.record_identity),
         "step6_working_config": SimpleNamespace(normalize=lambda value: value),
         "qt": SimpleNamespace(QMessageBox=FakeMessageBox, QTimer=FakeQTimer,
                               QTableWidgetItem=lambda text: SimpleNamespace(text=text), QPushButton=FakePushButton),
@@ -526,6 +535,8 @@ def test_auto_home_evidence_write_failure_is_visible_and_keeps_staged_outcome(mo
     assert widget._advisorState is None
     assert widget._advisorHomeProposalSummary.staged is True
     assert widget._advisorHomeProposalSummary.evidence_error == "evidence disk unavailable"
+    assert widget._advisorGeneratedHomeReviewRequired is True
+    assert widget._advisorGeneratedHomeProposalBinding is not None
     assert "evidence disk unavailable" in panel.taskHomeReviewStatusLabel.text
     assert "draft state was left unchanged" in panel.taskHomeReviewStatusLabel.text
     assert events[-1][0] == "draft"
@@ -742,7 +753,9 @@ class AdvisorHost(GuiMixin):
         self._robotSimulationPanel = None
         self._robotWorkflowFacade = SimpleNamespace(jointPlanningPolicy=lambda: {
             "planner_id": "fake", "planning_attempts": 1, "planning_time_sec": 1.0,
-        }, manualTaskHomeReview=lambda: SimpleNamespace(details={"staged": False}))
+        }, manualTaskHomeReview=lambda: SimpleNamespace(
+            success=True, details={"staged": False, "identityStatus": "current"}
+        ))
         self._advisorState = {
             **_advisor_buttons(), "session": session, "timer": Timer(), "dialog": Dialog(),
             "running": mode == "running", "paused": mode == "paused", "restoreFailed": False,
@@ -1176,6 +1189,199 @@ def test_generated_home_requires_acceptance_and_task_reconfirmation_before_start
         widget._advisorOnStart()
         assert session.calls == [] and widget._advisorGeneratedHomeReviewRequired
         assert "Confirm Task" in widget._advisorState["statusLabel"].text
+
+
+def test_generated_home_gate_rejects_old_validated_and_confirmed_home():
+    """The saved Home and confirmed task must be the generated candidate, not any valid old Home."""
+    old_home = SimpleNamespace(
+        joint_names=JOINT_NAMES,
+        joint_positions_si=(0.0, 0.0, 0.0, 0.0, 0.0), revision=7,
+        runtime_validation_status="Validated",
+    )
+    session = ScriptedSession()
+    widget = AdvisorHost(session)
+    widget._advisorGeneratedHomeReviewRequired = True
+    widget._advisorGeneratedHomeProposalBinding = {
+        "candidate_si_joints": {JOINT_NAMES[0]: 0.1, **{name: 0.0 for name in JOINT_NAMES[1:]}},
+        "previous_home_revision": 6,
+        "previous_home_capture_ok": True,
+        "source_identity": {"branch_id": "b", "base": "base", "trajectory": "traj",
+                            "robot_profile": "robot", "collision_audit": "audit", "limits": "limits"},
+    }
+    widget._parameterNode = object()
+    widget.logic = SimpleNamespace(
+        confirmedTaskFreshnessIssues=lambda node: [], taskHomeRecord=lambda node: old_home,
+    )
+    widget._robotWorkflowFacade.taskHomeValidationGap = lambda node: ""
+    widget._robotWorkflowFacade.manualTaskHomeReview = lambda: SimpleNamespace(
+        success=True, details={"staged": False, "identityStatus": "current"}
+    )
+    widget._robotWorkflowFacade._manual_jog_current_identity = lambda node, **kwargs: {
+        "branch_id": "b", "task": "confirmed-old-task", "home": "old-home", "base": "base",
+        "trajectory": "traj", "robot_profile": "robot", "collision_audit": "audit", "limits": "limits",
+    }
+    widget._advisorOnStart()
+    assert session.calls == []
+    assert widget._advisorGeneratedHomeReviewRequired
+    assert "generated Home" in widget._advisorState["statusLabel"].text
+
+
+def _bound_generated_home_widget(*, candidate=None, revision=7, status="Validated", current_source=None):
+    expected = {name: float(index) / 10.0 for index, name in enumerate(JOINT_NAMES)}
+    candidate = dict(candidate if candidate is not None else expected)
+    source = {"branch_id": "b", "base": "base", "trajectory": "traj", "robot_profile": "robot",
+              "collision_audit": "audit", "limits": "limits"}
+    home = SimpleNamespace(joint_names=JOINT_NAMES,
+                           joint_positions_si=tuple(expected[name] for name in JOINT_NAMES),
+                           revision=revision, runtime_validation_status=status)
+    widget = AdvisorHost(ScriptedSession())
+    widget._advisorGeneratedHomeReviewRequired = True
+    widget._advisorGeneratedHomeProposalBinding = {
+        "candidate_si_joints": candidate, "source_identity": source,
+        "previous_home_revision": 6, "previous_home_capture_ok": True,
+    }
+    widget._parameterNode = object()
+    widget.logic = SimpleNamespace(confirmedTaskFreshnessIssues=lambda node: [], taskHomeRecord=lambda node: home)
+    widget._robotWorkflowFacade.taskHomeValidationGap = lambda node: ""
+    live = dict(source)
+    live.update({"task": "fresh-confirmed-task", "home": "accepted-home"})
+    if current_source:
+        live.update(current_source)
+    widget._robotWorkflowFacade._manual_jog_current_identity = lambda node, **kwargs: live
+    return widget
+
+
+def test_generated_home_gate_allows_only_new_matching_validated_home_and_fresh_confirmation():
+    widget = _bound_generated_home_widget()
+    widget._advisorOnStart()
+    assert widget._advisorState["session"].calls == ["prepare"]
+    assert widget._advisorGeneratedHomeReviewRequired is False
+    assert widget._advisorGeneratedHomeProposalBinding is None
+
+
+def test_generated_home_gate_requires_successful_current_manual_review():
+    for result in (None, SimpleNamespace(success=False, details={"staged": False, "identityStatus": "current"}),
+                   SimpleNamespace(success=True, details={"staged": False, "identityStatus": "stale"})):
+        widget = _bound_generated_home_widget()
+        widget._robotWorkflowFacade.manualTaskHomeReview = lambda result=result: result
+        widget._advisorOnStart()
+        assert widget._advisorState["session"].calls == []
+        assert widget._advisorGeneratedHomeReviewRequired is True
+
+
+def test_generated_home_binding_wired_through_proposal_close_reopen_and_fresh_session(tmp_path):
+    candidate = {name: 0.0 for name in JOINT_NAMES}
+    candidate[JOINT_NAMES[0]] = 0.5
+    source = {"branch_id": "b", "base": "base", "trajectory": "traj", "robot_profile": "robot",
+              "collision_audit": "audit", "limits": "limits"}
+    prior_home = SimpleNamespace(joint_names=JOINT_NAMES, joint_positions_si=(0.0,) * len(JOINT_NAMES),
+                                 revision=6, runtime_validation_status="Validated")
+    widget = AdvisorHost(ScriptedSession())
+    widget._advisorState["root"] = tmp_path
+    widget._parameterNode = object()
+    widget.logic = SimpleNamespace(taskHomeRecord=lambda node: prior_home,
+                                   confirmedTaskFreshnessIssues=lambda node: [])
+    widget._robotWorkflowFacade.manualTaskHomeReview = lambda: SimpleNamespace(
+        success=True, details={"staged": False, "identityStatus": "current"}
+    )
+    widget._robotWorkflowFacade._manual_jog_current_identity = lambda node, **kwargs: {
+        **source, "task": "confirmed-old-task", "home": "old-home",
+    }
+    widget._robotWorkflowFacade.taskHomeValidationGap = lambda node: ""
+    widget._configureRobotSimulationShellSubstep = lambda step: None
+    generated = advisor_home_proposal.outcome_from_result(
+        SimpleNamespace(success=True, code="auto_task_home_draft_ready", message="Draft ready.",
+                         details={"candidateJointPositionsSi": candidate,
+                                  "taskHomeReviewIdentity": source}, payload=candidate),
+        staged=True,
+    )
+    widget._onStep6AutoTaskHome = lambda: generated
+    widget._advisorOnFix("propose_auto_home")
+    assert widget._advisorState is None
+    binding = widget._advisorGeneratedHomeProposalBinding
+    assert widget._advisorGeneratedHomeReviewRequired is True
+    assert binding["candidate_si_joints"] == candidate
+    assert binding["source_identity"] == source
+    assert binding["previous_home_revision"] == 6
+    assert binding["previous_home_capture_ok"] is True
+
+    reopened = AdvisorHost(ScriptedSession())
+    widget._advisorState = reopened._advisorState  # same widget instance; only the advisor session/dialog reopens
+    widget._advisorOnStart()
+    assert widget._advisorState["session"].calls == []
+    assert widget._advisorGeneratedHomeReviewRequired is True
+    assert widget._advisorGeneratedHomeProposalBinding is binding
+
+
+def test_staged_inconsistent_outcome_invalidates_binding_but_unstaged_refusal_preserves_it(tmp_path):
+    for staged in (True, False):
+        widget = AdvisorHost(ScriptedSession())
+        widget._advisorState["root"] = tmp_path / str(staged)
+        widget._advisorState["root"].mkdir()
+        widget._advisorGeneratedHomeReviewRequired = True
+        previous_binding = {"candidate_si_joints": {"saved": "pending"}}
+        widget._advisorGeneratedHomeProposalBinding = previous_binding
+        widget._parameterNode = object()
+        widget.logic = SimpleNamespace(taskHomeRecord=lambda node: None)
+        widget._robotWorkflowFacade.manualTaskHomeReview = lambda: SimpleNamespace(
+            success=True, details={"staged": False, "identityStatus": "current"}
+        )
+        widget._configureRobotSimulationShellSubstep = lambda step: None
+        refused = advisor_home_proposal.outcome_from_result(
+            SimpleNamespace(success=False, code="auto_task_home_refused", message="Refused.", details={}, payload=None),
+            staged=staged,
+        )
+        widget._onStep6AutoTaskHome = lambda: refused
+        widget._advisorOnFix("propose_auto_home")
+        assert widget._advisorGeneratedHomeReviewRequired is True
+        if staged:
+            assert widget._advisorGeneratedHomeProposalBinding is None
+        else:
+            assert widget._advisorGeneratedHomeProposalBinding is previous_binding
+
+
+def test_generated_home_gate_rejects_unchanged_same_joints_and_source_drift():
+    cases = (
+        _bound_generated_home_widget(revision=6),
+        _bound_generated_home_widget(status="Unreviewed"),
+        _bound_generated_home_widget(current_source={"branch_id": "replacement-branch"}),
+    )
+    for widget in cases:
+        widget._advisorOnStart()
+        assert widget._advisorState["session"].calls == []
+        assert widget._advisorGeneratedHomeReviewRequired is True
+
+
+def test_generated_home_gate_rejects_mismatched_missing_or_nonfinite_candidate():
+    expected = {name: float(index) / 10.0 for index, name in enumerate(JOINT_NAMES)}
+    missing = dict(expected)
+    missing.pop(JOINT_NAMES[-1])
+    nonfinite = dict(expected)
+    nonfinite[JOINT_NAMES[0]] = float("nan")
+    mismatch = dict(expected)
+    mismatch[JOINT_NAMES[0]] += 0.01
+    for candidate in (missing, nonfinite, mismatch):
+        widget = _bound_generated_home_widget(candidate=candidate)
+        widget._advisorOnStart()
+        assert widget._advisorState["session"].calls == []
+        assert widget._advisorGeneratedHomeReviewRequired is True
+
+
+def test_generated_home_gate_fails_closed_on_missing_source_and_requires_fresh_unstaged_review():
+    missing_source = _bound_generated_home_widget()
+    missing_source._advisorGeneratedHomeProposalBinding["source_identity"] = None
+    missing_source._advisorOnStart()
+    assert missing_source._advisorState["session"].calls == []
+
+    for freshness_issue, staged in (("confirmed task stale", False), ("", True)):
+        widget = _bound_generated_home_widget()
+        widget.logic.confirmedTaskFreshnessIssues = lambda node, issue=freshness_issue: [issue] if issue else []
+        widget._robotWorkflowFacade.manualTaskHomeReview = lambda is_staged=staged: SimpleNamespace(
+            success=True, details={"identityStatus": "current", "staged": is_staged}
+        )
+        widget._advisorOnStart()
+        assert widget._advisorState["session"].calls == []
+        assert widget._advisorGeneratedHomeReviewRequired is True
 
 
 def test_replacement_home_refuses_pending_gate_and_operator_review_block():

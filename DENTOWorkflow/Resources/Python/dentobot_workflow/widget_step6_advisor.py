@@ -11,6 +11,10 @@ dialog is auto-answered.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from numbers import Real
+from types import MappingProxyType
+
 from .runtime import *
 from . import advisor_home
 from . import advisor_home_proposal
@@ -371,6 +375,17 @@ class Step6AdvisorWidgetMixin:
                                   "saved_home_si": dict(getattr(session, "saved_home", None) or {}),
                                   "baseline_restored": True,
                                   "home_rejected_count": sum(bool(row.get("home_rejected")) for row in session.records)}
+            previous_home_revision = None
+            previous_home_capture_ok = False
+            try:
+                prior_home = self.logic.taskHomeRecord(self._parameterNode)
+                prior_identity = advisor_home.record_identity(prior_home)
+                previous_home_revision = prior_identity.get("revision") if prior_identity else None
+                previous_home_capture_ok = prior_home is None or (
+                    isinstance(previous_home_revision, int) and not isinstance(previous_home_revision, bool)
+                )
+            except Exception:
+                pass
             if not self._advisorCloseForNavigation():
                 return
             try:
@@ -403,6 +418,18 @@ class Step6AdvisorWidgetMixin:
             )
             if outcome.staged:
                 self._advisorGeneratedHomeReviewRequired = True
+                if outcome.success is True:
+                    details = outcome.details if isinstance(outcome.details, Mapping) else {}
+                    source = details.get("taskHomeReviewIdentity")
+                    self._advisorGeneratedHomeProposalBinding = MappingProxyType({
+                        "candidate_si_joints": (MappingProxyType(dict(outcome.candidate_si_joints))
+                                                 if isinstance(outcome.candidate_si_joints, Mapping) else None),
+                        "source_identity": MappingProxyType(dict(source)) if isinstance(source, Mapping) else None,
+                        "previous_home_revision": previous_home_revision,
+                        "previous_home_capture_ok": previous_home_capture_ok,
+                    })
+                else:
+                    self._advisorGeneratedHomeProposalBinding = None
             if evidence_error:
                 panel = getattr(self, "_robotSimulationPanel", None)
                 visible_message = (
@@ -480,16 +507,57 @@ class Step6AdvisorWidgetMixin:
         session = state["session"]
         if getattr(self, "_advisorGeneratedHomeReviewRequired", False):
             try:
+                binding = getattr(self, "_advisorGeneratedHomeProposalBinding", None)
+                candidate = binding.get("candidate_si_joints") if isinstance(binding, Mapping) else None
+                source = binding.get("source_identity") if isinstance(binding, Mapping) else None
+                if not isinstance(candidate, Mapping) or set(candidate) != set(advisor.JOINT_NAMES):
+                    raise ValueError("The generated candidate identity is incomplete.")
+                raw_values = [candidate[name] for name in advisor.JOINT_NAMES]
+                if any(not isinstance(value, Real) or isinstance(value, bool) for value in raw_values):
+                    raise ValueError("The generated candidate contains a malformed joint value.")
+                values = [float(value) for value in raw_values]
+                if any(not math.isfinite(value) for value in values):
+                    raise ValueError("The generated candidate contains a non-finite joint value.")
+                source_keys = ("branch_id", "base", "trajectory", "robot_profile", "collision_audit", "limits")
+                prior_revision = binding.get("previous_home_revision")
+                if (not isinstance(source, Mapping) or any(not source.get(key) for key in source_keys)
+                        or binding.get("previous_home_capture_ok") is not True):
+                    raise ValueError("The generated candidate source or prior Home revision is unavailable.")
+                current_source = self._robotWorkflowFacade._manual_jog_current_identity(
+                    self._parameterNode, for_task_home_review=True
+                )
+                if any(current_source.get(key) != source.get(key) for key in source_keys):
+                    raise ValueError("The current planning source differs from the generated candidate source.")
+                home = self.logic.taskHomeRecord(self._parameterNode)
+                home_identity = advisor_home.record_identity(home)
+                if not home_identity:
+                    raise ValueError("The generated candidate has not been accepted as Task Home.")
+                names = tuple(home_identity.get("joint_names") or ())
+                positions = tuple(home_identity.get("joint_positions_si") or ())
+                if (names != tuple(advisor.JOINT_NAMES) or len(positions) != len(values)
+                        or any(not isinstance(value, Real) or isinstance(value, bool)
+                               or not math.isfinite(float(value)) for value in positions)
+                        or any(abs(float(value) - wanted) > 1.0e-12
+                               for value, wanted in zip(positions, values))):
+                    raise ValueError("The accepted Task Home does not match the generated candidate.")
+                revision = home_identity.get("revision")
+                if (home_identity.get("runtime_validation_status") != "Validated"
+                        or not isinstance(revision, int) or isinstance(revision, bool)
+                        or (prior_revision is None and revision <= 0)
+                        or (prior_revision is not None and revision <= prior_revision)):
+                    raise ValueError("The matching generated Home is not newly runtime validated.")
                 gaps = [*self.logic.confirmedTaskFreshnessIssues(self._parameterNode)]
                 home_gap = self._robotWorkflowFacade.taskHomeValidationGap(self._parameterNode)
                 review = self._robotWorkflowFacade.manualTaskHomeReview()
-                if home_gap or gaps or (review.details or {}).get("staged"):
-                    state["statusLabel"].text = _("Accept and validate the generated Home in 6.2, then Confirm Task in 6.3 before a new batch.")
-                    return
-            except Exception:
-                state["statusLabel"].text = _("Generated Home acceptance and task confirmation could not be verified. Review 6.2–6.3 before a new batch.")
+                if (home_gap or gaps or getattr(review, "success", False) is not True
+                        or (review.details or {}).get("identityStatus") != "current"
+                        or (review.details or {}).get("staged")):
+                    raise ValueError("The matching Home or confirmed task is not current.")
+            except Exception as exc:
+                state["statusLabel"].text = _("Accept and validate the generated Home in 6.2, then Confirm Task in 6.3 before a new batch. ") + str(exc)
                 return
             self._advisorGeneratedHomeReviewRequired = False
+            self._advisorGeneratedHomeProposalBinding = None
         if session.phase != advisor.IDLE:  # resume after a cancel/finish: a new session reuses the checkpoints
             self._advisorNewSession()
             session = state["session"]
