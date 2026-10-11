@@ -62,6 +62,48 @@ def _restore_saved_case_foundation_landmarks(landmarks, saved_positions) -> bool
     return True
 
 
+def _discard_unsaved_orphan_volume_displays(scene, workflow):
+    """Discard restore-created, unused scalar displays, never saved case state.
+
+    MRML IDs alone do not establish object identity across a scene replacement.
+    Use the audited saved inventory plus the complete live reference graph; an
+    unreadable graph aborts the restore before any node is removed.
+    """
+    ownership = workflow.get("projectionOwnership", {})
+    saved_ids = ownership.get("nodeIds")
+    if not isinstance(saved_ids, list) or not saved_ids:
+        return []
+    saved_ids = set(saved_ids)
+    nodes = [scene.GetNthNode(index) for index in range(scene.GetNumberOfNodes())]
+    referenced = set()
+    outgoing = {}
+    for node in nodes:
+        roles = []
+        node.GetNodeReferenceRoles(roles)
+        refs = [node.GetNthNodeReferenceID(role, index)
+                for role in roles
+                for index in range(node.GetNumberOfNodeReferences(role))]
+        outgoing[node.GetID()] = refs
+        referenced.update(reference for reference in refs if reference)
+    removable = []
+    for node in nodes:
+        node_id = node.GetID()
+        if (node.GetClassName() != "vtkMRMLScalarVolumeDisplayNode"
+                or node_id in saved_ids or node_id in referenced
+                or outgoing[node_id] or node.GetDisplayableNode() is not None
+                or node.GetSingletonTag()):
+            continue
+        attributes = vtk.vtkStringArray()
+        node.GetAttributeNames(attributes)
+        if attributes.GetNumberOfValues() == 0:
+            removable.append(node)
+    # Finish all reads before mutation so an incomplete audit cannot prune state.
+    removed_ids = [node.GetID() for node in removable]
+    for node in removable:
+        scene.RemoveNode(node)
+    return removed_ids
+
+
 class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
     def onOpenCaseLibrary(self, checked=False):
         if self._caseLibraryDialog is not None:
@@ -724,6 +766,11 @@ class CaseBackendWidgetMixin(BackendCompletionWidgetMixin):
                             self._applyWorkflowViewPreset("recommended", updateStatus=False)
                             phase("Restoring recommended view", can_cancel=False)
                     self._enforceStep6OpenedJawDisplaySeparation()
+                    discarded = _discard_unsaved_orphan_volume_displays(
+                        slicer.mrmlScene, inspection.workflow
+                    )
+                    if discarded:
+                        logging.info("Discarded %d unsaved orphan volume display(s) after case restore", len(discarded))
                     prepared.assert_source_unchanged()
                     phase("Finalizing jaw display", can_cancel=False)
                 except Exception as hydrationError:

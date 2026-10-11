@@ -8,6 +8,7 @@ import sys
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -60,6 +61,26 @@ def _saved_landmark_restore_helper():
     return namespace[helper.name]
 
 
+def _unsaved_orphan_volume_display_helper():
+    source_path = (
+        ROOT
+        / "DENTOWorkflow/Resources/Python/dentobot_workflow/widget_case_backend.py"
+    )
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    helper = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_discard_unsaved_orphan_volume_displays"
+    )
+    namespace = {"vtk": SimpleNamespace(vtkStringArray=FakeStringArray)}
+    exec(
+        compile(ast.Module([helper], type_ignores=[]), str(source_path), "exec"),
+        namespace,
+    )
+    return namespace[helper.name]
+
+
 def _canonical_case_foundation_landmark_positions_helper():
     source_path = (
         ROOT
@@ -94,6 +115,181 @@ class FakeLandmarks:
     def SetNthControlPointPositionWorld(self, index, *point):
         self.points[index] = list(point)
         self.writes += 1
+
+
+class FakeStringArray:
+    def __init__(self):
+        self.values = []
+
+    def InsertNextValue(self, value):
+        self.values.append(value)
+
+    def GetNumberOfValues(self):
+        return len(self.values)
+
+
+class FakeVolumeDisplayNode:
+    def __init__(
+        self,
+        node_id,
+        class_name="vtkMRMLScalarVolumeDisplayNode",
+        references=None,
+        displayable_owner=None,
+        singleton_tag=None,
+        attributes=None,
+        fail_reference_scan=False,
+        fail_attribute_scan=False,
+    ):
+        self.node_id = node_id
+        self.class_name = class_name
+        self.references = references or {}
+        self.displayable_owner = displayable_owner
+        self.singleton_tag = singleton_tag
+        self.attributes = attributes or {}
+        self.fail_reference_scan = fail_reference_scan
+        self.fail_attribute_scan = fail_attribute_scan
+
+    def GetID(self):
+        return self.node_id
+
+    def GetClassName(self):
+        return self.class_name
+
+    def GetNodeReferenceRoles(self, roles):
+        roles.extend(self.references)
+
+    def GetNumberOfNodeReferences(self, role):
+        return len(self.references[role])
+
+    def GetNthNodeReferenceID(self, role, index):
+        if self.fail_reference_scan:
+            raise RuntimeError("reference scan failed")
+        return self.references[role][index]
+
+    def GetDisplayableNode(self):
+        return self.displayable_owner
+
+    def GetSingletonTag(self):
+        return self.singleton_tag
+
+    def GetAttributeNames(self, names):
+        if self.fail_attribute_scan:
+            raise RuntimeError("attribute scan failed")
+        for name in self.attributes:
+            names.InsertNextValue(name)
+
+
+class FakeMRMLScene:
+    def __init__(self, nodes):
+        self.nodes = list(nodes)
+        self.removed = []
+
+    def GetNumberOfNodes(self):
+        return len(self.nodes)
+
+    def GetNthNode(self, index):
+        return self.nodes[index]
+
+    def RemoveNode(self, node):
+        self.removed.append(node)
+        self.nodes.remove(node)
+
+
+def test_restore_discards_only_unsaved_orphan_scalar_volume_displays() -> None:
+    discard = _unsaved_orphan_volume_display_helper()
+    orphan = FakeVolumeDisplayNode("orphan-display")
+    saved = FakeVolumeDisplayNode("saved-display")
+    scene = FakeMRMLScene([orphan, saved])
+
+    discarded = discard(scene, {"projectionOwnership": {"nodeIds": ["saved-display"]}})
+
+    assert discarded == ["orphan-display"]
+    assert scene.removed == [orphan]
+    assert scene.nodes == [saved]
+
+
+def test_restore_preserves_saved_orphan_scalar_volume_display() -> None:
+    discard = _unsaved_orphan_volume_display_helper()
+    saved = FakeVolumeDisplayNode("saved-display")
+    scene = FakeMRMLScene([saved])
+
+    assert discard(scene, {"projectionOwnership": {"nodeIds": ["saved-display"]}}) == []
+    assert scene.removed == []
+    assert scene.nodes == [saved]
+
+
+@pytest.mark.parametrize(
+    "protected_kind",
+    ("incoming", "outgoing", "displayable_owner", "singleton", "attributes", "other_class"),
+)
+def test_restore_preserves_referenced_owned_or_special_display_nodes(protected_kind) -> None:
+    discard = _unsaved_orphan_volume_display_helper()
+    kwargs = {}
+    nodes = []
+    if protected_kind == "incoming":
+        nodes.append(
+            FakeVolumeDisplayNode(
+                "owner-volume",
+                class_name="vtkMRMLScalarVolumeNode",
+                references={"display": ["candidate"]},
+            )
+        )
+    elif protected_kind == "outgoing":
+        kwargs["references"] = {"view": ["some-node"]}
+    elif protected_kind == "displayable_owner":
+        kwargs["displayable_owner"] = object()
+    elif protected_kind == "singleton":
+        kwargs["singleton_tag"] = "SingletonTag"
+    elif protected_kind == "attributes":
+        kwargs["attributes"] = {"custom": "value"}
+    elif protected_kind == "other_class":
+        kwargs["class_name"] = "vtkMRMLModelDisplayNode"
+    candidate = FakeVolumeDisplayNode("candidate", **kwargs)
+    nodes.append(candidate)
+    scene = FakeMRMLScene(nodes)
+
+    assert discard(scene, {"projectionOwnership": {"nodeIds": ["saved-id"]}}) == []
+    assert scene.removed == []
+    assert scene.nodes == nodes
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    ({}, {"projectionOwnership": {}}, {"projectionOwnership": {"nodeIds": []}},
+     {"projectionOwnership": {"nodeIds": "candidate"}}),
+)
+def test_restore_without_audited_saved_node_inventory_is_noop(workflow) -> None:
+    discard = _unsaved_orphan_volume_display_helper()
+    candidate = FakeVolumeDisplayNode("candidate")
+    scene = FakeMRMLScene([candidate])
+
+    assert discard(scene, workflow) == []
+    assert scene.removed == []
+    assert scene.nodes == [candidate]
+
+
+@pytest.mark.parametrize("failure", ("reference", "attribute"))
+def test_restore_scan_failure_aborts_before_any_display_removal(failure) -> None:
+    discard = _unsaved_orphan_volume_display_helper()
+    first_candidate = FakeVolumeDisplayNode("first-candidate")
+    if failure == "reference":
+        unreadable = FakeVolumeDisplayNode(
+            "unreadable-reference-node",
+            references={"broken": ["target"]},
+            fail_reference_scan=True,
+        )
+    else:
+        unreadable = FakeVolumeDisplayNode(
+            "unreadable-attribute-node",
+            fail_attribute_scan=True,
+        )
+    scene = FakeMRMLScene([first_candidate, unreadable])
+
+    with pytest.raises(RuntimeError, match=f"{failure} scan failed"):
+        discard(scene, {"projectionOwnership": {"nodeIds": ["saved-id"]}})
+
+    assert scene.removed == []
+    assert scene.nodes == [first_candidate, unreadable]
 
 
 def write_mrb(path: Path, mrml: str) -> None:
@@ -700,6 +896,13 @@ def test_case_bundle_validates_before_gui_hydration() -> None:
     display_restore = open_case.index(
         "self._enforceStep6OpenedJawDisplaySeparation()", stage_restore
     )
+    discard_orphan_displays = open_case.index(
+        "_discard_unsaved_orphan_volume_displays(", display_restore
+    )
+    hydration_try = open_case.rfind("                try:\n", 0, discard_orphan_displays)
+    hydration_error = open_case.index(
+        "                except Exception as hydrationError:", discard_orphan_displays
+    )
     outer_finally = open_case.index("\n        finally:\n", display_restore)
     outer_end = open_case.index(
         "self._endCaseBundleRestore(restoreGeneration)", outer_finally
@@ -707,7 +910,17 @@ def test_case_bundle_validates_before_gui_hydration() -> None:
     assert outer_begin < bind_validation < bind < pre_hydration_events < hydrate
     assert hydrate < update < post_hydration_events < hydrated_validation
     assert hydrated_validation < profile_migration < revalidation
-    assert stage_restore < display_restore < outer_finally < outer_end
+    assert (
+        outer_begin
+        < hydration_try
+        < stage_restore
+        < display_restore
+        < discard_orphan_displays
+        < hydration_error
+        < outer_finally
+        < outer_end
+    )
+    assert "if not slicer.util.loadScene(" in open_case[hydration_error:]
     assert open_case.count("self._beginCaseBundleRestore()") == 1
     assert open_case.count("self._endCaseBundleRestore(") == 1
     assert "_beginCaseBundleRestore(" not in open_case[bind:outer_finally]
