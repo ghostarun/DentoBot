@@ -27,6 +27,51 @@ def _clear_future_node_attributes(node, checkpoint_order):
                 "NotVerified" if attribute == "DENTOBOT.VerificationState" else None)
 
 
+
+def _restore_selected_docking_parameters(parameter, logic, plan, normalize):
+    """Bind retained editor settings to the selected saved assembly, not another branch.
+
+    The audited assembly is authoritative for its construction settings. Future
+    checkpoint fields remain cleared by the projection plan. This does not edit
+    geometry, mark stale output Current, or manufacture verification evidence.
+    """
+    assembly = getattr(parameter, "targetDockingAssemblyModel", None)
+    if assembly is None:
+        return
+    if assembly.GetID() not in plan["keepNodeIds"]:
+        raise ValueError("Selected docking assembly is outside the retained prefix.")
+    summary = logic.getTargetDockingAssemblySummary(assembly)
+    saved = json.loads(summary["parametersJson"])
+    fields = {
+        "targetDockingPatternRadiusMm": ("patternRadiusMm", "pattern_radius_mm"),
+        "targetDockingOuterDiameterMm": ("outerDiameterMm", "outer_diameter_mm"),
+        "targetDockingBoreDiameterMm": ("boreDiameterMm", "bore_diameter_mm"),
+        "targetDockingConnectorDiameterMm": ("connectorDiameterMm", "connector_diameter_mm"),
+        "targetDockingConnectorThicknessMm": ("connectorThicknessMm", "connector_thickness_mm"),
+        "targetDockingSharedDepthMm": ("sharedDepthMm", "shared_depth_mm"),
+        "targetDockingIndividualDepthsEnabled": ("individualDepthsEnabled", "individual_depths_enabled"),
+        "targetDockingYawDeg": ("yawDeg", "yaw_deg"),
+        "targetDockingCollisionClearanceMm": ("collisionClearanceMm", "collision_clearance_mm"),
+        "templateDockingClearanceMm": ("clearanceMm", "clearance_mm"),
+        "templateReinforcementRadialMm": ("reinforcementRadialMm", "reinforcement_radial_mm"),
+        "templateSamplingSpacingMm": ("processingResolutionMm", "processing_resolution_mm"),
+    }
+    # Validate the complete saved recipe before mutating any editor value.
+    arguments = {argument: saved[key] for key, argument in fields.values()}
+    arguments["individual_depths_mm"] = saved["configuredIndividualDepthsMm"]
+    normalized = normalize(**arguments)
+    if normalized != saved:
+        raise ValueError("Selected docking assembly parameters are inconsistent.")
+    values = {field: normalized[key] for field, (key, _) in fields.items()}
+    values.update({"targetDockingDepth%dMm" % (index + 1): value
+                   for index, value in enumerate(normalized["configuredIndividualDepthsMm"])})
+    values["targetDockingYawConfirmed"] = summary["orientationState"] == "Confirmed"
+    cleared = set(plan["clearParameters"])
+    for field, value in values.items():
+        if field not in cleared:
+            setattr(parameter, field, value)
+
+
 def _legacy_projection_provenance(workflow):
     """Use the source's validated registry frame for an independent prefix."""
     from DENTOStep6State import REGISTRY_PROVENANCE_FRAME_KEY
@@ -522,6 +567,9 @@ def run_offline(request_path):
                 else:
                     raise ValueError("Ambiguous saved binding for " + field + "; projection was not released.")
                 setattr(parameter, field, nodes[selected_id])
+            from DENTOGuideGeometry import normalize_target_docking_parameters
+            _restore_selected_docking_parameters(
+                parameter, logic, plan, normalize_target_docking_parameters)
             tooth = next((item for item in registry["teeth"].values()
                           if item.get("target_id") == plan["targetId"]), None)
             if tooth is not None:

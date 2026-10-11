@@ -8,10 +8,13 @@ from dataclasses import dataclass, replace
 import hashlib
 import io
 import json
+import math
 import os
+from collections.abc import Sequence
 from io import StringIO
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
@@ -41,8 +44,238 @@ from dentobot_workflow.case_projection import (  # noqa: E402
     _new_projector_evidence_dir, _offline_child_workspace,
     _record_projected_ownership_failure,
     _retain_failed_projected_scene, _retain_projector_log,
-    retain_failed_partial_load,
+    _restore_selected_docking_parameters, retain_failed_partial_load,
 )
+
+
+DOCKING_GEOMETRY = ROOT / "DENTOWorkflow/Resources/Python/DENTOGuideGeometry.py"
+CASE_PROJECTION = ROOT / "DENTOWorkflow/Resources/Python/dentobot_workflow/case_projection.py"
+
+
+def _extract_docking_normalizer():
+    tree = ast.parse(DOCKING_GEOMETRY.read_text(encoding="utf-8"))
+    function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                    and node.name == "normalize_target_docking_parameters")
+    namespace = {"math": math, "Sequence": Sequence}
+    module = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
+    exec(compile(module, str(DOCKING_GEOMETRY), "exec"), namespace)
+    return namespace[function.name]
+
+
+_normalize_docking = _extract_docking_normalizer()
+_SELECTED_DOCKING_ARGUMENTS = {
+    "pattern_radius_mm": 12.0,
+    "outer_diameter_mm": 8.0,
+    "bore_diameter_mm": 2.4,
+    "connector_diameter_mm": 9.0,
+    "connector_thickness_mm": 0.8,
+    "shared_depth_mm": 12.0,
+    "individual_depths_mm": [10.0, 11.0, 12.0, 13.0],
+    "individual_depths_enabled": True,
+    "clearance_mm": 0.6,
+    "reinforcement_radial_mm": 0.5,
+    "processing_resolution_mm": 0.25,
+    "yaw_deg": 15.0,
+    "collision_clearance_mm": 0.7,
+}
+
+
+def _docking_summary(orientation="Confirmed", values=None):
+    saved = _normalize_docking(**_SELECTED_DOCKING_ARGUMENTS)
+    if values is not None:
+        saved = values(saved)
+    return {"parametersJson": json.dumps(saved), "orientationState": orientation}
+
+
+def _docking_parameter(assembly, yaw_confirmed=False):
+    return SimpleNamespace(**{
+        "targetDockingAssemblyModel": assembly,
+        "targetDockingPatternRadiusMm": -1.0,
+        "targetDockingOuterDiameterMm": -1.0,
+        "targetDockingBoreDiameterMm": -1.0,
+        "targetDockingConnectorDiameterMm": -1.0,
+        "targetDockingConnectorThicknessMm": -1.0,
+        "targetDockingSharedDepthMm": -1.0,
+        "targetDockingIndividualDepthsEnabled": False,
+        "targetDockingYawDeg": -25.0,
+        "targetDockingCollisionClearanceMm": -1.0,
+        "templateDockingClearanceMm": -1.0,
+        "templateReinforcementRadialMm": -1.0,
+        "templateSamplingSpacingMm": -1.0,
+        "targetDockingDepth1Mm": -1.0,
+        "targetDockingDepth2Mm": -1.0,
+        "targetDockingDepth3Mm": -1.0,
+        "targetDockingDepth4Mm": -1.0,
+        "targetDockingYawConfirmed": yaw_confirmed,
+        "step6TaskHomeJson": "future-home-state",
+        "templateVerificationJson": "saved-verification-state",
+    })
+
+
+class _DockingAssembly:
+    def __init__(self, node_id):
+        object.__setattr__(self, "node_id", node_id)
+
+    def GetID(self):
+        return self.node_id
+
+    def __setattr__(self, _name, _value):
+        raise AssertionError("projection must not mutate the saved assembly")
+
+
+class _DockingLogic:
+    def __init__(self, summary):
+        self.summary = summary
+        self.reads = []
+
+    def getTargetDockingAssemblySummary(self, assembly):
+        self.reads.append(assembly)
+        return self.summary
+
+
+@pytest.mark.parametrize(("orientation", "expected_confirmed"), [
+    ("Confirmed", True), ("Stale", False),
+])
+def test_restore_selected_docking_parameters_uses_complete_saved_recipe(orientation, expected_confirmed):
+    assembly = _DockingAssembly("selected-dock")
+    parameter = _docking_parameter(assembly, yaw_confirmed=not expected_confirmed)
+    parameter_before = vars(parameter).copy()
+    plan = {"keepNodeIds": ["selected-dock"],
+            "clearParameters": ["step6TaskHomeJson", "templateVerificationJson"]}
+    plan_before = deepcopy(plan)
+    logic = _DockingLogic(_docking_summary(orientation))
+    saved = _normalize_docking(**_SELECTED_DOCKING_ARGUMENTS)
+
+    _restore_selected_docking_parameters(parameter, logic, plan, _normalize_docking)
+
+    assert parameter.targetDockingYawDeg == 15.0  # selected recipe, not stale global -25°
+    assert parameter.targetDockingYawConfirmed is expected_confirmed
+    assert parameter.targetDockingPatternRadiusMm == saved["patternRadiusMm"]
+    assert parameter.targetDockingOuterDiameterMm == saved["outerDiameterMm"]
+    assert parameter.targetDockingBoreDiameterMm == saved["boreDiameterMm"]
+    assert parameter.targetDockingConnectorDiameterMm == saved["connectorDiameterMm"]
+    assert parameter.targetDockingConnectorThicknessMm == saved["connectorThicknessMm"]
+    assert parameter.targetDockingSharedDepthMm == saved["sharedDepthMm"]
+    assert parameter.targetDockingIndividualDepthsEnabled is saved["individualDepthsEnabled"]
+    assert parameter.targetDockingCollisionClearanceMm == saved["collisionClearanceMm"]
+    assert parameter.templateDockingClearanceMm == saved["clearanceMm"]
+    assert parameter.templateReinforcementRadialMm == saved["reinforcementRadialMm"]
+    assert parameter.templateSamplingSpacingMm == saved["processingResolutionMm"]
+    depths = [getattr(parameter, f"targetDockingDepth{index}Mm") for index in range(1, 5)]
+    assert depths == saved["configuredIndividualDepthsMm"]
+    roundtrip = _normalize_docking(
+        pattern_radius_mm=parameter.targetDockingPatternRadiusMm,
+        outer_diameter_mm=parameter.targetDockingOuterDiameterMm,
+        bore_diameter_mm=parameter.targetDockingBoreDiameterMm,
+        connector_diameter_mm=parameter.targetDockingConnectorDiameterMm,
+        connector_thickness_mm=parameter.targetDockingConnectorThicknessMm,
+        shared_depth_mm=parameter.targetDockingSharedDepthMm,
+        individual_depths_mm=depths,
+        individual_depths_enabled=parameter.targetDockingIndividualDepthsEnabled,
+        clearance_mm=parameter.templateDockingClearanceMm,
+        reinforcement_radial_mm=parameter.templateReinforcementRadialMm,
+        processing_resolution_mm=parameter.templateSamplingSpacingMm,
+        yaw_deg=parameter.targetDockingYawDeg,
+        collision_clearance_mm=parameter.targetDockingCollisionClearanceMm,
+    )
+    assert roundtrip == saved
+    assert parameter.step6TaskHomeJson == parameter_before["step6TaskHomeJson"]
+    assert parameter.templateVerificationJson == parameter_before["templateVerificationJson"]
+    assert parameter.targetDockingAssemblyModel is assembly
+    assert vars(assembly) == {"node_id": "selected-dock"}
+    assert plan == plan_before
+    assert logic.reads == [assembly]
+
+
+def test_restore_selected_docking_parameters_respects_projection_clear_list():
+    assembly = _DockingAssembly("selected-dock")
+    parameter = _docking_parameter(assembly)
+    parameter.targetDockingDepth2Mm = 23.0
+    logic = _DockingLogic(_docking_summary())
+
+    _restore_selected_docking_parameters(
+        parameter, logic,
+        {"keepNodeIds": ["selected-dock"], "clearParameters": ["targetDockingDepth2Mm"]},
+        _normalize_docking,
+    )
+
+    assert parameter.targetDockingDepth1Mm == 10.0
+    assert parameter.targetDockingDepth2Mm == 23.0
+    assert parameter.targetDockingDepth3Mm == 12.0
+    assert parameter.targetDockingDepth4Mm == 13.0
+
+
+@pytest.mark.parametrize("invalid_summary, error_type, message", [
+    ({"parametersJson": "{", "orientationState": "Confirmed"}, json.JSONDecodeError, None),
+    (_docking_summary(values=lambda saved: {**saved, "mechanicalSpecification": "wrong"}),
+     ValueError, "inconsistent"),
+    (_docking_summary(values=lambda saved: {**saved, "yawDeg": 181.0}), ValueError, "yaw"),
+])
+def test_restore_selected_docking_parameters_rejects_invalid_recipe_before_writes(
+        invalid_summary, error_type, message):
+    assembly = _DockingAssembly("selected-dock")
+    parameter = _docking_parameter(assembly)
+    before = vars(parameter).copy()
+    logic = _DockingLogic(invalid_summary)
+    context = pytest.raises(error_type) if message is None else pytest.raises(error_type, match=message)
+
+    with context:
+        _restore_selected_docking_parameters(
+            parameter, logic,
+            {"keepNodeIds": ["selected-dock"], "clearParameters": []},
+            _normalize_docking,
+        )
+
+    assert vars(parameter) == before
+    assert logic.reads == [assembly]
+    assert vars(assembly) == {"node_id": "selected-dock"}
+
+
+def test_restore_selected_docking_parameters_handles_absent_and_excluded_assembly():
+    absent = _docking_parameter(None)
+    absent_before = vars(absent).copy()
+    no_read_logic = _DockingLogic(_docking_summary())
+    _restore_selected_docking_parameters(
+        absent, no_read_logic, {"keepNodeIds": [], "clearParameters": []}, _normalize_docking,
+    )
+    assert vars(absent) == absent_before
+    assert no_read_logic.reads == []
+
+    excluded_assembly = _DockingAssembly("excluded-dock")
+    excluded = _docking_parameter(excluded_assembly)
+    excluded_before = vars(excluded).copy()
+    no_read_logic = _DockingLogic(_docking_summary())
+    with pytest.raises(ValueError, match="outside the retained prefix"):
+        _restore_selected_docking_parameters(
+            excluded, no_read_logic,
+            {"keepNodeIds": ["some-other-node"], "clearParameters": []},
+            _normalize_docking,
+        )
+    assert vars(excluded) == excluded_before
+    assert no_read_logic.reads == []
+
+
+def test_offline_projection_restores_saved_parameters_after_binding_before_summary():
+    tree = ast.parse(CASE_PROJECTION.read_text(encoding="utf-8"))
+    run_offline = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                       and node.name == "run_offline")
+    calls = [node for node in ast.walk(run_offline) if isinstance(node, ast.Call)]
+    binding_lines = [node.lineno for node in calls
+                     if isinstance(node.func, ast.Name) and node.func.id == "setattr"
+                     and len(node.args) == 3 and isinstance(node.args[0], ast.Name)
+                     and node.args[0].id == "parameter" and isinstance(node.args[2], ast.Subscript)
+                     and isinstance(node.args[2].value, ast.Name) and node.args[2].value.id == "nodes"
+                     and isinstance(node.args[2].slice, ast.Name)
+                     and node.args[2].slice.id == "selected_id"]
+    restore = next(node for node in calls if isinstance(node.func, ast.Name)
+                   and node.func.id == "_restore_selected_docking_parameters")
+    summary_lines = [node.lineno for node in calls if isinstance(node.func, ast.Attribute)
+                     and node.func.attr == "caseBundleWorkflowSummary"]
+
+    assert binding_lines and summary_lines
+    assert max(binding_lines) < restore.lineno < min(summary_lines)
+    assert isinstance(restore.args[3], ast.Name)
+    assert restore.args[3].id == "normalize_target_docking_parameters"
 
 
 def test_parent_rejection_retains_private_child_without_changing_source(tmp_path, monkeypatch):
