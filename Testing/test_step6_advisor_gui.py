@@ -1259,6 +1259,46 @@ def test_generated_home_gate_allows_only_new_matching_validated_home_and_fresh_c
     assert widget._advisorGeneratedHomeProposalBinding is None
 
 
+def test_generated_home_acceptance_uses_real_records_and_rejects_old_task_fingerprint():
+    from DENTOStep6State import (
+        build_task_home, build_task_snapshot, fingerprint, parse_task_home,
+        task_snapshot_invalidation_reasons,
+    )
+
+    for prior_revision, accepted_revision in ((None, 1), (6, 7)):
+        widget = _bound_generated_home_widget(revision=accepted_revision)
+        binding = widget._advisorGeneratedHomeProposalBinding
+        binding["previous_home_revision"] = prior_revision
+        home = build_task_home(
+            binding["candidate_si_joints"], base_fingerprint="base",
+            robot_profile_fingerprint="robot", revision=accepted_revision,
+            runtime_validation_status="Validated", collision_audit_fingerprint="audit",
+            guard_policy_fingerprint="guard", validated_at_utc="2026-10-12T00:00:00Z",
+            world_object_count=34,
+        )
+        home = parse_task_home(json.dumps(home.to_dict()))
+        widget.logic.taskHomeRecord = lambda node: home
+        current = dict(
+            target_segment_id="FDI34", trajectory_revision="traj", base_fingerprint="base",
+            home_fingerprint=fingerprint(home.to_dict()), limits_fingerprint="limits",
+            robot_profile_fingerprint="robot", tool_frame="dentobot_drill_tcp",
+        )
+        snapshot = build_task_snapshot(
+            **{**current, "home_fingerprint": "previous-home"},
+            entry_ras_mm=(0, 0, 0), target_ras_mm=(0, 0, 10),
+        )
+        widget.logic.confirmedTaskFreshnessIssues = lambda node: task_snapshot_invalidation_reasons(
+            snapshot, **current
+        )
+        widget._advisorOnStart()
+        assert widget._advisorState["session"].calls == []
+        assert widget._advisorGeneratedHomeReviewRequired is True
+        snapshot = build_task_snapshot(**current, entry_ras_mm=(0, 0, 0), target_ras_mm=(0, 0, 10))
+        widget._advisorOnStart()
+        assert widget._advisorState["session"].calls == ["prepare"]
+        assert widget._advisorGeneratedHomeReviewRequired is False
+
+
 def test_generated_home_gate_requires_successful_current_manual_review():
     for result in (None, SimpleNamespace(success=False, details={"staged": False, "identityStatus": "current"}),
                    SimpleNamespace(success=True, details={"staged": False, "identityStatus": "stale"})):
