@@ -1035,7 +1035,7 @@ def test_manual_joint_status_requires_exact_simulation_request_policy_and_vector
             parse_manual_joint_status(manual_joint_status_payload(**change))
 
 
-def _manual_bridge_probe(monkeypatch, replies):
+def _manual_bridge_probe(monkeypatch, replies, *, publish_results=None):
     class Subscriber:
         def __init__(self, node):
             self.node = node
@@ -1072,14 +1072,21 @@ def _manual_bridge_probe(monkeypatch, replies):
         def __init__(self, node):
             self.node = node
             self.messages = []
+            self.calls = []
+            self.results = None if publish_results is None else list(publish_results)
 
         def SaveWithSceneOff(self):
             pass
 
         def Publish(self, payload):
+            self.calls.append(payload)
+            result = 1 if self.results is None else self.results.pop(0) if self.results else 0
+            if type(result) is int and result == 0:
+                return 0  # Actual SlicerROS2 does not emit a message without a match.
             self.messages.append(payload)
             for reply in replies:
                 self.node.subscriber.deliver(reply)
+            return result
 
         def GetID(self):
             return "manual-command"
@@ -1348,6 +1355,91 @@ def test_manual_state_query_timeout_stays_paused_and_does_not_change_cache(monke
     assert not timer.active
     assert bridge_module._native_joint_positions == [0.0] * 5
     assert bridge_module._last_manual_joint_status is None
+
+
+def test_read_only_query_waits_for_definitely_unsent_publisher_discovery(monkeypatch):
+    echoed = (0.1, 0.02, 0.2, 0.02, 0.1)
+    node, timer = _manual_bridge_probe(
+        monkeypatch,
+        [manual_joint_status_payload(operation="state_query", query_only=True)],
+        publish_results=[0, 0, 1],
+    )
+    status, message = query_manual_joint_state_si(
+        dict(zip(ROS2_JOINT_SI_ORDER, echoed)), "request-a", "session-a", timeout_sec=0.1
+    )
+    assert status is not None, message
+    assert len(node.publisher.calls) == 3 and len(node.publisher.messages) == 1
+    assert len(set(node.publisher.calls)) == 1  # Same immutable request, not new identities.
+    assert not timer.active and bridge_module._last_manual_joint_status is None
+    assert bridge_module._native_joint_positions == [0.0] * 5
+    assert node.removed == [("publisher", ROS2_MANUAL_JOINT_COMMAND_TOPIC),
+                            ("subscriber", ROS2_MANUAL_JOINT_STATUS_TOPIC)]
+
+
+def test_read_only_query_reports_no_publish_if_discovery_deadline_expires(monkeypatch, caplog):
+    node, timer = _manual_bridge_probe(monkeypatch, [], publish_results=[0])
+    status, message, was_active, submitted, _before = bridge_module._request_manual_joint_status(
+        {name: 0.0 for name in ROS2_JOINT_SI_ORDER}, "request-a", "session-a",
+        operation="state_query", timeout_sec=0.02,
+    )
+    assert status is None and "not published" in message and "DDS discovery timeout" in message
+    assert was_active and not submitted and not timer.active
+    assert node.publisher.messages == [] and len(node.publisher.calls) >= 1
+    assert "request=request-a session=session-a submitted=False" in caplog.text
+    assert bridge_module._last_manual_joint_status is None
+    assert node.removed == [("publisher", ROS2_MANUAL_JOINT_COMMAND_TOPIC),
+                            ("subscriber", ROS2_MANUAL_JOINT_STATUS_TOPIC)]
+
+
+@pytest.mark.parametrize("reported_send", [1, None, False])
+def test_read_only_query_never_replays_reported_or_unknown_send(monkeypatch, reported_send):
+    node, timer = _manual_bridge_probe(monkeypatch, [], publish_results=[reported_send])
+    status, message = query_manual_joint_state_si(
+        {name: 0.0 for name in ROS2_JOINT_SI_ORDER}, "request-a", "session-a", timeout_sec=0.02
+    )
+    assert status is None and "submitted=True" in message
+    assert len(node.publisher.calls) == 1 and not timer.active
+    assert bridge_module._last_manual_joint_status is None
+
+
+def test_manual_jog_zero_publish_is_not_retried_by_read_only_discovery_fix(monkeypatch):
+    node, timer = _manual_bridge_probe(monkeypatch, [], publish_results=[0, 1])
+    applied, message, status = apply_manual_joint_positions_si(
+        {name: 0.0 for name in ROS2_JOINT_SI_ORDER}, "request-a", "session-a", timeout_sec=0.02
+    )
+    assert applied is None and status is None and "timeout" in message
+    assert len(node.publisher.calls) == 1 and node.publisher.messages == []
+    assert not timer.active and bridge_module._last_manual_joint_status is None
+
+
+@pytest.mark.parametrize("operation", ["jog", "state_query"])
+def test_query_discovery_uses_total_deadline_and_preserves_jog_ack_timing(monkeypatch, operation):
+    node, _timer = _manual_bridge_probe(monkeypatch, [], publish_results=[0])
+    clock = [0.0]
+    spins = []
+    publish = node.CreateAndAddPublisherNode
+
+    def slow_publish_node(*args):
+        publisher = publish(*args)
+        original_publish = publisher.Publish
+        def slow_call(payload):
+            clock[0] += 5.0
+            return original_publish(payload)
+        publisher.Publish = slow_call
+        return publisher
+
+    monkeypatch.setattr(node, "CreateAndAddPublisherNode", slow_publish_node)
+    monkeypatch.setattr(bridge_module, "time", SimpleNamespace(
+        monotonic=lambda: clock[0], sleep=lambda delay: clock.__setitem__(0, clock[0] + delay)
+    ))
+    monkeypatch.setattr(bridge_module, "get_ros2_logic", lambda: SimpleNamespace(Spin=lambda: spins.append(clock[0])))
+    status, _message, _active, submitted, _before = bridge_module._request_manual_joint_status(
+        {name: 0.0 for name in ROS2_JOINT_SI_ORDER}, "request-a", "session-a",
+        operation=operation, timeout_sec=0.02,
+    )
+    assert status is None and len(node.publisher.calls) == 1
+    assert bool(spins) is (operation == "jog")
+    assert submitted is (operation == "jog")
 
 
 def test_manual_jog_transient_interface_failure_resumes_preexisting_stream(monkeypatch):

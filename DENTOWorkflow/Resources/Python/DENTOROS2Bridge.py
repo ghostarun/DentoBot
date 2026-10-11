@@ -2785,12 +2785,26 @@ def _request_manual_joint_status(
             "policy_id": ROS2_MANUAL_JOINT_POLICY_ID,
             "joint_positions": values,
         }
-        submitted = True
-        publisher.Publish(
-            json.dumps(command, sort_keys=True, separators=(",", ":"), allow_nan=False)
-        )
-
+        payload = json.dumps(command, sort_keys=True, separators=(",", ":"), allow_nan=False)
         deadline = time.monotonic() + max(0.0, float(timeout_sec))
+        zero_subscriber_publishes = 0
+
+        def publish_request():
+            nonlocal submitted, zero_subscriber_publishes
+            # Preserve uncertainty if Publish raises or has an unknown return.
+            submitted = True
+            matched_subscribers = publisher.Publish(payload)
+            # SlicerROS2 returns zero without publishing until DDS discovery.
+            # Only the read-only query can wait/retry a definitely unsent call.
+            # Never replay a reported/possible send, and leave jog behavior alone.
+            if operation == "state_query" and type(matched_subscribers) is int and matched_subscribers == 0:
+                submitted = False
+                zero_subscriber_publishes += 1
+
+        publish_request()
+        if operation != "state_query":
+            # Keep the existing jog acknowledgement budget starting after Publish.
+            deadline = time.monotonic() + max(0.0, float(timeout_sec))
         while response["status"] is None and time.monotonic() < deadline:
             ros_logic = get_ros2_logic()
             if ros_logic is not None:
@@ -2806,12 +2820,34 @@ def _request_manual_joint_status(
                 pass
             if subscriber.GetNumberOfMessages() > 0:
                 observe_status(subscriber)
+            if (
+                operation == "state_query" and not submitted
+                and response["status"] is None and time.monotonic() < deadline
+            ):
+                publish_request()
             if response["status"] is None:
                 time.sleep(0.01)
 
         status = response["status"]
         if status is None:
+            if operation == "state_query":
+                diagnostics = (
+                    f"request={request_id} session={session_id} submitted={submitted} "
+                    f"zero_subscriber_publishes={zero_subscriber_publishes} "
+                    f"received_messages={subscriber.GetNumberOfMessages()}"
+                )
+                logging.getLogger(__name__).warning("Read-only manual query timeout: %s", diagnostics)
+                message = (
+                    "Read-only manual-joint request was not published before the DDS discovery timeout."
+                    if not submitted else "No correlated manual-joint response arrived before timeout."
+                )
+                return None, f"{message} ({diagnostics})", stream_was_active, submitted, accepted_before_vector
             return None, "No correlated manual-joint response arrived before timeout.", stream_was_active, submitted, accepted_before_vector
+        if operation == "state_query":
+            logging.getLogger(__name__).info(
+                "Read-only manual query reply: request=%s session=%s submitted=%s zero_subscriber_publishes=%s",
+                request_id, session_id, submitted, zero_subscriber_publishes,
+            )
         return status, status.reason, stream_was_active, submitted, accepted_before_vector
     except Exception as exc:
         return None, f"Manual-joint response is unknown: {exc}", stream_was_active, submitted, accepted_before_vector
