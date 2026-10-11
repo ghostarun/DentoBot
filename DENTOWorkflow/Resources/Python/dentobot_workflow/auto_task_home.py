@@ -183,7 +183,7 @@ def _solve_home_ik(facade, result_type, seed):
     return result_type(True, "ik_solved", str(message), details=details, payload=candidate)
 
 
-def propose_auto_task_home(facade, result_type, bridge_policy, *, depth_mm=DEFAULT_DEPTH_MM):
+def _propose_auto_task_home_at_depth(facade, result_type, bridge_policy, *, depth_mm=DEFAULT_DEPTH_MM):
     """Return a guarded five-joint draft, never review/save/plan/apply it."""
     details = {"depthMm": depth_mm, "draftOnly": True}
     try:
@@ -285,3 +285,133 @@ def propose_auto_task_home(facade, result_type, bridge_policy, *, depth_mm=DEFAU
         )
     except Exception as exc:
         return result_type(False, "auto_task_home_blocked", str(exc), details=details)
+
+
+MAX_OUTWARD_HOME_HINT_MM = 20.0
+
+
+def outward_separation_hint_mm(tool_bounds, obstacle_bounds, direction, *, margin_mm=1.0):
+    """AABB-derived translation hint, never a collision-validity certificate."""
+    import numpy as np
+    tool = np.asarray(tool_bounds, dtype=float).reshape(3, 2)
+    obstacle = np.asarray(obstacle_bounds, dtype=float).reshape(3, 2)
+    direction = np.asarray(_unit(_xyz(direction, "Outward direction"), "Outward direction"))
+    if (not np.isfinite(tool).all() or not np.isfinite(obstacle).all()
+            or (tool[:, 0] > tool[:, 1]).any() or (obstacle[:, 0] > obstacle[:, 1]).any()):
+        raise ValueError("Outward Home hint needs finite ordered bounds.")
+    exits = []
+    for i, speed in enumerate(direction):
+        if speed > 1e-9:
+            exits.append((obstacle[i, 1] - tool[i, 0] + margin_mm) / speed)
+        elif speed < -1e-9:
+            exits.append((tool[i, 1] - obstacle[i, 0] + margin_mm) / -speed)
+    return max(0.0, min(exits))
+
+
+def _outward_home_depth_hint(facade, details, bridge_policy):
+    """One conservative hint from actual spindle contacts and reviewed geometry."""
+    import numpy as np
+    import vtk
+    from vtk.util.numpy_support import vtk_to_numpy
+    from xml.etree import ElementTree
+    from DENTORobotPlacement import robot_link_mesh_poses_mm
+
+    collision = next((a["ikDiagnostic"] for a in details["ikAttempts"]
+                      if a.get("ikDiagnostic", {}).get("termination_reason") == "colliding"), None)
+    if not collision or not collision.get("collision_pairs"):
+        raise ValueError("No resolved spindle collision is available for an outward hint.")
+    obstacles = set()
+    for pair in collision["collision_pairs"]:
+        if len(pair) != 2 or pair.count("pneumatic_spindle-Copy") != 1:
+            raise ValueError("Outward Home hint is limited to resolved spindle contacts.")
+        obstacles.add(next(name for name in pair if name != "pneumatic_spindle-Copy"))
+    parameter = facade._require_context()
+    candidate = collision["best_joint_positions_si"]
+    facade._manual_task_home_candidate_within_mechanical_limits(candidate)
+    ok, message, fk = facade._bridge.compute_moveit_tcp_pose_world_ras_mm(
+        candidate, base_transform=parameter.robotBaseTransform)
+    geometry = auto_task_home_geometry(details["midpointWorldRasMm"],
+                                      details["trajectoryWorldRasMm"]["entry"],
+                                      details["trajectoryWorldRasMm"]["target"])
+    if ok is not True or fk is None:
+        raise ValueError("Outward Home hint FK is unavailable: " + str(message))
+    residual = pose_residual(geometry, fk)
+    if (residual[0] > bridge_policy.CARTESIAN_START_POSITION_TOLERANCE_MM
+            or residual[1] > bridge_policy.CARTESIAN_START_ORIENTATION_TOLERANCE_DEG):
+        raise ValueError("Outward Home hint source does not match the requested TCP pose.")
+    paths = facade._logic.robotDescriptionPaths()
+    urdf = ElementTree.parse(paths[0]).getroot()
+    link = urdf.find("./link[@name='pneumatic_spindle-Copy']")
+    if link is None:
+        raise ValueError("Spindle geometry is unavailable.")
+    # The existing mesh adapter reads visual geometry: require collision parity.
+    visual, collision_node = link.find("visual"), link.find("collision")
+    if visual is None or collision_node is None or any(
+        visual.find(tag) is None or collision_node.find(tag) is None
+        or visual.find(tag).attrib != collision_node.find(tag).attrib
+        for tag in ("origin", "geometry/mesh")
+    ):
+        raise ValueError("Spindle visual/collision geometry differs; no outward hint.")
+    mesh = next(p for p in robot_link_mesh_poses_mm(paths[0], paths[1], candidate)
+                if p.link_name == "pneumatic_spindle-Copy")
+    reader = vtk.vtkSTLReader()
+    reader.SetFileName(str(mesh.mesh_path)); reader.Update()
+    if reader.GetOutput().GetNumberOfPoints() == 0:
+        raise ValueError("Spindle mesh is empty.")
+    vertices = vtk_to_numpy(reader.GetOutput().GetPoints().GetData()).astype(float)
+    matrix = np.asarray(mesh.matrix_base_from_mesh_mm)
+    points = vertices @ matrix[:3, :3].T + matrix[:3, 3]
+    tool_bounds = np.column_stack((points.min(axis=0), points.max(axis=0))).reshape(-1)
+    base = vtk.vtkMatrix4x4()
+    parameter.robotBaseTransform.GetMatrixTransformToWorld(base)
+    rotation = np.array([[base.GetElement(i, j) for j in range(3)] for i in range(3)])
+    midpoint = np.asarray(details["midpointWorldRasMm"])
+    entry = np.asarray(details["trajectoryWorldRasMm"]["entry"])
+    outward = np.asarray(_unit(tuple(midpoint - entry), "Outward Home depth direction"))
+    direction_base = rotation.T @ outward
+    audit = facade._logic.collisionSceneAuditRecord(parameter)
+    records = {str(r.get("outgoing_collision_object_id")): r for r in audit.object_records}
+    if not obstacles <= records.keys():
+        raise ValueError("Outward Home contact objects are absent from the current audit.")
+    distances = {name: outward_separation_hint_mm(
+        tool_bounds, records[name]["outgoing_bounds_base_link_mm"], direction_base)
+        for name in sorted(obstacles)}
+    distance = max(distances.values())
+    if not 0.0 < distance <= MAX_OUTWARD_HOME_HINT_MM:
+        raise ValueError("Derived outward Home hint exceeds the bounded 20 mm proposal range.")
+    return -distance, {"method": "resolved_spindle_contact_AABB_separation_hint",
+                       "outwardDistanceMm": distance, "perObjectDistanceMm": distances,
+                       "maximumHintMm": MAX_OUTWARD_HOME_HINT_MM,
+                       "clearanceAuthority": False}
+
+
+def propose_auto_task_home(facade, result_type, bridge_policy, *, depth_mm=DEFAULT_DEPTH_MM):
+    """Try the midpoint, then one contact-derived outward draft at most."""
+    first = _propose_auto_task_home_at_depth(facade, result_type, bridge_policy, depth_mm=depth_mm)
+    if (first.success is True or first.code != "auto_task_home_ik_failed" or float(depth_mm) != 0.0
+            or first.details.get("branchMiss") is not True
+            or len(first.details.get("ikAttempts", ())) != first.details.get("ikSeedBudget")):
+        return first
+    try:
+        original_identity = first.details["taskHomeReviewIdentity"]
+        parameter = facade._require_context()
+        def current():
+            return (facade._manual_jog_current_identity(parameter, for_task_home_review=True)
+                    == original_identity and facade.moveItSceneComparison().get("matches") is True)
+        if not current():
+            raise ValueError("Home inputs changed before outward hint generation.")
+        depth, hint = _outward_home_depth_hint(facade, first.details, bridge_policy)
+        if not current():
+            raise ValueError("Home inputs changed during outward hint generation.")
+        result = _propose_auto_task_home_at_depth(facade, result_type, bridge_policy, depth_mm=depth)
+        result.details["midpointAttempt"] = dict(first.details)
+        result.details["outwardHint"] = hint
+        if (result.details.get("taskHomeReviewIdentity") != original_identity
+                or result.details.get("source") != first.details.get("source")
+                or result.details.get("trajectoryWorldRasMm") != first.details.get("trajectoryWorldRasMm")
+                or not current()):
+            return result_type(False, "auto_task_home_blocked", "Home inputs changed during outward candidate validation.", details=result.details)
+        return result
+    except Exception as exc:
+        first.details["outwardHintRefused"] = str(exc)
+        return first

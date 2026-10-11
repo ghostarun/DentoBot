@@ -369,3 +369,123 @@ def test_authoritative_collision_rejection_can_try_next_seed():
     assert result.success and len(calls) == 2
     assert result.details['ikAttempts'][0]['authoritativeStaticValidity'] is True
     assert result.details['ikAttempts'][0]['collisionAwareValidated'] is False
+
+
+def test_outward_hint_uses_measured_bounds_and_direction():
+    assert module.outward_separation_hint_mm([0, 10, 0, 10, 0, 10],
+        [5, 15, 5, 15, 5, 15], [1, 0, 0]) == 16
+    assert module.outward_separation_hint_mm([0, 10, 0, 10, 0, 10],
+        [5, 15, 5, 15, 5, 15], [-1, 0, 0]) == 6
+    with pytest.raises(ValueError):
+        module.outward_separation_hint_mm([10, 0, 0, 10, 0, 10], [5,15,5,15,5,15], [1,0,0])
+
+
+def test_one_outward_hint_can_produce_draft_after_midpoint_branch_exhaustion(monkeypatch):
+    f, state = facade()
+    original = f._bridge.solve_moveit_tcp_position_axis_goal
+    def solve(**kw):
+        if state.fk_z == 0:
+            return False, 'colliding', {}, {'termination_reason': 'colliding'}
+        return original(**kw)
+    def hint(*args):
+        state.fk_z = -3
+        return -3, {'clearanceAuthority': False}
+    monkeypatch.setattr(module, '_outward_home_depth_hint', hint)
+    f._bridge.solve_moveit_tcp_position_axis_goal = solve
+    result = propose_auto_task_home(f, Result, POLICY)
+    assert result.success and result.details['depthMm'] == -3
+    assert len(result.details['midpointAttempt']['ikAttempts']) == 17
+    assert len(result.details['ikAttempts']) == 1
+    assert result.details['outwardHint']['clearanceAuthority'] is False
+    assert sum(c[0] == 'goal' for c in state.calls) == 2
+
+
+def test_outward_hint_identity_change_refuses_before_new_goal(monkeypatch):
+    f, state = facade()
+    f._bridge.solve_moveit_tcp_position_axis_goal = lambda **kw: (
+        False, 'colliding', {}, {'termination_reason': 'colliding'})
+    def hint(*args):
+        state.identity = 'changed'
+        return -3, {}
+    monkeypatch.setattr(module, '_outward_home_depth_hint', hint)
+    result = propose_auto_task_home(f, Result, POLICY)
+    assert not result.success and sum(c[0] == 'goal' for c in state.calls) == 1
+    assert 'changed during' in result.details['outwardHintRefused']
+
+
+def test_outward_hint_refusal_does_not_replace_original_failure(monkeypatch):
+    f, state = facade()
+    f._bridge.solve_moveit_tcp_position_axis_goal = lambda **kw: (
+        False, 'colliding', {}, {'termination_reason': 'colliding'})
+    def refuse(*args):
+        raise ValueError('Measured hint exceeds bounded range')
+    monkeypatch.setattr(module, '_outward_home_depth_hint', refuse)
+    result = propose_auto_task_home(f, Result, POLICY)
+    assert not result.success and len(result.details['ikAttempts']) == 17
+    assert 'bounded range' in result.details['outwardHintRefused']
+    assert sum(c[0] == 'goal' for c in state.calls) == 1
+
+
+def test_production_outward_adapter_uses_audit_mesh_and_rotated_base(monkeypatch):
+    import struct
+    import numpy as np
+    from types import ModuleType
+    from DENTORobotPlacement import robot_link_mesh_poses_mm, joint_positions_si_from_display
+    f, state = facade()
+    package = PY.parents[2] / 'dentobot_description'
+    paths = (package / 'urdf/dentobot.urdf', package)
+    f._logic.robotDescriptionPaths = lambda: paths
+    q = joint_positions_si_from_display(0, 20, 0, 20, 0)
+    mesh = next(p for p in robot_link_mesh_poses_mm(*paths, q)
+                if p.link_name == 'pneumatic_spindle-Copy')
+    raw = mesh.mesh_path.read_bytes()
+    count = struct.unpack_from('<I', raw, 80)[0]
+    assert len(raw) == 84 + 50 * count
+    vertices = np.frombuffer(raw, offset=84, count=count, dtype=np.dtype([
+        ('normal', '<f4', (3,)), ('vertices', '<f4', (3, 3)), ('attr', '<u2')
+    ]))['vertices'].reshape(-1, 3).astype(float)
+    matrix = np.asarray(mesh.matrix_base_from_mesh_mm)
+    points = vertices @ matrix[:3, :3].T + matrix[:3, 3]
+    # Base rotated90deg: world outward -Y becomes base -X.
+    bounds = np.column_stack((points.min(0) - 100, points.max(0) + 100))
+    bounds[0, 0] = points.max(0)[0] - 5
+    record = {'outgoing_collision_object_id': 'jaw',
+              'outgoing_bounds_base_link_mm': bounds.reshape(-1).tolist()}
+    f._logic.collisionSceneAuditRecord = lambda p: SimpleNamespace(object_records=[record])
+    class BaseMatrix:
+        def GetElement(self, i, j):
+            return ((0, -1, 0, 0), (1, 0, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1))[i][j]
+    class Reader:
+        def SetFileName(self, path):
+            assert Path(path) == mesh.mesh_path
+        def Update(self):
+            pass
+        def GetOutput(self):
+            return SimpleNamespace(GetNumberOfPoints=lambda: len(vertices),
+                GetPoints=lambda: SimpleNamespace(GetData=lambda: vertices))
+    vtk = ModuleType('vtk'); vtk.vtkSTLReader = Reader; vtk.vtkMatrix4x4 = BaseMatrix
+    util = ModuleType('vtk.util'); numpy_support = ModuleType('vtk.util.numpy_support')
+    numpy_support.vtk_to_numpy = lambda data: data
+    for name, mod in [('vtk', vtk), ('vtk.util', util), ('vtk.util.numpy_support', numpy_support)]:
+        monkeypatch.setitem(sys.modules, name, mod)
+    parameter = SimpleNamespace(robotBaseTransform=SimpleNamespace(GetMatrixTransformToWorld=lambda m: None))
+    f._require_context = lambda: parameter
+    details = {'midpointWorldRasMm': (0, 0, 0),
+        'trajectoryWorldRasMm': {'entry': (0, 10, 0), 'target': (0, 10, 10)},
+        'ikAttempts': [{'ikDiagnostic': {'termination_reason': 'colliding',
+            'collision_pairs': [('jaw', 'pneumatic_spindle-Copy')], 'best_joint_positions_si': q}}]}
+    depth, hint = module._outward_home_depth_hint(f, details, POLICY)
+    assert depth == pytest.approx(-6)
+    assert hint['perObjectDistanceMm'] == {'jaw': pytest.approx(6)}
+    assert hint['clearanceAuthority'] is False
+    # Same adapter refuses missing current audit objects before another candidate.
+    f._logic.collisionSceneAuditRecord = lambda p: SimpleNamespace(object_records=[])
+    with pytest.raises(ValueError, match='absent from the current audit'):
+        module._outward_home_depth_hint(f, details, POLICY)
+    # Verify collision geometry parity is mandatory, independently of visual loading.
+    from xml.etree import ElementTree
+    tree = ElementTree.parse(paths[0])
+    tree.find("./link[@name='pneumatic_spindle-Copy']/collision/origin").set('xyz', '0 0 0')
+    monkeypatch.setattr(ElementTree, 'parse', lambda *args: tree)
+    with pytest.raises(ValueError, match='visual/collision geometry differs'):
+        module._outward_home_depth_hint(f, details, POLICY)
