@@ -6804,6 +6804,39 @@ def exclude_moveit_collision_objects_for_simulation(
     )
 
 
+def _query_collision_scene_status(
+    positions_si: Mapping[str, float], *, timeout_sec: float,
+) -> tuple[Optional[ManualJointStatus], str]:
+    """Read the guard's current world without consuming a cached heartbeat.
+
+    A state query never applies the echoed joints. Restore only the heartbeat
+    state this read-only operation paused; do not reconcile or grant authority.
+    """
+    request_id, session_id = str(uuid4()), str(uuid4())
+    stream_was_active = pause_slicer_joint_command_stream()
+    try:
+        status, message = query_manual_joint_state_si(
+            positions_si, request_id, session_id, timeout_sec=timeout_sec,
+        )
+        if status is None:
+            return None, message
+        if (
+            not isinstance(status, ManualJointStatus)
+            or status.request_id != request_id
+            or status.session_id != session_id
+            or status.policy_id != ROS2_MANUAL_JOINT_POLICY_ID
+            or status.operation != "state_query"
+            or status.query_only is not True
+            or status.command_valid is not True
+            or status.requested_positions != tuple(joint_si_vector(positions_si))
+        ):
+            return None, "Collision-scene query reply did not match its read-only request."
+        return status, message
+    finally:
+        if stream_was_active:
+            resume_slicer_joint_command_stream()
+
+
 def acknowledge_moveit_collision_scene(
     *,
     expected_objects: Sequence[Mapping[str, object]],
@@ -6815,8 +6848,8 @@ def acknowledge_moveit_collision_scene(
     """Read back collision IDs/poses/bounds from the guard's PlanningScene.
 
     Publishing a CollisionObject only proves that the local publish call
-    returned.  This bounded handshake sends the unchanged current simulation
-    state through the guard and compares the guard's monitored MoveIt world
+    returned. This bounded handshake queries the current accepted simulation
+    state without applying joints and compares the guard's monitored MoveIt world
     against the exact prepared payload manifest.
     """
 
@@ -6838,12 +6871,15 @@ def acknowledge_moveit_collision_scene(
     deadline = time.monotonic() + max(0.1, float(timeout_sec))
     last_status = None
     last_mismatches = ["PlanningScene readback has not arrived."]
-    while time.monotonic() < deadline:
-        # A rejected unchanged state still carries valid read-only world
-        # evidence.  It is not treated as an accepted motion command here.
-        apply_joint_positions_si_to_motion_control(current_joint_positions_si)
-        status = joint_command_status(max_age_sec=1.0)
+    while (remaining := deadline - time.monotonic()) > 0:
+        # Static collision rejection still carries current world evidence.
+        # A heartbeat can refresh the timestamp of an old world's response.
+        status, query_message = _query_collision_scene_status(
+            current_joint_positions_si,
+            timeout_sec=min(remaining, ROS2_MANUAL_JOINT_ACK_TIMEOUT_SEC),
+        )
         if status is None:
+            last_mismatches = [query_message or "No correlated collision-scene reply arrived."]
             time.sleep(0.05)
             continue
         last_status = status
@@ -6968,7 +7004,7 @@ def acknowledge_moveit_collision_scene(
             )
         if require_correlated_readback:
             mismatches.append(
-                "ordinary joint-status readback has no publication/request correlation"
+                "state-query readback does not bind collision publication and policy"
             )
         if mismatches:
             missing_ids = sorted(set(expected_by_id).difference(runtime_by_id))
@@ -7011,6 +7047,9 @@ def acknowledge_moveit_collision_scene(
                 "objects": [runtime_by_id[key] for key in sorted(expected_by_id)],
                 "collision_scene_policy_fingerprint": observed_policy_fingerprint,
                 "readback_correlated": False,
+                "readback_kind": "correlated_state_query",
+                "status_request_id": status.request_id,
+                "status_session_id": status.session_id,
                 "trusted": False,
                 "attribution_allowed": False,
             }
@@ -7036,6 +7075,9 @@ def acknowledge_moveit_collision_scene(
             else ""
         ),
         "readback_correlated": False,
+        "readback_kind": "correlated_state_query",
+        "status_request_id": last_status.request_id if last_status is not None else "",
+        "status_session_id": last_status.session_id if last_status is not None else "",
         "trusted": False,
         "attribution_allowed": False,
     }

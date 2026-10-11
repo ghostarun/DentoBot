@@ -748,9 +748,10 @@ def test_position_axis_limit_diagnostic_reports_only_commandable_bounds():
 
 def _ack_collision_scene(monkeypatch, *, expected_bounds_mm, observed_bounds_m,
                          expected_pose=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
-                         observed_pose=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)):
+                         observed_pose=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+                         observed_id="world-object", require_correlated_readback=False):
     observed = {
-        "id": "world-object",
+        "id": observed_id,
         "shape_count": 1,
         "pose_base_link_m_xyzw": observed_pose,
         "bounds_base_link_m": observed_bounds_m,
@@ -760,11 +761,16 @@ def _ack_collision_scene(monkeypatch, *, expected_bounds_mm, observed_bounds_m,
         world_object_count=1,
         world_objects=(observed,),
         collision_scene_policy_fingerprint="",
+        request_id="scene-query",
+        session_id="scene-query-session",
     )
     monkeypatch.setattr(
-        bridge_module, "apply_joint_positions_si_to_motion_control", lambda _positions: None
+        bridge_module, "apply_joint_positions_si_to_motion_control", lambda _positions: (_ for _ in ()).throw(
+            AssertionError("Scene acknowledgement must not apply joints"))
     )
-    monkeypatch.setattr(bridge_module, "joint_command_status", lambda **_kwargs: status)
+    monkeypatch.setattr(bridge_module, "joint_command_status", lambda **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Scene acknowledgement must not consume the ordinary heartbeat")))
+    monkeypatch.setattr(bridge_module, "_query_collision_scene_status", lambda *_args, **_kwargs: (status, ""))
     clock_values = iter((0.0, 0.0, 1.0))
     monkeypatch.setattr(bridge_module.time, "monotonic", lambda: next(clock_values))
     monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
@@ -778,6 +784,7 @@ def _ack_collision_scene(monkeypatch, *, expected_bounds_mm, observed_bounds_m,
         ),
         current_joint_positions_si={},
         timeout_sec=0.1,
+        require_correlated_readback=require_correlated_readback,
     )
 
 
@@ -789,6 +796,71 @@ def test_collision_scene_acknowledgement_accepts_matching_bounds(monkeypatch):
     )
     assert result["status"] == "Acknowledged"
     assert result["acknowledged_object_ids"] == ["world-object"]
+    assert result["readback_kind"] == "correlated_state_query"
+    assert result["status_request_id"] == "scene-query"
+
+
+@pytest.mark.parametrize("bad_field", (None, "request_id", "session_id", "policy_id",
+                                      "operation", "query_only", "command_valid", "requested_positions"))
+@pytest.mark.parametrize("stream_active", (True, False))
+def test_collision_scene_query_matches_read_only_reply_and_restores_stream(
+    monkeypatch, bad_field, stream_active,
+):
+    from dataclasses import replace
+    positions = dict.fromkeys(bridge_module.ROS2_JOINT_SI_ORDER, 0.0)
+    events = []
+    monkeypatch.setattr(bridge_module, "pause_slicer_joint_command_stream", lambda: stream_active)
+    monkeypatch.setattr(bridge_module, "resume_slicer_joint_command_stream", lambda: events.append("resume"))
+    def query(echo, request_id, session_id, *, timeout_sec):
+        assert echo == positions and request_id and session_id and timeout_sec == 0.25
+        status = bridge_module.ManualJointStatus(
+            accepted=False, reason="Static collision; world evidence remains inspectable",
+            request_id=request_id, session_id=session_id,
+            policy_id=bridge_module.ROS2_MANUAL_JOINT_POLICY_ID,
+            operation="state_query", query_only=True, command_valid=True,
+            requested_positions=tuple(positions.values()),
+        )
+        if bad_field:
+            bad_value = False if bad_field in ("query_only", "command_valid") else (
+                (1.0,)*5 if bad_field == "requested_positions" else "stale")
+            status = replace(status, **{bad_field: bad_value})
+        return status, status.reason
+    monkeypatch.setattr(bridge_module, "query_manual_joint_state_si", query)
+    status, message = bridge_module._query_collision_scene_status(positions, timeout_sec=0.25)
+    assert (status is not None) == (bad_field is None)
+    if bad_field:
+        assert "did not match" in message
+    assert events == (["resume"] if stream_active else [])
+
+
+def test_collision_scene_query_restores_stream_after_read_only_timeout(monkeypatch):
+    events = []
+    monkeypatch.setattr(bridge_module, "pause_slicer_joint_command_stream", lambda: True)
+    monkeypatch.setattr(bridge_module, "resume_slicer_joint_command_stream", lambda: events.append("resume"))
+    monkeypatch.setattr(bridge_module, "query_manual_joint_state_si", lambda *_args, **_kw: (None, "timeout"))
+    assert bridge_module._query_collision_scene_status({}, timeout_sec=0.1) == (None, "timeout")
+    assert events == ["resume"]
+
+
+def test_collision_scene_fresh_readback_still_rejects_same_count_wrong_identity(monkeypatch):
+    result = _ack_collision_scene(
+        monkeypatch, expected_bounds_mm=(0.0,)*6, observed_bounds_m=(0.0,)*6,
+        observed_id="obsolete-target-role",
+    )
+    assert result["status"] == "Mismatch"
+    assert result["world_object_count"] == 1
+    assert "unexpected [obsolete-target-role]" in " ".join(result["mismatches"])
+
+
+def test_collision_scene_query_does_not_grant_publication_policy_authority(monkeypatch):
+    result = _ack_collision_scene(
+        monkeypatch, expected_bounds_mm=(0.0,)*6, observed_bounds_m=(0.0,)*6,
+        require_correlated_readback=True,
+    )
+    assert result["status"] == "Mismatch"
+    assert result["trusted"] is False and result["attribution_allowed"] is False
+    assert result["readback_correlated"] is False
+    assert "does not bind collision publication and policy" in " ".join(result["mismatches"])
 
 
 def test_collision_scene_acknowledgement_keeps_one_micrometre_tolerance(monkeypatch):
