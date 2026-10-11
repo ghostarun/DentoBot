@@ -3298,3 +3298,63 @@ def test_headed_runner_presses_every_production_control_through_the_press_owner(
     assert any(text.startswith("user_input.input_mode_from_env(") for text in context)
     assert any("session" in text and "user-input-ledger.jsonl" in text for text in
                [ast.unparse(node) for node in ast.walk(run_fn)])
+
+
+def _clean_setup_helpers(environment, capture=None):
+    names = {"_clean_setup_requested", "_exact_env_opt_in", "_capture_clean_setup"}
+    module = ast.Module(body=[node for node in ast.parse(SOURCE).body
+                             if isinstance(node, ast.FunctionDef) and node.name in names], type_ignores=[])
+    namespace = {"os": SimpleNamespace(environ=environment),
+                 "_capture": capture or (lambda *args: None), "_write_report": lambda report: None,
+                 "_json_safe": lambda value: value}
+    exec(compile(module, str(RUNNER), "exec"), namespace)
+    return namespace
+
+
+def test_clean_setup_default_preserves_existing_runner():
+    assert _clean_setup_helpers({})["_clean_setup_requested"]() is False
+
+
+@pytest.mark.parametrize("option", ["SESSION", "ALLOW_JOG", "ALLOW_BASE_HOME_ACCEPT",
+                                     "OUTPUT_CASE", "OFFLINE_HOME_SETUP", "DISCARD_STAGED_BASE"])
+def test_clean_setup_refuses_downstream_options(option):
+    helpers = _clean_setup_helpers({"DENTOBOT_HEADED_CLEAN_SETUP_ONLY": "1",
+                                   "DENTOBOT_HEADED_" + option: "1"})
+    with pytest.raises(RuntimeError, match="forbids"):
+        helpers["_clean_setup_requested"]()
+
+
+def test_clean_setup_allows_exact_source_case_and_input_provenance():
+    env = {"DENTOBOT_HEADED_CLEAN_SETUP_ONLY": "1", "DENTOBOT_HEADED_INPUT": "xtest",
+           "DENTOBOT_HEADED_HOST_CHECKOUT_ROOT": "/exact", "DENTOBOT_HEADED_GIT_HEAD": "a" * 40,
+           "DENTOBOT_HEADED_CASE_SOURCE": "/copy.dentocase", "DENTOBOT_HEADED_ALLOW_JOG": "0"}
+    assert _clean_setup_helpers(env)["_clean_setup_requested"]()
+
+
+@pytest.mark.parametrize("connected,locked,home", [(True,False,""), (False,True,""), (False,False,"{}")])
+def test_clean_setup_refuses_inherited_authority_before_capture(connected, locked, home):
+    captures = []
+    helpers = _clean_setup_helpers({}, lambda *args: captures.append(args))
+    facade = SimpleNamespace(capabilities=lambda: SimpleNamespace(connected=connected))
+    node = SimpleNamespace(robotBaseMountLocked=locked, step6TaskHomeJson=home)
+    with pytest.raises(RuntimeError):
+        helpers["_capture_clean_setup"](None, facade, node, {}, None, "run")
+    assert captures == []
+
+
+def test_clean_setup_captures_review_boundary_without_owners():
+    captures = []; report = {}
+    helpers = _clean_setup_helpers({}, lambda *args: captures.append(args))
+    facade = SimpleNamespace(capabilities=lambda: SimpleNamespace(connected=False),
+                             manualBaseReview=lambda: SimpleNamespace(success=False, message="Unreviewed", details={}))
+    node = SimpleNamespace(robotBaseMountLocked=False, step6TaskHomeJson="",
+                           step6BasePlacementStatus="Unlocked", step6PlanningContextImported=True)
+    helpers["_capture_clean_setup"](None, facade, node, report, None, "run")
+    assert report["clean_setup"]["status"] == "READY_FOR_CONFIGURATION_REVIEW"
+    assert report["clean_setup"]["base_home_acceptance_attempted"] is False
+    assert len(captures) == 1
+    hook = SOURCE.index("if clean_setup_only:")
+    assert SOURCE.index('active_check = "planning_context_imported"') < hook
+    assert hook < SOURCE.index('if _exact_env_opt_in("DENTOBOT_HEADED_DISCARD_STAGED_BASE"):', hook)
+    stop = SOURCE[hook:SOURCE.index('if _exact_env_opt_in("DENTOBOT_HEADED_DISCARD_STAGED_BASE"):', hook)]
+    assert "raise LookupError" in stop and "_serve_command_session" not in stop

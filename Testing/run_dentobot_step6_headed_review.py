@@ -1420,6 +1420,46 @@ def _finalize_workspace_diagnostic(report: dict[str, object]) -> None:
     _write_report(report)
 
 
+def _clean_setup_requested() -> bool:
+    """Opt-in inspection of a clean Step 5C import, without downstream authority."""
+    if not _exact_env_opt_in("DENTOBOT_HEADED_CLEAN_SETUP_ONLY"):
+        return False
+    allowed = {
+        "DENTOBOT_HEADED_CLEAN_SETUP_ONLY", "DENTOBOT_HEADED_PROVENANCE_MODE",
+        "DENTOBOT_HEADED_GIT_HEAD", "DENTOBOT_HEADED_GIT_BRANCH",
+        "DENTOBOT_HEADED_GIT_STATUS_SHA256", "DENTOBOT_HEADED_HOST_CHECKOUT_ROOT",
+        "DENTOBOT_HEADED_CASE_SOURCE", "DENTOBOT_HEADED_CASE_SHA256",
+        "DENTOBOT_HEADED_EVIDENCE_DIR", "DENTOBOT_HEADED_INPUT",
+    }
+    conflicts = [name for name, value in os.environ.items()
+                 if name.startswith("DENTOBOT_HEADED_") and name not in allowed
+                 and value not in ("", "0")]
+    if conflicts:
+        raise RuntimeError("Clean setup forbids additional headed options: " + ", ".join(sorted(conflicts)))
+    return True
+
+
+def _capture_clean_setup(widget, facade, parameter_node, report, evidence_dir, run_id):
+    """Read current configuration only; never infer acceptance from retained geometry."""
+    if facade.capabilities().connected:
+        raise RuntimeError("Clean setup unexpectedly connected ROS.")
+    if bool(parameter_node.robotBaseMountLocked) or str(parameter_node.step6TaskHomeJson).strip():
+        raise RuntimeError("Clean setup contains inherited Base or Task Home authority.")
+    base_review = facade.manualBaseReview()
+    report["clean_setup"] = {
+        "status": "READY_FOR_CONFIGURATION_REVIEW", "connected": False,
+        "base_locked": False, "task_home_present": False,
+        "base_status": str(parameter_node.step6BasePlacementStatus),
+        "base_review_success": bool(base_review.success),
+        "base_review_message": str(base_review.message),
+        "base_review_details": _json_safe(dict(base_review.details or {})),
+        "planning_context_imported": bool(parameter_node.step6PlanningContextImported),
+        "base_home_acceptance_attempted": False,
+    }
+    _capture(report, evidence_dir, run_id, "clean-setup-before-base-review")
+    _write_report(report)
+
+
 def _serve_command_session(namespace, widget, panel, facade, report, evidence_dir: Path) -> None:
     from step6_session_driver import rebind_callbacks, run_session
 
@@ -3668,6 +3708,8 @@ def run() -> int:
         raise RuntimeError(reason)
 
     try:
+        clean_setup_only = _clean_setup_requested()
+        report["clean_setup_only"] = clean_setup_only
         connect_only = _connect_only_requested()
         report["checkout"] = _checkout_evidence()
         report["connect_only"] = connect_only
@@ -4008,6 +4050,9 @@ def run() -> int:
         active_check = "base_controls_and_accepted_status"
         widget._configureRobotSimulationShellSubstep(1)
         widget._updateStep6PlanningUi()
+        if clean_setup_only:
+            _capture_clean_setup(widget, facade, parameter_node, report, evidence_dir, run_id)
+            raise LookupError("Clean disconnected import captured; Base/Home review and all connected checks NOT_RUN.")
         if _exact_env_opt_in("DENTOBOT_HEADED_DISCARD_STAGED_BASE"):
             _capture(report, evidence_dir, run_id, "staged-base-before-discard")
         base_discarded = _discard_staged_base_if_requested(
