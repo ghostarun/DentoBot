@@ -1962,6 +1962,207 @@ def test_manual_base_review_keeps_stale_cancel_available_and_blocks_unknown_acce
     assert uncertain_state["acceptance_unknown"] is True
 
 
+def _manual_base_begin_harness(
+    authority, *, read_error=None, review_result=None, expose_logic_attribute=True
+):
+    method_names = {
+        "_hasLoadedRobotBasePlacementAuthority",
+        "_ensureStep61BaseEditCandidate",
+        "_onStep6BeginManualBaseReview",
+    }
+    methods = _methods(
+        ROBOT_MANUAL,
+        "RobotManualWidgetMixin",
+        method_names,
+        {
+            "_": lambda text: text,
+            "isfinite": isfinite,
+            "slicer": SimpleNamespace(
+                util=SimpleNamespace(errorDisplay=lambda _message: None)
+            ),
+        },
+    )
+    attribute_reads = []
+
+    def get_attribute(name):
+        attribute_reads.append(name)
+        if read_error is not None:
+            raise read_error
+        return authority
+
+    base = SimpleNamespace(GetAttribute=get_attribute)
+    parameter = SimpleNamespace(robotBaseTransform=base, robotBaseMountLocked=False)
+    logic = SimpleNamespace()
+    if expose_logic_attribute:
+        logic.ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE = (
+            "DENTOBOT.RobotBasePlacementAuthority"
+        )
+    panel = SimpleNamespace(manualBaseReviewStatusLabel=SimpleNamespace(text=""))
+    matrix = tuple(float(value) for value in range(16))
+    if review_result is None:
+        review_result = SimpleNamespace(
+            success=True,
+            message="review current",
+            details={
+                "staged": False,
+                "identityStatus": "current",
+                "acceptanceStatus": "review",
+                "acceptanceUncertainty": "",
+                "acceptedMatrixWorldRasMm": matrix,
+            },
+        )
+
+    class Facade:
+        def __init__(self):
+            self.review_result = review_result
+            self.review_calls = 0
+            self.staged = []
+            self.cancelled = []
+
+        def manualBaseReview(self):
+            self.review_calls += 1
+            return self.review_result
+
+        def stageManualBaseReview(self, values):
+            self.staged.append(tuple(values))
+            return SimpleNamespace(success=True, message="staged")
+
+        def cancelManualBaseReview(self):
+            self.cancelled.append(True)
+            return SimpleNamespace(success=True, message="cancelled")
+
+    facade = Facade()
+    planning_updates = []
+    host = SimpleNamespace(
+        _parameterNode=parameter,
+        _robotSimulationPanel=panel,
+        _robotWorkflowFacade=facade,
+        _workflowActionBusy=False,
+        logic=logic,
+        _isStep6ManualBaseReviewActive=lambda: True,
+        _updateStep6PlanningUi=lambda message="", error=False: planning_updates.append(
+            (message, error)
+        ),
+    )
+    host._hasLoadedRobotBasePlacementAuthority = lambda: methods[
+        "_hasLoadedRobotBasePlacementAuthority"
+    ](host)
+    host._ensureStep61BaseEditCandidate = lambda: methods[
+        "_ensureStep61BaseEditCandidate"
+    ](host)
+    host._onStep6BeginManualBaseReview = lambda: methods[
+        "_onStep6BeginManualBaseReview"
+    ](host)
+    return host, facade, panel, matrix, attribute_reads, planning_updates
+
+
+def test_manual_base_auto_and_explicit_begin_require_load_authority():
+    for authority in (None, "", "   "):
+        host, facade, panel, _matrix, reads, updates = _manual_base_begin_harness(
+            authority
+        )
+
+        host._ensureStep61BaseEditCandidate()
+        assert facade.review_calls == 0 and facade.staged == []
+
+        host._onStep6BeginManualBaseReview()
+        assert facade.review_calls == 0 and facade.staged == []
+        assert reads == ["DENTOBOT.RobotBasePlacementAuthority"] * 2
+        assert "Load the robot in 6.1" in panel.manualBaseReviewStatusLabel.text
+        assert updates[-1][1] is True
+
+
+def test_manual_base_begin_stages_after_loaded_authority_for_auto_and_explicit_paths():
+    for action, expose_logic_attribute in (("automatic", True), ("explicit", False)):
+        host, facade, _panel, matrix, reads, _updates = _manual_base_begin_harness(
+            "ManualSimulationBaseUnreviewed",
+            expose_logic_attribute=expose_logic_attribute,
+        )
+
+        if action == "automatic":
+            host._ensureStep61BaseEditCandidate()
+            assert facade.review_calls == 2
+        else:
+            host._onStep6BeginManualBaseReview()
+            assert facade.review_calls == 1
+
+        assert facade.staged == [matrix]
+        expected_attribute = "DENTOBOT.RobotBasePlacementAuthority"
+        assert reads and set(reads) == {expected_attribute}
+
+
+def test_manual_base_begin_preserves_existing_stale_or_unknown_review():
+    retained_reviews = (
+        SimpleNamespace(
+            success=False,
+            message="Base review identity is stale",
+            details={
+                "staged": True,
+                "identityStatus": "case_changed",
+                "acceptanceStatus": "review",
+                "candidateMatrixWorldRasMm": (1.0,) * 16,
+            },
+        ),
+        SimpleNamespace(
+            success=True,
+            message="Base acceptance is unresolved",
+            details={
+                "staged": True,
+                "identityStatus": "current",
+                "acceptanceStatus": "unknown",
+                "acceptanceUncertainty": "native scene acknowledgement unknown",
+                "candidateMatrixWorldRasMm": (2.0,) * 16,
+            },
+        ),
+    )
+    for retained in retained_reviews:
+        host, facade, _panel, _matrix, _reads, _updates = _manual_base_begin_harness(
+            "ManualSimulationBaseUnreviewed", review_result=retained
+        )
+
+        host._onStep6BeginManualBaseReview()
+
+        assert facade.review_result is retained
+        assert facade.review_calls == 1
+        assert facade.staged == [] and facade.cancelled == []
+        assert retained.details["staged"] is True
+
+
+def test_manual_base_auto_and_explicit_begin_fail_closed_when_authority_read_is_unavailable():
+    host, facade, panel, _matrix, reads, _updates = _manual_base_begin_harness(
+        "ManualSimulationBaseUnreviewed", read_error=RuntimeError("MRML unavailable")
+    )
+
+    host._ensureStep61BaseEditCandidate()
+    host._onStep6BeginManualBaseReview()
+
+    assert len(reads) == 2
+    assert facade.review_calls == 0 and facade.staged == []
+    assert "missing or unavailable" in panel.manualBaseReviewStatusLabel.text
+
+
+def test_manual_base_auto_begin_retains_activity_busy_and_mount_lock_gates():
+    configurations = (
+        {"active": False},
+        {"busy": True},
+        {"locked": True},
+    )
+    for configuration in configurations:
+        host, facade, _panel, _matrix, _reads, _updates = _manual_base_begin_harness(
+            "ManualSimulationBaseUnreviewed"
+        )
+        if "active" in configuration:
+            host._isStep6ManualBaseReviewActive = lambda: configuration["active"]
+        if configuration.get("busy"):
+            host._workflowActionBusy = True
+        if configuration.get("locked"):
+            host._parameterNode.robotBaseMountLocked = True
+
+        host._ensureStep61BaseEditCandidate()
+
+        assert facade.review_calls == 0 and facade.staged == []
+
+
 def test_manual_base_reconcile_requires_unknown_status_and_current_ros_scene():
     control_state = _methods(
         ROBOT_MANUAL,

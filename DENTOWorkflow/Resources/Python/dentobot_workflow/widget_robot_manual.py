@@ -823,6 +823,31 @@ class RobotManualWidgetMixin:
             ),
         }
 
+    def _hasLoadedRobotBasePlacementAuthority(self) -> bool:
+        """Require Load Robot's Base authority metadata before opening a draft."""
+
+        try:
+            parameter_node = getattr(self, "_parameterNode", None)
+            base = getattr(parameter_node, "robotBaseTransform", None)
+            if base is None:
+                return False
+            logic = getattr(self, "logic", None)
+            attribute = (
+                getattr(
+                    logic,
+                    "ROBOT_BASE_PLACEMENT_AUTHORITY_ATTRIBUTE",
+                    None,
+                )
+                or "DENTOBOT.RobotBasePlacementAuthority"
+            )
+            get_attribute = getattr(base, "GetAttribute", None)
+            if not callable(get_attribute):
+                return False
+            return bool(str(get_attribute(attribute) or "").strip())
+        except Exception:
+            # A missing/unreadable MRML attribute is not evidence that Load Robot ran.
+            return False
+
     def _ensureStep61BaseEditCandidate(self) -> None:
         try:
             active = self._isStep6ManualBaseReviewActive()
@@ -830,6 +855,7 @@ class RobotManualWidgetMixin:
             return
         if (
             not active
+            or not self._hasLoadedRobotBasePlacementAuthority()
             or not self._parameterNode
             or self._parameterNode.robotBaseMountLocked
             or not self._robotWorkflowFacade
@@ -851,6 +877,14 @@ class RobotManualWidgetMixin:
         panel = self._robotSimulationPanel
         facade = self._robotWorkflowFacade
         if not panel or not facade:
+            return
+        if not self._hasLoadedRobotBasePlacementAuthority():
+            message = _(
+                "Base placement authority is missing or unavailable. Load the robot "
+                "in 6.1 before starting a Base review."
+            )
+            panel.manualBaseReviewStatusLabel.text = message
+            self._updateStep6PlanningUi(message, error=True)
             return
         review = facade.manualBaseReview()
         details = getattr(review, "details", {}) or {}
