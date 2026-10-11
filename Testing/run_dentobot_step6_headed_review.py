@@ -4093,6 +4093,9 @@ def run() -> int:
         widget._configureRobotSimulationShellSubstep(1)
         widget._updateStep6PlanningUi()
         if clean_setup_only:
+            # Navigation queues the production Base draft on a zero-delay Qt timer.
+            # Observe it only after that normal UI action has had an event turn.
+            _process_events(0.2)
             _capture_clean_setup(widget, facade, parameter_node, report, evidence_dir, run_id)
             _serve_setup_session_if_requested(
                 {**globals(), **locals()}, widget, panel, facade, report, evidence_dir,

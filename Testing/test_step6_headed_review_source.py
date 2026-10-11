@@ -3384,7 +3384,7 @@ def test_clean_setup_captures_review_boundary_without_owners(review_success):
         "identityStatus": "current" if review_success else "unknown"}
     assert captured["base_home_acceptance_attempted"] is False
     assert len(captures) == 1
-    hook = SOURCE.index("if clean_setup_only:\n            _capture_clean_setup")
+    hook = SOURCE.index("\n            _capture_clean_setup(widget, facade")
     assert SOURCE.index('active_check = "planning_context_imported"') < hook
     assert hook < SOURCE.index('if _exact_env_opt_in("DENTOBOT_HEADED_DISCARD_STAGED_BASE"):', hook)
     stop = SOURCE[hook:SOURCE.index('if _exact_env_opt_in("DENTOBOT_HEADED_DISCARD_STAGED_BASE"):', hook)]
@@ -3425,3 +3425,41 @@ def test_setup_session_requires_clean_checkpoint_before_serving_commands():
         serve({}, None, None, None, report, None)
     assert len(calls) == 1
     assert report["setup_session"]["automatic_actions"] is False
+
+
+def test_clean_base_checkpoint_observes_navigation_queued_draft_after_event_turn():
+    tree = ast.parse(SOURCE)
+    checkpoint_if = next(node for node in ast.walk(tree) if isinstance(node, ast.If)
+        and ast.unparse(node.test) == 'clean_setup_only'
+        and any(isinstance(child, ast.Expr) and isinstance(child.value, ast.Call)
+                and ast.unparse(child.value.func) == '_capture_clean_setup' for child in node.body))
+    siblings = next(value for parent in ast.walk(tree) for _, value in ast.iter_fields(parent)
+                    if isinstance(value, list) and checkpoint_if in value)
+    index = siblings.index(checkpoint_if)
+    fragment = ast.Module(body=siblings[index-2:index+1], type_ignores=[])
+    scheduled = []; events = []; staged = [False]; report = {}
+    def navigate(substep):
+        assert substep == 1
+        scheduled.append(lambda: staged.__setitem__(0, True))
+        events.append('navigation')
+    def process_events(delay):
+        while scheduled: scheduled.pop(0)()
+        events.append('event_turn')
+    helpers = _clean_setup_helpers({}, lambda *args: events.append('capture'))
+    class CheckpointReached(Exception): pass
+    def serve(*args):
+        assert report['clean_setup']['base_review_details']['staged'] is True
+        raise CheckpointReached()
+    namespace = {**helpers, 'widget': SimpleNamespace(_configureRobotSimulationShellSubstep=navigate,
+        _updateStep6PlanningUi=lambda: None), 'clean_setup_only': True,
+        'facade': SimpleNamespace(capabilities=lambda: SimpleNamespace(connected=False),
+            manualBaseReview=lambda: SimpleNamespace(success=True, message='current',
+                details={'identityStatus':'current', 'staged':staged[0]})),
+        'parameter_node': SimpleNamespace(robotBaseMountLocked=False, step6TaskHomeJson='',
+            step6BasePlacementStatus='Unlocked', step6PlanningContextImported=True),
+        '_process_events':process_events, '_serve_setup_session_if_requested':serve,
+        'report':report, 'evidence_dir':None, 'run_id':'host', 'panel':None}
+    with pytest.raises(CheckpointReached):
+        exec(compile(fragment, str(RUNNER), 'exec'), namespace)
+    assert events == ['navigation', 'event_turn', 'capture']
+    assert report['clean_setup']['base_home_acceptance_attempted'] is False
