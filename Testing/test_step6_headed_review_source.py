@@ -3302,7 +3302,7 @@ def test_headed_runner_presses_every_production_control_through_the_press_owner(
 
 def _clean_setup_helpers(environment, capture=None):
     names = {"_clean_setup_requested", "_exact_env_opt_in", "_capture_clean_setup",
-             "_capture_clean_base_identity_checkpoint"}
+             "_capture_clean_base_identity_checkpoint", "_serve_setup_session_if_requested"}
     module = ast.Module(body=[node for node in ast.parse(SOURCE).body
                              if isinstance(node, ast.FunctionDef) and node.name in names], type_ignores=[])
     namespace = {"os": SimpleNamespace(environ=environment),
@@ -3314,6 +3314,8 @@ def _clean_setup_helpers(environment, capture=None):
 
 def test_clean_setup_default_preserves_existing_runner():
     assert _clean_setup_helpers({})["_clean_setup_requested"]() is False
+    with pytest.raises(RuntimeError, match="requires"):
+        _clean_setup_helpers({"DENTOBOT_HEADED_SETUP_SESSION": "1"})["_clean_setup_requested"]()
 
 
 def test_clean_base_identity_checkpoints_preserve_stale_evidence_without_owners():
@@ -3387,3 +3389,39 @@ def test_clean_setup_captures_review_boundary_without_owners(review_success):
     assert hook < SOURCE.index('if _exact_env_opt_in("DENTOBOT_HEADED_DISCARD_STAGED_BASE"):', hook)
     stop = SOURCE[hook:SOURCE.index('if _exact_env_opt_in("DENTOBOT_HEADED_DISCARD_STAGED_BASE"):', hook)]
     assert "raise LookupError" in stop and "_serve_command_session" not in stop
+
+
+def test_setup_session_default_has_no_configuration_or_session_action():
+    helpers = _clean_setup_helpers({})
+    assert helpers["_serve_setup_session_if_requested"]({}, None, None, None, {}, None) is False
+
+
+def test_setup_session_requires_clean_checkpoint_before_serving_commands():
+    env = {"DENTOBOT_HEADED_SETUP_SESSION": "1"}
+    helpers = _clean_setup_helpers(env)
+    with pytest.raises(RuntimeError, match="requires"):
+        helpers["_serve_setup_session_if_requested"]({}, None, None, None, {}, None)
+    env["DENTOBOT_HEADED_CLEAN_SETUP_ONLY"] = "1"
+    report = {"clean_setup": {
+        "status": "CAPTURED_FOR_CONFIGURATION_REVIEW", "planning_context_imported": True,
+        "base_review_success": True, "base_review_details": {"identityStatus": "current", "staged": True},
+        "connected": False, "base_locked": False, "task_home_present": False,
+        "base_home_acceptance_attempted": False,
+    }}
+    calls = []
+    helpers["_serve_command_session"] = lambda *args: calls.append(args)
+    serve = helpers["_serve_setup_session_if_requested"]
+    for field in ("connected", "base_locked", "task_home_present", "base_home_acceptance_attempted"):
+        report["clean_setup"][field] = True
+        with pytest.raises(RuntimeError, match="refused"):
+            serve({}, None, None, None, report, None)
+        report["clean_setup"][field] = False
+    report["clean_setup"]["base_review_details"]["identityStatus"] = "case_or_base_identity_changed"
+    with pytest.raises(RuntimeError, match="refused"):
+        serve({}, None, None, None, report, None)
+    assert calls == []
+    report["clean_setup"]["base_review_details"]["identityStatus"] = "current"
+    with pytest.raises(RuntimeError, match="returned unexpectedly"):
+        serve({}, None, None, None, report, None)
+    assert len(calls) == 1
+    assert report["setup_session"]["automatic_actions"] is False

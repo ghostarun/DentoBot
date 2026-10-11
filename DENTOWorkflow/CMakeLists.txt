@@ -97,6 +97,7 @@ set(MODULE_PYTHON_SCRIPTS
   Resources/Python/dentobot_workflow/base_diagnosis.py
   Resources/Python/dentobot_workflow/feasibility_advisor.py
   Resources/Python/dentobot_workflow/advisor_home.py
+  Resources/Python/dentobot_workflow/advisor_home_proposal.py
   Resources/Python/dentobot_workflow/advisor_identity.py
   Resources/Python/dentobot_workflow/advisor_service.py
   Resources/Python/dentobot_workflow/jaw_frame.py

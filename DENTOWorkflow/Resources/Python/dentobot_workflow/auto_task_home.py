@@ -150,7 +150,12 @@ def propose_auto_task_home(facade, result_type, bridge_policy, *, depth_mm=DEFAU
         details.update({"midpointWorldRasMm": geometry.midpoint_world_ras_mm,
                         "positionWorldRasMm": geometry.position_world_ras_mm,
                         "drillAxisWorldRasUnit": geometry.drill_axis_world_ras_unit,
-                        "depthMm": geometry.depth_mm, "source": roi})
+                        "depthMm": geometry.depth_mm, "source": roi,
+                        "taskHomeReviewIdentity": dict(identity),
+                        "trajectoryWorldRasMm": {
+                            "entry": _xyz(trajectory["entryRas"], "Entry"),
+                            "target": _xyz(trajectory["targetRas"], "Target"),
+                        }})
         pose = facade._bridge.tool_pose_matrices_world_mm(
             trajectory["entryRas"], trajectory["targetRas"], 2,
         )[0]

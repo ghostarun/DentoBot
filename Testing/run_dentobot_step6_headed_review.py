@@ -1423,6 +1423,8 @@ def _finalize_workspace_diagnostic(report: dict[str, object]) -> None:
 def _clean_setup_requested() -> bool:
     """Opt-in inspection of a clean Step 5C import, without downstream authority."""
     if not _exact_env_opt_in("DENTOBOT_HEADED_CLEAN_SETUP_ONLY"):
+        if _exact_env_opt_in("DENTOBOT_HEADED_SETUP_SESSION"):
+            raise RuntimeError("Setup session requires the clean disconnected setup checkpoint.")
         return False
     allowed = {
         "DENTOBOT_HEADED_CLEAN_SETUP_ONLY", "DENTOBOT_HEADED_PROVENANCE_MODE",
@@ -1430,6 +1432,7 @@ def _clean_setup_requested() -> bool:
         "DENTOBOT_HEADED_GIT_STATUS_SHA256", "DENTOBOT_HEADED_HOST_CHECKOUT_ROOT",
         "DENTOBOT_HEADED_CASE_SOURCE", "DENTOBOT_HEADED_CASE_SHA256",
         "DENTOBOT_HEADED_EVIDENCE_DIR", "DENTOBOT_HEADED_INPUT",
+        "DENTOBOT_HEADED_SETUP_SESSION",
     }
     conflicts = [name for name, value in os.environ.items()
                  if name.startswith("DENTOBOT_HEADED_") and name not in allowed
@@ -1437,6 +1440,27 @@ def _clean_setup_requested() -> bool:
     if conflicts:
         raise RuntimeError("Clean setup forbids additional headed options: " + ", ".join(sorted(conflicts)))
     return True
+
+
+def _serve_setup_session_if_requested(namespace, widget, panel, facade, report, evidence_dir):
+    """Opt-in command checkpoint; entering it performs no configuration actions."""
+    if not _exact_env_opt_in("DENTOBOT_HEADED_SETUP_SESSION"):
+        return False
+    if not _clean_setup_requested():
+        raise RuntimeError("Setup session requires the clean disconnected setup checkpoint.")
+    setup = report.get("clean_setup", {})
+    review = setup.get("base_review_details", {})
+    if (setup.get("status") != "CAPTURED_FOR_CONFIGURATION_REVIEW"
+            or setup.get("planning_context_imported") is not True
+            or setup.get("base_review_success") is not True
+            or review.get("identityStatus") != "current"
+            or review.get("staged") is not True
+            or any(setup.get(key) is not False for key in (
+                "connected", "base_locked", "task_home_present", "base_home_acceptance_attempted"))):
+        raise RuntimeError("Setup session refused: current disconnected Base draft was not captured.")
+    report["setup_session"] = {"checkpoint": "disconnected_base_draft", "automatic_actions": False}
+    _serve_command_session(namespace, widget, panel, facade, report, evidence_dir)
+    raise RuntimeError("Setup command session returned unexpectedly; refusing downstream checks.")
 
 
 def _capture_clean_base_identity_checkpoint(facade, report, stage):
@@ -1482,7 +1506,10 @@ def _serve_command_session(namespace, widget, panel, facade, report, evidence_di
     }
     report["session_mode"] = {"status": "serving", "session_dir": str(session_dir)}
     _write_report(report)
-    outcome = run_session(namespace, session_dir, _process_events)
+    if report.get("setup_session"):
+        outcome = run_session(namespace, session_dir, _process_events, stop_on_error=True)
+    else:
+        outcome = run_session(namespace, session_dir, _process_events)
     reason = (
         f"Command session ended ({outcome['reason']}); later checks ran only as "
         "session commands (see session/outbox)."
@@ -4067,6 +4094,9 @@ def run() -> int:
         widget._updateStep6PlanningUi()
         if clean_setup_only:
             _capture_clean_setup(widget, facade, parameter_node, report, evidence_dir, run_id)
+            _serve_setup_session_if_requested(
+                {**globals(), **locals()}, widget, panel, facade, report, evidence_dir,
+            )
             raise LookupError("Clean disconnected import captured; Base/Home review and all connected checks NOT_RUN.")
         if _exact_env_opt_in("DENTOBOT_HEADED_DISCARD_STAGED_BASE"):
             _capture(report, evidence_dir, run_id, "staged-base-before-discard")

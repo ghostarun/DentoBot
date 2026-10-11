@@ -578,7 +578,7 @@
           "returns": "dict[str, object]"
         },
         "caseBundleWorkflowSummary": {
-          "arguments": "self, parameterNode",
+          "arguments": "self, parameterNode, *, legacyProvenance=False",
           "decorators": [],
           "returns": "dict[str, object]"
         },

@@ -301,3 +301,15 @@ next step. Do not run verification or runtime tasks as part of the handoff.
   merges deliberately.
 - Every B GUI result still stops for the operator's manual verdict
   (`S6-LIVE-01` gate). Reasons: `docs/DECISIONS.md` 2026-10-08.
+
+## Operator workflow/update rules — 2026-10-11
+
+Keep work simple: agree one bounded plan; own routine code/test-script repairs
+and checks. Reuse approved scope/budget; ask only for material changes, required
+acceptance or exhausted limits, explaining the exact decision/failure/rule.
+Reuse harnesses; preflight before runtime. Distinguish test errors, product bugs
+and expected setup; label host-tested/native-verified/accepted accurately.
+Brief updates: **result → failure/fix owner → next → input if needed**. Frequently
+show compact done/current/next tables, prior successes and larger-goal links;
+use bold/italics/separators for clarity. Seek clarity feedback at milestones
+and adapt. Preserve safety/identity/acceptance guards and historical caps.

@@ -184,7 +184,7 @@ def rebind_callbacks(callbacks: dict, owner) -> int:
 
 
 def run_session(namespace: dict, session_dir: Path, process_events, *, idle_limit_sec=IDLE_LIMIT_SEC,
-                clock=time.monotonic, poll_sec=0.25) -> dict:
+                clock=time.monotonic, poll_sec=0.25, stop_on_error=False) -> dict:
     inbox, running, outbox, done = (
         session_dir / part for part in ("inbox", "running", "outbox", "done")
     )
@@ -249,5 +249,7 @@ def run_session(namespace: dict, session_dir: Path, process_events, *, idle_limi
         print(f"DENTOBOT_SESSION_COMMAND_END {name} {record['status']} {record['duration_sec']}s", flush=True)
         executed.append({"command": name, "status": record["status"], "duration_sec": record["duration_sec"]})
         last_command = clock()
+        if stop_on_error and record["status"] == "error":
+            return {"reason": "command_error", "executed": executed}
         if "stop" in name:
             return {"reason": "stop_command", "executed": executed}

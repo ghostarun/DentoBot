@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from .runtime import *
 from . import advisor_home
+from . import advisor_home_proposal
 from . import advisor_service as advisor
 from . import step6_working_config
 from .step6_control_reasons import ADVISOR_CONTROLS, annotate_step6_controls
@@ -25,6 +26,7 @@ class Step6AdvisorWidgetMixin:
         "consent_apply": "Blocks consent search and Apply (Start without consent still runs)",
         "auto": "Search fixes this automatically (checked for each candidate)",
         "passes": "Blocks every candidate until fixed (the search cannot fix it)",
+        "optional": "Optional: review a new Home before starting a fresh batch",
     }
 
     # ---- entry point (6.3 button, action owner 3) -------------------------------------
@@ -44,6 +46,14 @@ class Step6AdvisorWidgetMixin:
         latch = self._advisorRestoreLatch()
         if latch:  # an unconfirmed restore survives close and reopen (F7)
             self._advisorShowRestoreUnconfirmed(latch)
+        previous_proposal = getattr(self, "_advisorHomeProposalSummary", None)
+        if previous_proposal is not None:
+            state = self._advisorState
+            summary = advisor_home_proposal.format_summary(previous_proposal)
+            current = str(state["statusLabel"].text or "").strip()
+            state["statusLabel"].text = (
+                summary if not current or current == _("Ready.") else current + "\n" + summary
+            )
         self._advisorState["dialog"].show()
 
     def _advisorNewSession(self) -> None:
@@ -109,7 +119,9 @@ class Step6AdvisorWidgetMixin:
                 "Cancel takes effect when that step finishes. "
                 "The search never moves the robot or uses different joints; unless you tick the Task Home consent "
                 "below it does not accept or re-validate Task Home either. Use Apply && Save to branch only after "
-                "the search reports that baseline restoration completed."
+                "the search reports that baseline restoration completed. If a batch rejects the saved Home, "
+                "review a replacement automatic Home after restoration, then accept it and reconfirm the task "
+                "before starting a new batch."
             ),
             dialog,
         )
@@ -280,9 +292,27 @@ class Step6AdvisorWidgetMixin:
         )
 
     # ---- setup diagnostics ------------------------------------------------------------------
+    def _advisorReplacementHomeAvailable(self) -> bool:
+        state = self._advisorState
+        session = state.get("session")
+        return bool(state.get("mode") == "done" and getattr(session, "finished", False)
+                    and getattr(session, "phase", None) == advisor.DONE
+                    and not state.get("running") and not state.get("paused")
+                    and not state.get("restoreFailed") and not state.get("configurationApplied")
+                    and not getattr(session, "restore_issues", ()) and not self._advisorRestoreLatch()
+                    and not getattr(session, "_pending_gate", "")
+                    and not getattr(session, "_operator_review_block", None)
+                    and any(row.get("home_rejected") for row in getattr(session, "records", ())))
+
     def _advisorShowSetup(self, issues=None) -> None:
         state = self._advisorState
         issues = issues if issues is not None else state["session"].setup_report()
+        session = state.get("session")
+        if self._advisorReplacementHomeAvailable():
+            issues = [*issues, advisor.SetupIssue(
+                "This batch rejected the saved Home. Baseline restoration completed. Review a replacement "
+                "automatic Home at the current configuration, accept it and reconfirm the task before a new batch.",
+                blocks="optional", fix_id="propose_replacement_auto_home", fix_label="Review replacement automatic Home")]
         table = state["setupTable"]
         table.setRowCount(0)
         state["fixButtons"] = []
@@ -311,11 +341,88 @@ class Step6AdvisorWidgetMixin:
         if not state or state.get("running") or getattr(self, "_workflowActionBusy", False):
             return
 
-        if fix_id == "propose_auto_home":
-            if state.get("paused") or not self._advisorCloseForNavigation():
+        if fix_id in ("propose_auto_home", "propose_replacement_auto_home"):
+            if fix_id == "propose_replacement_auto_home" and not self._advisorReplacementHomeAvailable():
                 return
-            self._configureRobotSimulationShellSubstep(2)
-            self._onStep6AutoTaskHome()
+            evidence_root = state.get("root")
+            session = state.get("session")
+            if (state.get("paused") or state.get("restoreFailed") or state.get("configurationApplied")
+                    or self._advisorRestoreLatch() or getattr(session, "restore_issues", ())
+                    or (getattr(session, "phase", advisor.IDLE) != advisor.IDLE
+                        and not getattr(session, "finished", False))):
+                return
+            facade = getattr(self, "_robotWorkflowFacade", None)
+            review_owner = getattr(facade, "manualTaskHomeReview", None)
+            try:
+                review = review_owner() if callable(review_owner) else None
+                if (review is None or (review.details or {}).get("staged")
+                        or getattr(facade, "_manual_task_home_acceptance_in_progress", False)
+                        or getattr(facade, "_manual_task_home_reconciliation_in_progress", False)):
+                    state["statusLabel"].text = _("Finish or cancel the existing Task Home review in 6.2 before proposing a replacement.")
+                    return
+            except Exception:
+                state["statusLabel"].text = _("Task Home review state is unavailable; review 6.2 before proposing a replacement.")
+                return
+            previous_batch = None
+            if getattr(session, "finished", False) and getattr(session, "baseline", None):
+                previous_batch = {"root": str(evidence_root), "outcome": str(session.outcome),
+                                  "source_report": str(evidence_root / "advisor-ordered-report.md"),
+                                  "baseline": dict(session.baseline),
+                                  "saved_home_si": dict(getattr(session, "saved_home", None) or {}),
+                                  "baseline_restored": True,
+                                  "home_rejected_count": sum(bool(row.get("home_rejected")) for row in session.records)}
+            if not self._advisorCloseForNavigation():
+                return
+            try:
+                self._configureRobotSimulationShellSubstep(2)
+            except Exception as exc:
+                outcome = advisor_home_proposal.error_outcome(
+                    "Auto Task Home navigation failed before draft generation: " + str(exc),
+                    code="auto_task_home_navigation_failed",
+                )
+            else:
+                try:
+                    outcome = self._onStep6AutoTaskHome()
+                except Exception as exc:
+                    outcome = advisor_home_proposal.error_outcome(
+                        "Auto Task Home handler failed: " + str(exc)
+                    )
+            if not isinstance(outcome, advisor_home_proposal.ProposalOutcome):
+                outcome = advisor_home_proposal.no_result_outcome(
+                    "Auto Task Home handler returned no structured proposal outcome."
+                )
+            artifact_path = ""
+            evidence_error = ""
+            try:
+                artifact_path = advisor_home_proposal.write_proposal_artifact(
+                    evidence_root, outcome, previous_batch=previous_batch)
+            except Exception as exc:
+                evidence_error = str(exc)
+            self._advisorHomeProposalSummary = advisor_home_proposal.make_summary(
+                outcome, artifact_path=artifact_path, evidence_error=evidence_error
+            )
+            if outcome.staged:
+                self._advisorGeneratedHomeReviewRequired = True
+            if evidence_error:
+                panel = getattr(self, "_robotSimulationPanel", None)
+                visible_message = (
+                    "Auto Task Home proposal evidence could not be saved: " + evidence_error
+                    + ". The existing draft state was left unchanged."
+                )
+                if panel is not None:
+                    try:
+                        label = getattr(panel, "taskHomeReviewStatusLabel", None)
+                        if label is not None:
+                            label.text = str(label.text or "") + " " + visible_message
+                        set_status = getattr(panel, "setManualJogStatus", None)
+                        if callable(set_status):
+                            set_status("draft" if outcome.staged else "blocked", visible_message)
+                    except Exception:
+                        pass
+                try:
+                    self._updateStep6PlanningUi(visible_message, error=True)
+                except Exception:
+                    pass
             return
 
         handlers = {
@@ -371,6 +478,18 @@ class Step6AdvisorWidgetMixin:
         ):
             return
         session = state["session"]
+        if getattr(self, "_advisorGeneratedHomeReviewRequired", False):
+            try:
+                gaps = [*self.logic.confirmedTaskFreshnessIssues(self._parameterNode)]
+                home_gap = self._robotWorkflowFacade.taskHomeValidationGap(self._parameterNode)
+                review = self._robotWorkflowFacade.manualTaskHomeReview()
+                if home_gap or gaps or (review.details or {}).get("staged"):
+                    state["statusLabel"].text = _("Accept and validate the generated Home in 6.2, then Confirm Task in 6.3 before a new batch.")
+                    return
+            except Exception:
+                state["statusLabel"].text = _("Generated Home acceptance and task confirmation could not be verified. Review 6.2–6.3 before a new batch.")
+                return
+            self._advisorGeneratedHomeReviewRequired = False
         if session.phase != advisor.IDLE:  # resume after a cancel/finish: a new session reuses the checkpoints
             self._advisorNewSession()
             session = state["session"]
@@ -775,6 +894,7 @@ class Step6AdvisorWidgetMixin:
                 + (_(" Needs your review: %1.").replace("%1", ", ".join(review)) if review else "")
             )
         state["errorRecovery"] = None
+        state["mode"] = "done"
         self._advisorShowSetup()  # the setup rows reflect the state the search left (F8/finding 2)
         self._advisorSetButtons("done")
 

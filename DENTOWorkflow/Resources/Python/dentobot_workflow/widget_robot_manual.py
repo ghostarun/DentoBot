@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from math import isfinite
 
 from .runtime import *
+from . import advisor_home_proposal
 from .task_home_gate import format_blockers, task_home_action_blockers
 from .step6_control_flags import annotate_refresh_controls
 from .workflow_progress import WorkflowProgress
@@ -543,26 +544,56 @@ class RobotManualWidgetMixin:
             panel.setManualJogRequestComplete()
             self._updateStep6PlanningUi()
 
-    def _onStep6AutoTaskHome(self) -> None:
+    def _onStep6AutoTaskHome(self):
         panel = self._robotSimulationPanel
         facade = self._robotWorkflowFacade
-        if panel is None or facade is None:
-            return
+        if panel is None:
+            return advisor_home_proposal.error_outcome(
+                "Auto Task Home could not run because the Step 6 panel is unavailable.",
+                code="auto_task_home_panel_unavailable",
+            )
+        if facade is None:
+            outcome = advisor_home_proposal.error_outcome(
+                "Auto Task Home could not run because the workflow façade is unavailable.",
+                code="auto_task_home_facade_unavailable",
+            )
+            message = outcome.display_message
+            panel.taskHomeReviewStatusLabel.text = message
+            panel.taskHomeReviewStatusLabel.setProperty("dentobotState", "blocked")
+            panel.setManualJogDraftDisplayResult(False, message)
+            panel.setManualJogStatus("blocked", message)
+            return outcome
         try:
             result = facade.proposeAutoTaskHome()
-            staged = result.success is True and panel.stageTcpIkSolution(result.payload)
-            message = str(result.message)
-            if result.success is True and not staged:
-                message = "Auto Task Home was not staged: " + str(
-                    getattr(panel, "_tcpIkStageFailureText", "draft controls rejected the solution")
-                )
         except Exception as exc:
-            staged = False
-            message = "Auto Task Home was not staged: " + str(exc)
+            outcome = advisor_home_proposal.error_outcome(
+                "Auto Task Home was not staged: " + str(exc)
+            )
+        else:
+            if result is None:
+                outcome = advisor_home_proposal.no_result_outcome()
+            else:
+                proposal_success = getattr(result, "success", False) is True
+                staged = False
+                stage_message = ""
+                if proposal_success:
+                    try:
+                        staged = bool(panel.stageTcpIkSolution(getattr(result, "payload", None)))
+                    except Exception as exc:
+                        stage_message = "Auto Task Home was not staged: " + str(exc)
+                    if not staged and not stage_message:
+                        stage_message = "Auto Task Home was not staged: " + str(
+                            getattr(panel, "_tcpIkStageFailureText", "draft controls rejected the solution")
+                        )
+                outcome = advisor_home_proposal.outcome_from_result(
+                    result, staged=staged, stage_message=stage_message
+                )
+        message = outcome.display_message
         panel.taskHomeReviewStatusLabel.text = message
-        panel.taskHomeReviewStatusLabel.setProperty("dentobotState", "ok" if staged else "blocked")
-        panel.setManualJogDraftDisplayResult(bool(staged), message)
-        panel.setManualJogStatus("draft" if staged else "blocked", message)
+        panel.taskHomeReviewStatusLabel.setProperty("dentobotState", "ok" if outcome.staged else "blocked")
+        panel.setManualJogDraftDisplayResult(bool(outcome.staged), message)
+        panel.setManualJogStatus("draft" if outcome.staged else "blocked", message)
+        return outcome
 
     def _onShellSolveIk(self) -> None:
         if not self._robotSimulationPanel or not self._robotWorkflowFacade:

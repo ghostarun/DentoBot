@@ -1,6 +1,8 @@
 """Step 6 Feasibility Advisor GUI lifecycle and safety wiring checks."""
 
 import ast
+import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -14,9 +16,13 @@ MANUAL_WIDGET_PATH = PY / "dentobot_workflow" / "widget_robot_manual.py"
 if str(PY) not in sys.path:
     sys.path.insert(0, str(PY))
 from dentobot_workflow.step6_control_reasons import ADVISOR_CONTROLS, annotate_step6_controls  # noqa: E402
+from dentobot_workflow import advisor_home_proposal  # noqa: E402
 ADVISOR_HOME_PATH = PY / "dentobot_workflow" / "advisor_home.py"
 
 METHODS = {
+    "_onStep6FindWorkingConfig",
+    "_advisorRestoreLatch",
+    "_advisorReplacementHomeAvailable",
     "_advisorSetButtons",
     "_advisorOnStart",
     "_advisorOnCancel",
@@ -121,7 +127,11 @@ def _load_gui_methods():
         "_": lambda text: text,
         "ADVISOR_CONTROLS": ADVISOR_CONTROLS,
         "annotate_step6_controls": annotate_step6_controls,
+        "advisor_home_proposal": advisor_home_proposal,
+        "os": os,
         "advisor": SimpleNamespace(
+            default_evidence_root=lambda env: Path("/unused-host-test-root"),
+            SetupIssue=lambda message, **kwargs: SimpleNamespace(message=message, **kwargs),
             APPLY_STEPS=("apply_base", "apply_policy"),
             DONE="done", EVALUATING="evaluating", FOUND="found", IDLE="idle", RESTORING="restoring",
             working_configuration_record=lambda *args, **kwargs: {"config": "fake"},
@@ -149,7 +159,7 @@ def _load_production_auto_task_home_owner():
                  and node.name == "RobotManualWidgetMixin")
     method = next(node for node in owner.body if isinstance(node, ast.FunctionDef)
                   and node.name == "_onStep6AutoTaskHome")
-    scope = {}
+    scope = {"advisor_home_proposal": advisor_home_proposal}
     exec(compile(ast.Module(body=[method], type_ignores=[]), str(MANUAL_WIDGET_PATH), "exec"), scope)
     return scope[method.name]
 
@@ -340,9 +350,10 @@ def test_navigation_fix_closes_and_releases_application_modal_dialog():
     assert widget._advisorState is None
 
 
-def test_auto_home_fix_releases_the_modal_before_using_the_existing_draft_owner():
+def test_auto_home_fix_releases_the_modal_before_using_the_existing_draft_owner(tmp_path):
     widget = AdvisorHost(ScriptedSession())
     state = widget._advisorState
+    state["root"] = Path(os.environ.get("DENTOBOT_ADVISOR_HOME_TEST_ROOT", tmp_path))
     dialog = state["dialog"]
     events = []
     panel = SimpleNamespace(
@@ -356,9 +367,14 @@ def test_auto_home_fix_releases_the_modal_before_using_the_existing_draft_owner(
 
     def propose_failure():
         events.append(("propose", widget._advisorState, dialog.hidden, dialog.deleted))
-        return SimpleNamespace(success=False, payload=None, message="No guarded Home draft was found.")
+        return SimpleNamespace(
+            success=False, code="auto_task_home_blocked", payload=None,
+            message="No guarded Home draft was found.",
+            details={"source": {"roiId": "current-roi"}, "positionWorldRasMm": [1.0, 2.0, 3.0]},
+        )
 
-    widget._robotWorkflowFacade = SimpleNamespace(proposeAutoTaskHome=propose_failure)
+    widget._robotWorkflowFacade = SimpleNamespace(proposeAutoTaskHome=propose_failure,
+        manualTaskHomeReview=lambda: SimpleNamespace(details={"staged": False}))
     production_owner = _load_production_auto_task_home_owner()
 
     def configure_substep(substep):
@@ -366,7 +382,7 @@ def test_auto_home_fix_releases_the_modal_before_using_the_existing_draft_owner(
 
     def run_owner():
         events.append(("owner", widget._advisorState, dialog.hidden, dialog.deleted))
-        production_owner(widget)
+        return production_owner(widget)
 
     widget._configureRobotSimulationShellSubstep = configure_substep
     widget._onStep6AutoTaskHome = run_owner
@@ -383,6 +399,87 @@ def test_auto_home_fix_releases_the_modal_before_using_the_existing_draft_owner(
     assert ("display", False, "No guarded Home draft was found.") in events
     assert ("status", "blocked", "No guarded Home draft was found.") in events
     assert widget._advisorState is None
+    summary = widget._advisorHomeProposalSummary
+    assert summary.status == "refused" and summary.staged is False
+    assert summary.artifact_path.startswith(str(state["root"]))
+    artifact = json.loads(Path(summary.artifact_path).read_text(encoding="utf-8"))
+    assert artifact["scope"] == "draft-only; operator acceptance required"
+    assert artifact["details"]["source"]["roiId"] == "current-roi"
+    assert "identity" not in artifact["details"]
+    assert events.count(("propose", None, True, True)) == 1
+
+
+def test_auto_home_handler_returns_stage_refusal_and_copies_actual_result_details():
+    stage_calls = []
+    panel = SimpleNamespace(
+        taskHomeReviewStatusLabel=SimpleNamespace(text="", setProperty=lambda name, value: None),
+        stageTcpIkSolution=lambda payload: stage_calls.append(payload) or False,
+        _tcpIkStageFailureText="draft controls refused the candidate",
+        setManualJogDraftDisplayResult=lambda staged, message: None,
+        setManualJogStatus=lambda status, message: None,
+    )
+    result_details = {
+        "source": {"incisorFdi": ["11", "21", "31", "41"]},
+        "candidateJointPositionsSi": {"j1": 0.1, "j2": 0.2},
+        "identityStatus": "current",
+        "positionResidualMm": 0.002,
+        "guardEvidence": {"collisionAware": True},
+    }
+    owner = _load_production_auto_task_home_owner()
+    widget = SimpleNamespace(
+        _robotSimulationPanel=panel,
+        _robotWorkflowFacade=SimpleNamespace(proposeAutoTaskHome=lambda: SimpleNamespace(
+            success=True, code="auto_task_home_draft_ready", message="Draft ready.",
+            details=result_details, payload={"j1": 0.1, "j2": 0.2},
+        )),
+    )
+
+    outcome = owner(widget)
+
+    assert outcome.status == "stage_refused"
+    assert outcome.success is True and outcome.staged is False
+    assert outcome.code == "auto_task_home_draft_ready"
+    assert outcome.message == "Draft ready."
+    assert outcome.stage_message == "Auto Task Home was not staged: draft controls refused the candidate"
+    assert outcome.details["source"]["incisorFdi"] == ("11", "21", "31", "41")
+    assert outcome.details["identityStatus"] == "current"
+    assert outcome.details["positionResidualMm"] == 0.002
+    assert outcome.candidate_si_joints["j1"] == 0.1
+    assert stage_calls == [{"j1": 0.1, "j2": 0.2}]
+    assert panel.taskHomeReviewStatusLabel.text == outcome.stage_message
+
+
+def test_auto_home_handler_captures_no_result_and_exception():
+    owner = _load_production_auto_task_home_owner()
+
+    def panel():
+        return SimpleNamespace(
+            taskHomeReviewStatusLabel=SimpleNamespace(text="", setProperty=lambda name, value: None),
+            stageTcpIkSolution=lambda payload: (_ for _ in ()).throw(AssertionError("must not stage")),
+            setManualJogDraftDisplayResult=lambda staged, message: None,
+            setManualJogStatus=lambda status, message: None,
+        )
+
+    no_result_widget = SimpleNamespace(
+        _robotSimulationPanel=panel(),
+        _robotWorkflowFacade=SimpleNamespace(proposeAutoTaskHome=lambda: None),
+    )
+    no_result = owner(no_result_widget)
+    assert no_result.status == "no_result" and no_result.staged is False
+    assert no_result.code == "auto_task_home_no_result"
+    assert "no result" in no_result.message.lower()
+
+    def raise_error():
+        raise RuntimeError("generator exception")
+
+    error_widget = SimpleNamespace(
+        _robotSimulationPanel=panel(),
+        _robotWorkflowFacade=SimpleNamespace(proposeAutoTaskHome=raise_error),
+    )
+    error = owner(error_widget)
+    assert error.status == "error" and error.staged is False
+    assert error.code == "auto_task_home_exception"
+    assert "generator exception" in error.message
 
 
 def test_auto_home_fix_does_not_run_if_modal_navigation_close_fails():
@@ -399,6 +496,59 @@ def test_auto_home_fix_does_not_run_if_modal_navigation_close_fails():
     assert calls == []
     assert widget._advisorState is state
     assert dialog.hidden is False and dialog.deleted is False
+
+
+def test_auto_home_evidence_write_failure_is_visible_and_keeps_staged_outcome(monkeypatch, tmp_path):
+    widget = AdvisorHost(ScriptedSession())
+    state = widget._advisorState
+    state["root"] = tmp_path
+    events = []
+    panel = SimpleNamespace(
+        taskHomeReviewStatusLabel=SimpleNamespace(text="Draft ready.", setProperty=lambda name, value: None),
+        setManualJogStatus=lambda status, message: events.append((status, message)),
+    )
+    widget._robotSimulationPanel = panel
+    outcome = advisor_home_proposal.outcome_from_result(
+        SimpleNamespace(success=True, code="auto_task_home_draft_ready", message="Draft ready.",
+                         details={"source": {"incisorFdi": ["11", "21", "31", "41"]}},
+                         payload={"j1": 0.1}),
+        staged=True,
+    )
+    widget._onStep6AutoTaskHome = lambda: outcome
+    widget._configureRobotSimulationShellSubstep = lambda substep: events.append(("substep", substep))
+
+    def fail_write(*args, **kwargs):
+        raise OSError("evidence disk unavailable")
+
+    monkeypatch.setattr(advisor_home_proposal, "write_proposal_artifact", fail_write)
+    widget._advisorOnFix("propose_auto_home")
+
+    assert widget._advisorState is None
+    assert widget._advisorHomeProposalSummary.staged is True
+    assert widget._advisorHomeProposalSummary.evidence_error == "evidence disk unavailable"
+    assert "evidence disk unavailable" in panel.taskHomeReviewStatusLabel.text
+    assert "draft state was left unchanged" in panel.taskHomeReviewStatusLabel.text
+    assert events[-1][0] == "draft"
+
+
+def test_reopened_advisor_status_includes_retained_home_proposal_path():
+    widget = GuiMixin()
+    widget._parameterNode = widget.logic = widget._robotWorkflowFacade = object()
+    widget._advisorState = None
+    widget._advisorHomeProposalSummary = advisor_home_proposal.make_summary(
+        advisor_home_proposal.no_result_outcome(), artifact_path="/proposal.json"
+    )
+    calls = []
+    widget._advisorNewSession = lambda: calls.append("new_session")
+    def build():
+        widget._advisorState.update(statusLabel=SimpleNamespace(text="Ready."), dialog=Dialog())
+    widget._advisorBuildDialog = build
+    widget._advisorShowSetup = lambda: calls.append("setup")
+    widget._advisorRestoreLatch = lambda: ""
+    widget._onStep6FindWorkingConfig()
+    assert calls == ["new_session", "setup"]
+    assert "/proposal.json" in widget._advisorState["statusLabel"].text
+    assert widget._advisorState["dialog"].shown
 
 
 def test_auto_home_fix_is_refused_while_running_busy_or_paused():
@@ -548,6 +698,7 @@ class ScriptedSession:
         self.message = "search message"
         self.baseline = {"opening": 42.0}
         self.restore_issues = []
+        self.records = []
         self.calls = []
         self.consent_texts = []
         self.step_events = list(step_events)
@@ -591,7 +742,7 @@ class AdvisorHost(GuiMixin):
         self._robotSimulationPanel = None
         self._robotWorkflowFacade = SimpleNamespace(jointPlanningPolicy=lambda: {
             "planner_id": "fake", "planning_attempts": 1, "planning_time_sec": 1.0,
-        })
+        }, manualTaskHomeReview=lambda: SimpleNamespace(details={"staged": False}))
         self._advisorState = {
             **_advisor_buttons(), "session": session, "timer": Timer(), "dialog": Dialog(),
             "running": mode == "running", "paused": mode == "paused", "restoreFailed": False,
@@ -952,3 +1103,101 @@ def test_advisor_explainer_names_each_disabled_control_and_logs_nothing(caplog):
     assert "Cancellation is already requested" in buttons["cancelButton"].toolTip
     assert fix.toolTip.endswith("Setup fixes wait until the running or paused search ends.")
     assert "skipped" not in caplog.text
+
+
+def test_replacement_home_only_offered_after_restored_rejected_batch():
+    widget = SetupWidget()
+    session = ScriptedSession(finished=True)
+    session.records = [{"home_rejected": True}]
+    session.phase = "done"
+    widget._advisorState["mode"] = "done"
+    widget._advisorState["session"] = session
+    widget._advisorShowSetup([])
+    issue = widget._advisorState["setupIssues"][0]
+    assert issue.fix_id == "propose_replacement_auto_home" and issue.blocks == "optional"
+    for finished, restore_failed, issues, latch in ((False, False, [], ""),
+            (True, True, [], ""), (True, False, ["mismatch"], ""), (True, False, [], "uncertain")):
+        session.finished = finished
+        session.restore_issues = issues
+        widget._advisorState["restoreFailed"] = restore_failed
+        widget._advisorRestoreLatch = lambda: latch
+        widget._advisorShowSetup([])
+        assert widget._advisorState["setupIssues"] == []
+
+
+def test_auto_home_refuses_pending_review_or_unconfirmed_restoration():
+    for refusal in ("review", "restore_failed", "restore_issues", "latch", "unfinished"):
+        session = ScriptedSession(finished=True)
+        widget = AdvisorHost(session, mode="done")
+        calls = []
+        widget._onStep6AutoTaskHome = lambda: calls.append("generate")
+        if refusal == "review":
+            widget._robotWorkflowFacade.manualTaskHomeReview = lambda: SimpleNamespace(details={"staged": True})
+        elif refusal == "restore_failed":
+            widget._advisorState["restoreFailed"] = True
+        elif refusal == "restore_issues":
+            session.restore_issues = ["mismatch"]
+        elif refusal == "latch":
+            widget._robotWorkflowFacade.advisorRestoreUnconfirmed = lambda: "uncertain"
+        else:
+            session.finished = False
+            session.phase = "restoring"
+        old_state = widget._advisorState
+        widget._advisorOnFix("propose_auto_home")
+        assert calls == [] and widget._advisorState is old_state, refusal
+
+
+def test_between_batch_home_proposal_links_finished_batch_without_resuming_it(tmp_path):
+    session = ScriptedSession(finished=True)
+    session.records = [{"home_rejected": True}, {"home_rejected": False}]
+    session.phase = "done"
+    widget = AdvisorHost(session, mode="done")
+    widget._advisorState["root"] = tmp_path
+    widget._configureRobotSimulationShellSubstep = lambda step: None
+    widget._onStep6AutoTaskHome = lambda: advisor_home_proposal.no_result_outcome()
+    widget._advisorOnFix("propose_replacement_auto_home")
+    record = json.loads(Path(widget._advisorHomeProposalSummary.artifact_path).read_text())
+    assert record["previous_batch"] == {"root": str(tmp_path), "outcome": "found",
+                                         "source_report": str(tmp_path / "advisor-ordered-report.md"),
+                                         "baseline": session.baseline, "saved_home_si": {},
+                                         "baseline_restored": True, "home_rejected_count": 1}
+    assert session.calls == [] and widget._advisorState is None
+
+
+def test_generated_home_requires_acceptance_and_task_reconfirmation_before_start():
+    for home_gap, task_issues, staged in (("not validated", [], False), ("", ["not confirmed"], False), ("", [], True)):
+        session = ScriptedSession()
+        widget = AdvisorHost(session)
+        widget._advisorGeneratedHomeReviewRequired = True
+        widget._parameterNode = object()
+        widget.logic = SimpleNamespace(confirmedTaskFreshnessIssues=lambda node: task_issues)
+        widget._robotWorkflowFacade.taskHomeValidationGap = lambda node: home_gap
+        widget._robotWorkflowFacade.manualTaskHomeReview = lambda: SimpleNamespace(details={"staged": staged})
+        widget._advisorOnStart()
+        assert session.calls == [] and widget._advisorGeneratedHomeReviewRequired
+        assert "Confirm Task" in widget._advisorState["statusLabel"].text
+
+
+def test_replacement_home_refuses_pending_gate_and_operator_review_block():
+    for field, value in (("_pending_gate", "opening"), ("_operator_review_block", True)):
+        session = ScriptedSession(finished=True)
+        session.phase = "done"
+        session.records = [{"home_rejected": True}]
+        setattr(session, field, value)
+        widget = AdvisorHost(session, mode="done")
+        calls = []
+        widget._onStep6AutoTaskHome = lambda: calls.append("generate")
+        old = widget._advisorState
+        widget._advisorOnFix("propose_replacement_auto_home")
+        assert widget._advisorState is old and calls == []
+
+
+def test_finish_exposes_replacement_home_before_refreshing_setup_rows():
+    session = ScriptedSession(finished=True)
+    session.phase = "done"
+    session.records = [{"home_rejected": True}]
+    widget = AdvisorHost(session, mode="running")
+    offered = []
+    widget._advisorShowSetup = lambda: offered.append(widget._advisorReplacementHomeAvailable())
+    widget._advisorFinish()
+    assert offered == [True] and widget._advisorState["mode"] == "done"

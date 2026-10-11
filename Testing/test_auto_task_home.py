@@ -9,7 +9,7 @@ import pytest
 
 PY = Path(__file__).resolve().parents[1] / 'DENTOWorkflow/Resources/Python'
 sys.path.insert(0, str(PY))
-from dentobot_workflow import auto_task_home as module
+from dentobot_workflow import auto_task_home as module, advisor_home_proposal
 from dentobot_workflow.auto_task_home import auto_task_home_geometry, pose_residual, propose_auto_task_home, incisor_biting_edge_midpoint
 
 
@@ -127,6 +127,10 @@ def test_proposal_calls_existing_ik_and_fk_and_returns_only_draft():
     assert result.details['draftOnly'] is True
     assert [c[0] for c in state.calls] == ['goal', 'ik', 'limits', 'fk']
     assert result.details['source']['gapLineNodeId'] == 'line'
+    assert result.details['taskHomeReviewIdentity'] == {'identity': 'current'}
+    assert result.details['trajectoryWorldRasMm'] == {'entry': (0., 0., 10.), 'target': (0., 0., 20.)}
+    state.identity = 'later'
+    assert result.details['taskHomeReviewIdentity'] == {'identity': 'current'}
     assert 'No motion' in result.message
 
 
@@ -178,7 +182,7 @@ def method(path, owner, name):
     tree = ast.parse(path.read_text())
     cls = next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name == owner)
     node = next(n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name == name)
-    scope = {}
+    scope = {"advisor_home_proposal": advisor_home_proposal}
     exec(compile(ast.Module(body=[node],type_ignores=[]), str(path),'exec'),scope)
     return scope[name]
 

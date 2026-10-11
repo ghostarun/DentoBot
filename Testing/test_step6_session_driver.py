@@ -10,6 +10,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import step6_session_driver as driver  # noqa: E402
 
 
+def test_bounded_session_stops_after_error_and_leaves_later_commands_unexecuted(tmp_path):
+    session = tmp_path / "session"
+    inbox = session / "inbox"
+    inbox.mkdir(parents=True)
+    (inbox / "001-failure.py").write_text("result='retained'; raise RuntimeError('first failure')")
+    later = inbox / "002-action.py"
+    later.write_text("raise AssertionError('must not execute')")
+    outcome = driver.run_session({}, session, lambda _s: None, stop_on_error=True)
+    assert outcome["reason"] == "command_error"
+    assert len(outcome["executed"]) == 1
+    assert later.is_file()
+    record = json.loads((session / "outbox/001-failure.json").read_text())
+    assert record["status"] == "error" and record["result"] == "retained"
+    assert "first failure" in record["traceback"]
+
+
 def _write(path: Path, text: str) -> None:
     path.write_text(text)
     stamp = time.time_ns() + 5_000_000_000
