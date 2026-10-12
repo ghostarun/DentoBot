@@ -1,5 +1,9 @@
 # DENTOBOT repository agent entrypoint
 
+Response style: read `/home/tarun/.codex/RESPONSE_STYLE.md` at session start,
+after compaction/handoff, or on **DENTO-STYLE-RESET**. Apply it to updates and
+final replies; preserve task context and approvals.
+
 For the active Ubuntu workspace, read and follow `Workspace/AGENTS.md` and use
 `Workspace/docs/AGENT_CONTEXT.md` as the compact routing entrypoint. The
 `Workspace/docs/` controlled files are authoritative for current Ubuntu/ROS 2
