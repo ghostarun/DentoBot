@@ -1,3 +1,7 @@
+## Sole active Ubuntu checkout — 12 October 2026
+
+Use `/home/tarun/dentobot/ros2_ws/src/DentoBot` on `main` for development and controlled docs; `dentobot use` selects and pins this clean published checkout. All other registered worktrees are legacy, preserved without deleting or importing dirty edits. [Inventory and routing](diagnostics/ACTIVE_CHECKOUT_2026-10-12.md) supersede older selected-handoff paths below. Existing installed runtime/native pins and original retained services are unchanged; no launch follows from source selection.
+
 # DENTOBOT Windows and Linux Workstation Setup
 
 ## 8 October — selected A/B handoff runtime

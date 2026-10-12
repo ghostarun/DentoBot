@@ -5,6 +5,8 @@ superseding decisions govern; dated evidence is not new execution authority.
 
 ## Context and task contracts
 
+- This host's sole active checkout is `/home/tarun/dentobot/ros2_ws/src/DentoBot` on `main`. All other registered worktrees are preserved legacy snapshots, superseding earlier checkout routing. Do not delete or import their dirty work without scoped direction.
+
 - Start with `docs/AGENT_CONTEXT.md` and the backlog-first gate below.
 - For narrow work, read today's logbook, the internal package routing map, and
   only the routed controlled/domain records needed for the task.
@@ -122,6 +124,8 @@ superseding decisions govern; dated evidence is not new execution authority.
   Do not repeat valid unchanged checks or expensive runs just to populate the index.
 
 ## Model selection and delegation
+
+- Latest task override (12 October 2026): Sol6.1/high coordinator, bounded Luna/medium auxiliaries, Astra/low adversary reviews. Astra/low supersedes the earlier Astra/high selection for S6-ADVISOR-GUI-01. Existing gates and distinct worker worktree/branch requirements remain; no enforced sandbox is inferred.
 
 - Tarun chooses the agent, model, effort and delegation policy per thread; no fixed
   vendor/model default or mandatory multi-model pipeline. Historical selections are

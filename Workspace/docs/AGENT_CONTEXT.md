@@ -1,3 +1,9 @@
+## Current checkout routing — 12 October 2026
+
+The sole active development checkout and controlled-document writer target is `/home/tarun/dentobot/ros2_ws/src/DentoBot` on `main`, following Tarun's explicit main-publication/consolidation direction. Every other registered worktree is preserved legacy; prior active repair/advisor/handoff routing is superseded. See [checkout inventory](diagnostics/ACTIVE_CHECKOUT_2026-10-12.md) and today's TASKS/DECISIONS/logbook for publication evidence. Do not delete/import legacy edits or switch runtime pins automatically.
+
+Latest review selection is **Astra/low**, replacing Astra/high for S6-ADVISOR-GUI-01; Sol6.1/high and bounded Luna/medium remain. Main source publication does not close full FDI34, broader runtime/operator or physical acceptance; backlog retains those gates.
+
 # DENTOBOT agent context
 
 ## Testing output storage — 6 October 2026 (`RUN-ARCHIVE-01`)
