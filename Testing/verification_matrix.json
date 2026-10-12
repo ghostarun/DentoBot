@@ -92,6 +92,13 @@
       "static.step6_pycompile",
       "pure.step6_branch_config",
       "runtime.step6_multi_jaw_stale"
+    ],
+    "project-progress-dashboard": [
+      "static.git_diff_check",
+      "pure.project_progress_dashboard",
+      "runtime.project_progress_dashboard",
+      "manual.project_progress_dashboard",
+      "manual.project_progress_item_explanation"
     ]
   },
   "checks": [
@@ -1281,6 +1288,67 @@
       "entrypoint": "Testing/step6_session_commands/advisor_consented_trials.py",
       "command_template": "NOT_RUNTIME_VERIFIED. Separate explicit continuation only after baseline manual verdict. Reuse open FOUND/restored dialog, advisor_consented_trials.py + step6_advisor_probe.py + external advisor_cancel_helper.py on the same monotonic clock/display. Explicitly name programmatic checkbox consent/More and failing600s in-process Cancel fallback; no human-consent inference. External helper outside Slicer in container requires actual xinput/xdotool availability/access and mapped run paths; no substitutions. Production Base/Home owners permit SAME-joints consented trial and original-state restoration; opening/barrier/Connect owners prohibited, sensitive modal untouched. Stop at result/manual verdict; no retries after unknown commit.",
       "pass_condition": "Actual Base/Home trial and restore owner evidence, unchanged finite saved joints1e-12, exact source/case/scene identity, no foreign drift, complete external send interval/receipt + actual handler/covering-step/restore/done timestamps and confirmed original-state restoration. Missing helper/hook/receipt, fallback, refusal, unknown outcome, blocked restore or unusable video fails requested measurement. Scripted consent proves code path only. Operator verdict/threshold acceptance separate."
+    },
+    {
+      "id": "pure.project_progress_dashboard",
+      "execution_kind": "host_unittest",
+      "parallel_safe": true,
+      "resources": [],
+      "depends_on": [],
+      "approval": "explain_then_approve",
+      "timeout_sec": 120,
+      "evidence_level": "host_pure",
+      "entrypoint": "Testing/test_project_progress_dashboard.py",
+      "command_template": "DENTOBOT_VERIFICATION_DIR=<run-dir>/fixtures PYTHONDONTWRITEBYTECODE=1 python3 Testing/test_project_progress_dashboard.py",
+      "pass_condition": "exit_code_zero; canonical table/range/alias/priority/source provenance, dynamic milestone/current selection and explicit acceptance state, live file-change projection, fresh-active versus stopped/stale/orphaned reports, current focus interval transitions, shared producer/consumer validation, activity schema, source safety and managed-unit boundaries pass; no project-feature/operator acceptance; chronological latest-main selection across completed/paused/running, supporting exclusion, precise source timestamps, bounded native session/lifecycle mapping and private payload rejection; mocked on-demand explanation allowlisted/bounded context, stale selection, stable semantic cache, one-job captured identity, fail-closed exact-model tool restrictions, timeout cleanup and safe errors; no real provider call"
+    },
+    {
+      "id": "runtime.project_progress_dashboard",
+      "execution_kind": "host_service_browser",
+      "parallel_safe": false,
+      "resources": [
+        "tcp:8766",
+        "user_service:dentobot-progress"
+      ],
+      "depends_on": [
+        "pure.project_progress_dashboard"
+      ],
+      "approval": "explain_then_approve",
+      "timeout_sec": 180,
+      "evidence_level": "local_web_integration",
+      "entrypoint": "Workspace/scripts/progress_dashboard/install.py",
+      "command_template": "python3 Workspace/scripts/progress_dashboard/install.py --overlay <overlay-root> --port 8766 --tailscale",
+      "pass_condition": "managed user service enabled/active on exact localhost/tailnet8766; index/snapshot/source and access-refusal checks pass; desktop/360px adaptive current/milestones/search/filter and expanded/focused record continuity over polls plus refresh/failure/staleness recovery checked; actual phone and operator verdict remain separate; current-work persists independently of active-now, actual mapped advisor chronology observed, recent progression and source-age labels correct; dark red/violet compact explanation controls and readable expanded panels; models GET metadata only; mocked loading/result/error/old-item UI if available; no valid production explanation POST/model invocation in this check"
+    },
+    {
+      "id": "manual.project_progress_dashboard",
+      "execution_kind": "manual",
+      "parallel_safe": false,
+      "resources": [],
+      "depends_on": [
+        "runtime.project_progress_dashboard"
+      ],
+      "approval": "operator_only",
+      "evidence_level": "operator",
+      "command_template": null,
+      "pass_condition": "Tarun reviews main-milestone/focus/supporting visibility and observes actual phone/T3 remote access; record exact verdict without inferring project-feature acceptance",
+      "timeout_sec": 0
+    },
+    {
+      "id": "manual.project_progress_item_explanation",
+      "execution_kind": "manual",
+      "parallel_safe": false,
+      "resources": [
+        "selected_model:local_codex_or_claude"
+      ],
+      "depends_on": [
+        "runtime.project_progress_dashboard"
+      ],
+      "approval": "operator_only",
+      "timeout_sec": 0,
+      "evidence_level": "operator_model_interpretation",
+      "command_template": null,
+      "pass_condition": "Operator explicitly clicks Explain this item with Luna Max or Haiku; verifies real response describes captured task/time/context and remains advisory, observes loading/error if provider unavailable; no project/robot/runtime acceptance inferred. Automated real model-call verification requires a separately proposed and approved bounded plan."
     }
   ]
 }

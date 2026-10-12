@@ -2267,3 +2267,84 @@ Pinned startup correction: `--use-installed-runtime` starts the already validate
 
 
 2026-10-11T14:50:21.094854+00:00 S6-ADVISOR-GUI-01 provenance setup clarification: per-SHA visiblecheckouts require fullcommitHEAD and twelve-character suffix (current /home/tarun/dentobot/ros2_ws/src/DentoBot-visible-0cc888bfb366). Derive actual admin with git rev-parse --absolute-git-dir before mapping to /workspace; do not guess admin from branch/worktree rename. Run-owned host fixture executes production provenance guards before resources and verifies actualcleanstatusdigest. Current frozen prep /home/tarun/dentobot/data/dentobot-runs/2026-10-11/S6-ADVISOR-GUI-01-BASE-STAGING-20261011T144128Z/PROPOSAL.md; no permanent container/environment mutation.
+
+## 10 October — local project progress dashboard (`PROGRESS-DASH-01`)
+
+Implementation location: `Workspace/scripts/progress_dashboard/`. This independent
+stdlib webpage reads the controlled development backlog, not Slicer/ROS/case state
+or engineer-owned trackers. Pending row counts are not percent complete. Focus
+receipts are explicit reports and expire after 15 minutes; there is no fabricated
+automatic heartbeat. This section initially documents the prepared installation;
+execution/results will be appended after the bounded plan approval.
+
+Prepared install (from the DentoBot checkout):
+
+```bash
+python3 Workspace/scripts/progress_dashboard/install.py --overlay /home/tarun/dentobot --port 8766 --tailscale --print-only
+python3 Workspace/scripts/progress_dashboard/install.py --overlay /home/tarun/dentobot --port 8766 --tailscale
+```
+
+Only `~/.config/systemd/user/dentobot-progress.service` is managed. Local URL:
+`http://127.0.0.1:8766/`. Tailnet URL on this station: `http://100.95.7.78:8766/`;
+phone must be connected to the same permitted Tailscale network and the workstation
+must be online. Existing Tailscale Serve443/8443 routes stay unchanged. User service
+starts with the user manager/login; no system linger or router/public exposure.
+`systemctl --user status|restart|stop dentobot-progress.service` controls this
+service only. T3 preview can target environment port8766; no extension modification.
+Actual phone/T3 Connect remote behavior requires its own observed access verdict.
+
+For each development task, use a unique safe session (e.g. thread ID), exact backlog
+ID, milestone (`imaging`, `planning`, `templates`, `simulation`, `reliability`,
+`case-platform`, `physical`, `platform`, `other`), and main/supporting role:
+
+```bash
+python3 Workspace/scripts/progress_dashboard/focus.py set --session THREAD_ID --task S6-LIVE-01 --milestone simulation --role main --objective 'Bounded authorized outcome' --acceptance 'Required evidence' --stop-condition 'Existing task gate'
+python3 Workspace/scripts/progress_dashboard/focus.py update --session THREAD_ID --objective 'Current bounded action' --status active
+python3 Workspace/scripts/progress_dashboard/focus.py finish --session THREAD_ID --status awaiting-review
+```
+
+Use update with `--status blocked` at a blocker; finish `--status completed` when
+execution stops with the task completed. Update at meaningful steps and at least
+every 10 minutes while actually working; never keep reports alive after an agent
+stops. JSON/JSONL operational receipts live outside Git under overlay
+`data/project-progress/sessions/`. They do not replace backlog/logbook evidence or
+accept project milestones. A session already exists: use update, preserving its
+original started_at. A missing helper must not block independently authorized work.
+
+Startup observed10October2026: dedicated service active/running/enabled; localhost and exact Tailscale IP HTTP routes passed host-side checks. Installation now performed, rather than merely prepared. Browser/physical-phone and remote T3 Connect behavior remain unverified after Luna account usage limit; overlay graph refresh also lacks a recorded result. Evidence: data/dentobot-runs/2026-10-10/PROGRESS-DASH-01-20261010T143947Z/VERIFICATION_RESULT.json.
+
+### Adaptive dashboard configuration (implemented; verification evidence below)
+
+The existing DEVELOPMENT_PLAN contains one marked schema1 display-metadata block. Change its current outcome/task selection and milestone IDs, outcomes, mapping and source-linked evidence as project scope changes. Exact IDs override longest matching prefixes; this mapping organizes display and never reorders backlog dependencies. Explicit acceptance stays unknown unless recorded evidence supports it; zero pending rows is not acceptance. The server projects current canonical records each request, so supported record changes need no service restart. Code changes require dedicated service reload/restart within approved scope.
+
+New reporting semantics distinguish fresh active work from blocked, awaiting-review, stale and orphaned reports. Session start remains overall wall time; current focus intervals reset on task/milestone/role/status transitions. Objective-only updates preserve the interval. Milestone options come from current display metadata; producer and consumer share task/alias/session grammar. The adaptive source is implemented. Updated 14-case regression passed against the frozen source identities in adaptation/source-manifest-final-corrections.json; the dedicated service was reloaded and host-side localhost/tailnet HTTP passed. Desktop and 360px browser layouts, search, alias resolution, combined milestone filter and task/checkpoint expansion passed. Source navigation/reset and refresh continuity/outage checks remain NOT_RUN after the T3 automation host became unavailable; service was untouched. The overlay graph refresh failed exit137 without a rebuild marker. Original eight-case evidence remains historical and does not verify the changed source. Evidence root: data/dentobot-runs/2026-10-10/PROGRESS-DASH-01-20261010T143947Z/adaptation/. Actual phone/T3 remote access and operator UX acceptance remain pending.
+
+### 11 October — visual-first dashboard presentation (implemented; operator verdict pending)
+
+Operator rejected the verbose page. Revised default is a compact Now/main action, supporting activity and visual dynamic milestone map; long records are on-demand in a closed inspector. Current selection and fresh execution remain distinct, unknown acceptance remains unknown, and no percentages are inferred from pending counts. Existing local/tailnet8766 service and data sources retained; no new dependencies, hosting or runtime controls. Verification under PROGRESS-DASH-01-VISUAL-20261010T190339Z after source freeze; original graph137 remains unresolved.
+
+VisualUI verified: unchanged8766service servesfinalSHA8cf637…b1aa6; desktop1280x800 compactoverview and360pxnooverflow, closedRecordsdefault, milestone/searchdrilldown, twopollsstatecontinuity andfetchrefusal/recoveryPASS. Hangingfetchtimeoutnotrun. RunPROGRESS-DASH-01-VISUAL-20261010T190339Z. OperatorUX/realphoneandpriorgraph137remainpending.
+
+
+### 11 October — chronological current work and automatic advisor source
+
+The overview now selects the newest main project work by its recorded event time, including running, paused, completed or unknown items. It persists when no agent is active. Active Now is separate, and PROGRESS-DASH-01 maintenance is explicitly supporting. Recent progression includes earlier actions from the same task. Full source provenance and records remain in the closed Records inspector; the page polls every ten seconds.
+
+Operational configuration is `/home/tarun/dentobot/data/project-progress/work-history-config.json`. It binds canonical development records, the explicitly related FDI34 advisor worktree records, and one identified native Codex session to S6-ADVISOR-GUI-01. The adapter reads a bounded assistant-event tail and read-only lifecycle metadata after validating exact session identity, working directory and approved paths. No raw rollout, user/system messages or tool payloads are served. New sessions need an explicit canonical task/source binding or a focus receipt; this is not unrestricted discovery of every T3 thread. Canonical record changes are labelled record updates, not execution evidence. Native schema changes or unavailable lifecycle data produce visible warnings/unknown state rather than invented activity.
+
+The known FDI34 Sol session updated automatically through completed → running → completed without any action in that thread. Source coverage is local native Codex plus configured records/receipts, not an established background T3 metadata connection. The existing localhost and Tailscale URLs, dedicated service and login lifetime remain as documented above. Physical phone and T3 Connect access still require an observed operator verdict. Source/test identities and host checks: `data/dentobot-runs/2026-10-11/PROGRESS-DASH-01-CHRONO-20261011T144118Z/`; 17 fixtures passed on attempt three, and both host HTTP addresses passed. Browser evidence is recorded separately in that run.
+
+
+Chronology browser check completed against final UI fcd0304…ab476: compact desktop, task drilldown/filter, readable 360px recent rows with zero overflow, and two ten-second polling observations preserving Records/filter/keyboard focus passed. A same-URL T3 preview navigation retained old document HTML; use an actual document reload or distinct supported `/index.html` route after UI file changes, then confirm loaded CSS. This affects browser document refresh, not automatic snapshot polling. Operator UX and real phone verdict remain pending.
+
+
+### 11 October — optional current-item explanation and dark theme
+
+Under Current Work, choose GPT-6 Luna Max (default) or Claude Haiku 5.5 and press **Explain this item**. This explicitly launches one restricted local model request; loading/result/error appears in a collapsible panel beneath the item. Results retain captured task/time/model and are marked previous when current work changes. The button becomes View explanation for an existing completed result. Ordinary ten-second dashboard polling does not launch or regenerate models. Explicit Refresh retries failed capability metadata without requesting a summary. Factual task/status/acceptance remains sourced from project records, not model output. The UI now uses dark surfaces with red/violet accents and separate progress/warning/error colours.
+
+Dependencies are the already installed `/home/tarun/.local/bin/codex` and `/home/tarun/.local/bin/claude`, their normal local authentication, and the required CLI restriction flags. The server probes help/features only for availability; executable capability is not proof of model/account access. Luna uses exact gpt-6-luna/max, isolated ephemeral read-only execution, user config ignored and tool/MCP/web search interfaces disabled. Haiku uses exact claude-haiku-5-5, empty tools and strict empty MCP with restricted/safe mode and no persisted session. Missing restriction support disables the option; provider/authentication failures produce a bounded error rather than a substitute model or fabricated interpretation. No API key is placed in browser/configuration or project records.
+
+The same service and localhost/tailnet8766 URLs serve the new API; only same-origin bounded JSON with a current canonical task ID/time/model is accepted. One explanation runs per service, has a bounded timeout/output, and reuses a semantic-context cache. Cache is in-memory and resets when the service restarts. New source UI requires an actual document reload; ten-second snapshots do not replace the HTML. Source and host/browser evidence: `data/dentobot-runs/2026-10-11/PROGRESS-DASH-01-EXPLAIN-20261011T153926Z/`. The approved checks mock model responses; real provider response and operator UX/phone verdict remain separate. The operator's button click initiates real feature use; automated model verification is excluded from the current host plan.
+
+
+Explanation/dark revision host/browserchecked:24mocktestsPASS, userunitactive/enabled, bothmodelmetadatachoicesavailable, localhost/tailnetHTTPPASS, desktop/360darkcontrols andmockedcompletion/error/olditem/pollcontinuityPASS. No real provider call was made. User can now use Explain this item; actual account/providerresponseandoperatorphoneverdictremainunverified. Use actual browser document reload for the new dark UI, not only the page's snapshot Refresh. Evidenceoriginal11OctEXPLAINrun.
