@@ -2022,3 +2022,9 @@ manualTaskHomeReview/acceptManualTaskHomeReview retain that ownership. Current
 review identity/candidate must match before applying a staged review. Uncertain
 submission uses the existing read-only native accepted-state reconciliation;
 no second ROS/kinematic implementation or hardware path is introduced.
+
+### 11 October — attributed advisor Home proposal owner
+advisor_home_proposal.py is a pure frozen-result/exclusive-JSON helper. Existing manual widget owns generation/staging; advisor GUI owns navigation, result/evidence display and between-restored-batch review action. advisor_service keeps its unchanged saved-joint trial/restoration contract. GUI-generated drafts require Home validation and Task reconfirmation before a fresh search; no proposal helper grants acceptance or invokes native actions. Source6c3c0da,194hostPASS; native pending.
+
+
+11Oct S6-ADVISOR-GUI-01: read-only review complete. Confirmed cached ordinary-heartbeat scene-readback ambiguity corrected with matched read-only state_query at474f1d8,125hostPASS; exact collision/identity/policy guards preserved, no remote objects removed. Native pending, prepared single combined fresh-readback/Home proposal /home/tarun/dentobot/data/dentobot-runs/2026-10-11/S6-ADVISOR-GUI-01-SCENE-READBACK-NATIVE-20261011T214310Z/PROPOSAL.md; no launch. Base nativeaccepted, autoHome native/fullFDI34 stillOPEN.
