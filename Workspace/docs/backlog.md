@@ -1,3 +1,5 @@
+**12 October handoff scope:** Fresh full FDI34 Step6 simulation testing is explicitly requested; successor Sol6.1/high owns implementation/runtime/docs, bounded Luna workers use max effort moving forward, Astra reviews use low. Existing task/gates remain; prior missing-Home and unintegrated-source history is superseded by native Home/Task PASS and published main. Full-route/repeat, advisor/search, persistence and combined GUI/frame acceptance stay open.
+
 **Current publication/routing supersession — 12 October 2026:** Tarun authorizes the clean integrated checkpoint's main publication and designates `/home/tarun/dentobot/ros2_ws/src/DentoBot` as sole active checkout. Other registered trees are preserved legacy ([inventory](diagnostics/ACTIVE_CHECKOUT_2026-10-12.md)); older checkout/publication-state summaries below are historical. Publication does not close pending feature/operator/physical gates or import dirty legacy work. Latest task review effort is Astra/low, replacing Astra/high.
 
 # DENTOBOT pending backlog

@@ -125,7 +125,7 @@ superseding decisions govern; dated evidence is not new execution authority.
 
 ## Model selection and delegation
 
-- Latest task override (12 October 2026): Sol6.1/high coordinator, bounded Luna/medium auxiliaries, Astra/low adversary reviews. Astra/low supersedes the earlier Astra/high selection for S6-ADVISOR-GUI-01. Existing gates and distinct worker worktree/branch requirements remain; no enforced sandbox is inferred.
+- Latest task override (12 October 2026): Sol6.1/high coordinator, bounded Luna/max auxiliaries, Astra/low adversary reviews. Astra/low supersedes the earlier Astra/high selection for S6-ADVISOR-GUI-01. Tarun subsequently sets Luna worker effort to max moving forward, superseding earlier medium selections. Existing gates and distinct worker worktree/branch requirements remain; no enforced sandbox is inferred.
 
 - Tarun chooses the agent, model, effort and delegation policy per thread; no fixed
   vendor/model default or mandatory multi-model pipeline. Historical selections are

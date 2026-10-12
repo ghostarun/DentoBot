@@ -413,3 +413,7 @@ Tarun's ongoing routine implementation/script-repair/same-owned-resource verific
 ## Astra effort supersession — operator supplied 12 October 2026
 
 Tarun: “Astra low should be enough for review, change in instructions.” For the active S6-ADVISOR-GUI-01 task, Astra/low replaces the earlier Astra/high adversary-review selection above. Sol6.1/high coordination and Luna/medium bounded auxiliaries, applicable review gates, guard/approval/identity boundaries and distinct implementation-worker branch/worktree remain. Catalog defaults are not effective effort evidence; native dispatch explicitly requests low. Read-only reviewer behavior is assigned without an enforced sandbox claim.
+
+## Luna worker effort supersession — operator supplied 12 October 2026
+
+Tarun: “Make luna effort max as subagent workers instruction moving forward.” Bounded GPT-6 Luna workers now use max effort, superseding earlier Luna/medium task selections. Sol6.1/high coordinator and Astra/low adversary review selection remain. Existing worker count/ownership, separate worktree AND branch per implementation worker, no recursion, guard/approval/runtime boundaries and effective-configuration/no-sandbox-claim requirements remain unchanged. Temporary worker trees are isolated implementation auxiliaries and become preserved legacy after integration; the standard primary checkout remains the sole long-term active development tree.
