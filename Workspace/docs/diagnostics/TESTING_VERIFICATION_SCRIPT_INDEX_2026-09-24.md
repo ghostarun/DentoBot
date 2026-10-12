@@ -211,3 +211,50 @@ to its existing script, exact command, case/revision, last result and owning
 task. Mark gaps `NOT VERIFIED`; do not add a parallel script or claim that
 matrix coverage equals full workflow coverage. Studio implementation remains
 on hold under the existing `S6-LIVE-05` and headless step gates.
+
+
+### 11 October — DCP-09 one-run observer prototype, not promoted
+
+Owner DCP-09..10, solo coordinator. Private prototype `/home/tarun/dentobot/data/dentobot-runs/2026-10-10/DCP-09-FINGERPRINT-PREP-20261010T211417Z/input/fingerprint_trace.py` with `check_fingerprint_trace.py`: observes production fingerprint inputs and Save As boundaries; no reconstructed geometry. Host command, dependencies, PASS results and first loader FAIL are in run-local REVIEW.md. No native resources for fixture; host preparation only by explicit 11 October operator scope. Outputs private host-evidence/; mechanism PASS requires single call-through/restoration/privacy/fail-closed. Runtime companion remains matrix `runtime.dentocase_offline_persistence`, separately gated; full regression `pure.dentocase_integration` is not replaced. This stopped case-specific prototype is not reusable/promoted or a new matrix execution entry. Exact loader seam remains unverified; do not launch or reuse as accepted workflow.
+
+
+11 October DCP-09 prototype update: authorized explicit-path loader correction PASS in isolated host exact-boot AST fixture `input/check_trace_loader.py`; updated invocation and output at `/home/tarun/dentobot/data/dentobot-runs/2026-10-10/DCP-09-FINGERPRINT-PREP-20261010T211417Z/PROPOSAL.md` and TASKS latest entry. Host static37 and observer mechanism PASS, native NOT_RUN. Prior stopped prototype evidence retained. This remains a case-specific run-owned diagnostic, not a promoted reusable workflow or replacement matrix entry.
+
+
+### 2026-10-11 DCP-09 selected docking recipe regression extension
+
+Existing `Testing/test_dentocase_projection.py` / `pure.dentocase_integration` now covers selected assembly recipe restoration, validation-before-write, clear-list preservation and binding order at source SHA 8e7e0b2662f94fe62536932089c87c051eff8ecf. Owner: DCP-09 coordinator; one Luna MAX test worker. Invocation/dependencies/resources/approval remain the existing matrix row (host pure, no native imports, explain-then-approve). Outputs: pytest logs under DCP-09-PARTIAL-PARAMETERS-20261011T011008Z/evidence; exit0 required. Limits: host mocks and extracted production normalizer do not establish native Qt/MRML or operator acceptance. No new runner/framework added.
+
+2026-10-11 DCP-09 existing Testing/test_case_bundle.py extended with actual AST helper orphan lifecycle regressions (saved/referenced/owned/custom nodes preserved, failed reads before mutation); same pure.dentocase_integration command/dependencies/approval/resources. Owner coordinator, Luna MAX tests. Evidence DCP-09-DISPLAY-LIFECYCLE-20261011T015219Z/evidence; host only, no native acceptance. Verified source0000b4e4cd4009d7687a410da1f913ca5de0ec75.
+
+
+2026-10-11 DCP-09 run-owned saved-child auditor correction in /home/tarun/dentobot/data/dentobot-runs/2026-10-11/DCP-09-COMBINED-REPAIR-20261011T080723Z/input/audit_saved_child.py. Owner coordinator; Luna MAX host fixture verification. Existing auditor composition retained; uncovered boundary is initial projection clears step6EnvironmentJson but accepted schema3 Save As regenerates it. Final audit now must validate production snapshot equality, unlocked Base/rev0/no Home and Case Foundation fingerprints. Invocation remains `PYTHONPATH=<pinned-source>/DENTOWorkflow/Resources/Python python3 <run>/input/audit_saved_child.py <source> <child> <plan> <report>`; host read-only, no native resources. Output HOST_CHILD_AUDIT_PASS only when all predicates pass; malformed/inherited-authority fixtures must reject. This case-specific diagnostic is not promoted as reusable automation and does not replace matrix runtime.dentocase_offline_persistence or operator verdict. Exact final hashes/results belong in run evidence.
+
+
+DCP-09 run-owned native_reopen_boot.py return-interface correction, root /home/tarun/dentobot/data/dentobot-runs/2026-10-11/DCP-09-REOPEN-COMPLETE-20261011T085704Z: production CaseBundleInspection manifest/workflow/path adapter + focused host fixture1positive7negative; narrow native fresh reopen technical PASS at0000b4e, strict global FAILED retained. Existing runtime.dentocase_offline_persistence route, no reusable promotion; exact commands/hashes in manifest and evidence/host-reopen-adapter-check.json.
+
+
+### 11 October — clean FDI34 advisor reuse, preparation only
+
+S6-ADVISOR-GUI-01 resumes with accepted child06e3218c…ff624c; [concrete contract](/home/tarun/dentobot/data/dentobot-runs/2026-10-11/S6-ADVISOR-GUI-01-CLEAN-PLAN-20261011T091706Z/UPDATED-TESTING-PLAN.md). Reuse runtime.step6_advisor_baseline_session and runtime.step6_advisor_consented_trial_cancel, headed runner/session driver/recorder/real-XTest helpers. No new runtime entry or automatic permission. Existing runner serves commands after Connect/scene ack and needs a bounded clean disconnected setup checkpoint before fresh Base/Home acceptance; no tested adapter yet. Historical FDI14 core evidence may be reused only with scoped drift/identity checks. H2 evidence-name uniqueness remains an explicit freeze gate. No tests/runtime run by this entry.
+
+
+11October setup checkpoint implementation: existing run_dentobot_step6_headed_review.py now supports DENTOBOT_HEADED_CLEAN_SETUP_ONLY=1, before Base actions/native preflight/Connect. Existing Testing/test_step6_headed_review_source.py adds12 focused host checks; no new runtime framework. Exact prepared composition and outcome at /home/tarun/dentobot/data/dentobot-runs/2026-10-11/S6-ADVISOR-GUI-01-SETUP-GITMAP-20261011T133709Z/PROPOSAL.md. Native GUI checkpoint NOT_REACHED after wrapper Git-map failure; corrected identity-only preflight PASS, no corrected runtime.
+
+
+S6-ADVISOR-GUI-01 update 2026-10-11 13:54 UTC: corrected disconnected setup captured at source34f5a7a, host170 PASS, cleanupPASS. Import succeeds; Base review rejects stale case_or_base_identity_changed, Base unlocked/Home absent. Advisor and FDI34 planning remain open, operator GUI verdict pending before production Base identity reconciliation. No planning or motion, opening<=46mm. Evidence /home/tarun/dentobot/data/dentobot-runs/2026-10-11/S6-ADVISOR-GUI-01-SETUP-CAPTURE-20261011T135256Z/evidence/outcome.json; full account in logbook/2026-10-11.md.
+
+
+2026-10-11T14:08:37.061944+00:00 S6-ADVISOR-GUI-01 Base identity observation: existing headed clean setup checkpoint now reads production manualBaseReview before Import and after Import, preserving stale candidate; facade read-only details name changed identity fields. Focused host17/14 PASS, evidence /home/tarun/dentobot/data/dentobot-runs/2026-10-11/S6-ADVISOR-GUI-01-BASE-AUTOHOME-20261011T140338Z; native not run. Existing matrix pure.step6_planning/pure.step6_advisor_session_host and runtime baseline/consented entries retained. No separate runtime framework or automatic permission. AutoHome metrics contract remains run-local.
+
+
+2026-10-11T14:15:19.447445+00:00 sourcecab6c74: clean-only Base observation now covers beforeLoad/afterLoad-beforeImport/afterImport-beforeBaseNavigation; identityChangedFields retains production stale failure. Advisor noHome setup fix calls existing _onStep6AutoTaskHome after releasing modal; no acceptance. Combined472PASS. Existing indexed harness frozen at /home/tarun/dentobot/data/dentobot-runs/2026-10-11/S6-ADVISOR-GUI-01-BASE-AUTOHOME-20261011T140338Z/PROPOSAL.md, manifestb212edf6b44ec77f2f1719893d9220f8df6797516bb3a9d6319e64f3a96f24e5, package/syntax/current read-only preflightPASS, nativeNOT_RUN pending exact approval; no new harness/matrix row or automatic execution.
+
+
+2026-10-11 approved cab6c74 disconnected discriminator stopped at headed per-SHA checkout-root provenance (7character suffix vs12 required) before case/robot/Import/Base. Exact command consumed; cleanupPASS. New preparation S6-ADVISOR-GUI-01-BASE-PATHFIX-20261011T142152Z uses correct12character visible path and host-only production _checkout_profile/_checkout_evidence fixture, to reject old metadata before display/Slicer. Production source/guards unchanged; source472PASS not repeated. No retry/acceptance yet. Prior video6.6s launch-only; extracted4s frameblack, not configuration/GUI proof.
+
+
+2026-10-11T14:30:56.672849+00:00 S6-ADVISOR-GUI-01 corrected host-only provenance fixture/wrapper: /home/tarun/dentobot/data/dentobot-runs/2026-10-11/S6-ADVISOR-GUI-01-BASE-PATHFIX-20261011T142152Z/input/provenance_preflight.py (production AST call-through, actual20source/runner hashes, positive+6negativePASS), run_setup.py --check (manifest/source guards then fixture, no runtime). Frozen proposal /home/tarun/dentobot/data/dentobot-runs/2026-10-11/S6-ADVISOR-GUI-01-BASE-PATHFIX-20261011T142152Z/PROPOSAL.md; --execute requires separate corrected-run decision after first-failure. No production provenance gate change.
+
+
+2026-10-11T14:50:21.094854+00:00 S6-ADVISOR-GUI-01 /home/tarun/dentobot/data/dentobot-runs/2026-10-11/S6-ADVISOR-GUI-01-BASE-STAGING-20261011T144128Z/input/native_result_gate.py: read-only disconnected resultgate, positive+8negativePASS. run_setup.py --check checks hashes/productionprovenance only; --execute gated newapproval. Final manifestd08137f3f74260ad2db208a873553904804deb9294cb604b7d5beb5d3e371159. Hostmanual/facade/headedsource375PASS. No acceptance bypass.
