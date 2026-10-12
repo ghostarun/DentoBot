@@ -1,5 +1,7 @@
 # FDI31 GUI planner P0 recovery contract
 
+**2026-10-08 session-specific visual-verdict supersession:** Tarun explicitly authorizes advisor thread `67480aab-c9c6-41c5-b9f6-0791cdc8f08f` to inspect active Remmina and provide evidence-based advisor-delegated visual verdicts/bounded continuation approvals for existing immediate P0 tasks in this session. See TASKS/DECISIONS "8 October — session-specific delegated visual verdicts" for the exact instruction and boundaries. References below to Tarun's personal verdict may be satisfied by an explicit, scoped advisor-delegated verdict in this session; label its observer correctly. No blanket acceptance, unseen-result approval, failed-attempt reset, scope/guard/geometry change, hardware action or new task follows. Exclusive P0 B runtime and simulation-only boundary remain.
+
 **2026-09-25 source restart and order:** Tarun authorized bounded source
 renovation in the [supplemental Step 6 plan](STEP6_RENOVATION_IMPLEMENTATION_PLAN_2026-09-25.md).
 The IK-only FDI11 diagnostic is source-implemented and checked without OMPL

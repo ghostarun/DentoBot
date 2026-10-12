@@ -1,0 +1,2368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#100c16">
+<title>DentoBot · Progress</title>
+<style>
+:root {
+  color-scheme: dark;
+  --page: #100c16;
+  --paper: #1b1524;
+  --surface: #241c31;
+  --surface-soft: #211a2b;
+  --surface-hover: #2c223b;
+  --ink: #f5effa;
+  --muted: #c9bed4;
+  --quiet: #afa1bc;
+  --line: #42354d;
+  --line-soft: #352a40;
+  --line-strong: #59466b;
+  --violet: #c6a6ff;
+  --violet-soft: #30233f;
+  --violet-hi: #d9c6ff;
+  --accent-red: #ff8b98;
+  --amber: #ffd18a;
+  --amber-soft: #392a19;
+  --red: #ff9aa5;
+  --red-soft: #3b202a;
+  --good: #89d9b7;
+  --good-soft: #1b382e;
+  --unknown: #b5aaba;
+  --navy: #eee4fa;
+  --teal: var(--violet);
+  --teal-soft: var(--violet-soft);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+html { min-width: 320px; scroll-behavior: smooth; }
+body { margin: 0; min-width: 320px; background: var(--page); color: var(--ink); font-size: 14px; }
+button, input, select { max-width: 100%; font: inherit; }
+a { color: var(--teal); text-underline-offset: 3px; }
+a:hover { color: var(--navy); }
+:focus-visible { outline: 3px solid var(--violet-hi); outline-offset: 3px; }
+[hidden] { display: none !important; }
+.shell { width: min(1240px, calc(100% - 40px)); margin: 0 auto; }
+.skip { position: fixed; z-index: 5; top: 8px; left: 8px; transform: translateY(-150%); padding: 9px 12px; border-radius: 7px; color: var(--page); background: var(--navy); }
+.skip:focus { transform: none; }
+.masthead { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.brand-mark { width: 27px; height: 27px; display: grid; place-items: center; flex: none; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--teal); background: var(--paper); }
+.brand-name { color: var(--navy); font-size: .76rem; font-weight: 800; letter-spacing: .1em; white-space: nowrap; }
+.brand-name span { margin-left: 5px; color: var(--muted); font-size: .67rem; font-weight: 650; letter-spacing: .06em; }
+.header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; min-width: 0; }
+.conn { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .68rem; font-weight: 700; white-space: nowrap; }
+.conn::before { width: 7px; height: 7px; border-radius: 50%; background: var(--unknown); content: ""; }
+.conn[data-state="ready"] { color: var(--teal); }
+.conn[data-state="ready"]::before { background: var(--good); }
+.conn[data-state="stale"], .conn[data-state="error"] { color: var(--red); }
+.conn[data-state="stale"]::before, .conn[data-state="error"]::before { background: var(--red); }
+.freshness { color: var(--quiet); font-size: .66rem; white-space: nowrap; }
+.refresh { min-height: 32px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--navy); background: var(--paper); cursor: pointer; font-size: .68rem; font-weight: 700; }
+.refresh:hover { border-color: var(--violet); }
+main { padding: 17px 0 32px; }
+.notice { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 8px 11px; border: 1px solid var(--amber); border-radius: 8px; color: var(--amber); background: var(--amber-soft); font-size: .72rem; line-height: 1.4; }
+.notice.error { border-color: var(--red); color: var(--red); background: var(--red-soft); }
+.now-grid { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(280px, .9fr); gap: 11px; align-items: stretch; }
+.main-card, .support-card { min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.main-card { min-height: 0; padding: 17px 18px 14px; border-left: 3px solid var(--violet); }
+.support-card { padding: 15px 16px 12px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.overline { margin: 0; color: var(--muted); font-size: .62rem; font-weight: 800; letter-spacing: .12em; }
+.pill { display: inline-flex; align-items: center; gap: 5px; min-height: 21px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--surface-soft); font-size: .58rem; font-weight: 760; line-height: 1.2; }
+.pill[data-tone="good"] { border-color: var(--good); color: var(--good); background: var(--good-soft); }
+.pill[data-tone="warn"] { border-color: var(--amber); color: var(--amber); background: var(--amber-soft); }
+.pill[data-tone="bad"] { border-color: var(--red); color: var(--red); background: var(--red-soft); }
+.record-id { margin: 14px 0 4px; color: var(--muted); font: 700 .72rem ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.record-id a { color: inherit; font: inherit; }
+.main-card h1 { max-width: 780px; margin: 0; color: var(--navy); font-size: clamp(1.15rem, 1.7vw, 1.42rem); font-weight: 680; line-height: 1.3; letter-spacing: -.018em; overflow-wrap: anywhere; }
+.main-title { margin: 4px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.4; }
+.main-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 15px; margin-top: 13px; color: var(--muted); font-size: .66rem; }
+.fact { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
+.fact-label { color: var(--quiet); font-size: .58rem; font-weight: 760; letter-spacing: .04em; text-transform: uppercase; }
+.main-facts a { font-weight: 700; }
+.explanation-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; }
+.explanation-actions label { color: var(--quiet); font-size: .58rem; font-weight: 760; }
+.explanation-actions select, .explanation-actions button { min-height: 30px; max-width: 100%; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--navy); background: var(--surface); font-size: .63rem; }
+.explanation-actions button { border-color: var(--violet); color: var(--violet-hi); background: var(--violet-soft); cursor: pointer; font-weight: 760; }
+.explanation-actions button:hover:not(:disabled) { border-color: var(--violet); background: var(--violet-soft); }
+.explanation-actions button:disabled, .explanation-actions select:disabled { color: var(--muted); background: var(--surface-soft); cursor: not-allowed; }
+.explanation-control-note { margin: 4px 0 0; color: var(--quiet); font-size: .57rem; line-height: 1.35; overflow-wrap: anywhere; }
+.explanation-panel { min-width: 0; margin-top: 7px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface-soft); }
+.explanation-panel > summary { min-height: 33px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; color: var(--navy); cursor: pointer; list-style: none; }
+.explanation-panel > summary::-webkit-details-marker { display: none; }
+.explanation-panel > summary::after { flex: none; color: var(--teal); content: "+"; font-size: .9rem; font-weight: 700; }
+.explanation-panel[open] > summary::after { content: "−"; }
+.explanation-heading { min-width: 0; font-size: .62rem; font-weight: 780; }
+.explanation-summary-label { min-width: 0; color: var(--quiet); font-size: .55rem; text-align: right; overflow-wrap: anywhere; }
+.explanation-body { min-width: 0; padding: 7px 9px 9px; border-top: 1px solid var(--line-soft); }
+.explanation-captured, .explanation-meta, .explanation-status, .explanation-error, .explanation-warning, .explanation-footnote { margin: 0; font-size: .58rem; line-height: 1.4; overflow-wrap: anywhere; }
+.explanation-captured { color: var(--muted); font-weight: 700; }
+.explanation-meta, .explanation-footnote { margin-top: 3px; color: var(--quiet); }
+.explanation-status { margin-top: 5px; color: var(--muted); font-weight: 700; }
+.explanation-warning { margin: 5px 0; color: var(--amber); }
+.explanation-error { margin-top: 5px; color: var(--red); }
+.explanation-summary { margin-top: 6px; color: var(--muted); font-size: .65rem; line-height: 1.48; white-space: pre-wrap; overflow-wrap: anywhere; }
+.explanation-history { display: grid; gap: 5px; margin-top: 6px; }
+.explanation-history-label { margin: 2px 0 0; color: var(--quiet); font-size: .55rem; font-weight: 780; letter-spacing: .06em; text-transform: uppercase; }
+.explanation-history-item { min-width: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.explanation-history-item > summary { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; color: var(--muted); cursor: pointer; list-style: none; font-size: .56rem; }
+.explanation-history-item > summary::-webkit-details-marker { display: none; }
+.explanation-history-item > summary span { min-width: 0; overflow-wrap: anywhere; }
+.explanation-history-item .explanation-body { padding: 6px 8px 8px; }
+.active-now { margin-top: 11px; padding-top: 9px; border-top: 1px solid var(--line-soft); }
+.active-now-head { display: flex; align-items: baseline; gap: 7px; color: var(--muted); font-size: .59rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.active-now-head span:last-child { color: var(--quiet); font-size: .56rem; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.active-now-list { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; }
+.active-now-item { min-width: 0; color: var(--good); font-size: .6rem; line-height: 1.3; overflow-wrap: anywhere; }
+.active-now-item strong { color: var(--navy); font: 700 .58rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.active-now-item time { color: var(--quiet); white-space: nowrap; }
+.active-now-empty { margin: 5px 0 0; color: var(--quiet); font-size: .62rem; }
+.support-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.support-head h2 { margin: 0; color: var(--muted); font-size: .62rem; font-weight: 800; letter-spacing: .12em; }
+.support-count { color: var(--quiet); font-size: .62rem; }
+.support-list { display: grid; gap: 5px; }
+.support-item { min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+.support-item-top { display: flex; align-items: baseline; justify-content: space-between; gap: 7px; }
+.support-item-top > a { min-width: 0; overflow-wrap: anywhere; }
+.support-id { color: var(--muted); font: 700 .64rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.support-item h3 { margin: 3px 0 0; color: var(--ink); font-size: .7rem; font-weight: 650; line-height: 1.25; overflow-wrap: anywhere; }
+.support-item-foot { display: flex; flex-wrap: wrap; gap: 3px 8px; margin-top: 4px; color: var(--muted); font-size: .57rem; }
+.support-item-foot a { font-weight: 700; }
+.support-more { margin: 8px 0 0; font-size: .65rem; }
+.recent-overview { margin-top: 12px; }
+.recent-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.recent-heading h2 { margin: 0; color: var(--navy); font-size: .75rem; font-weight: 760; }
+.recent-caption { color: var(--quiet); font-size: .59rem; text-align: right; }
+.recent-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.recent-item { min-width: 0; display: flex; align-items: center; gap: 5px 7px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+.recent-item[data-kind="main"] { border-left: 2px solid var(--violet); }
+.recent-item[data-kind="supporting"] { border-left: 2px solid var(--accent-red); }
+.recent-item-top { min-width: 0; max-width: 34%; display: flex; flex: 0 1 auto; align-items: baseline; justify-content: flex-start; gap: 4px; color: var(--quiet); font-size: .54rem; }
+.recent-item-top strong { color: var(--muted); font: 700 .54rem ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.recent-item-top a { color: var(--muted); font: 700 .54rem ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.recent-item h3 { min-width: 20px; flex: 1 1 auto; margin: 0; color: var(--ink); font-size: .61rem; font-weight: 640; line-height: 1.22; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-objective { margin: 3px 0 0; color: var(--muted); font-size: .57rem; line-height: 1.3; overflow-wrap: anywhere; }
+.recent-item-foot { min-width: 0; display: flex; flex: 0 1 auto; flex-wrap: nowrap; gap: 3px 6px; margin: 0; color: var(--muted); font-size: .53rem; white-space: nowrap; }
+.recent-item-foot span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.recent-more { margin: 5px 0 0; font-size: .59rem; }
+.quiet { color: var(--muted); }
+.scope-strip { display: flex; align-items: baseline; gap: 10px; min-width: 0; margin-top: 10px; padding: 9px 13px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); }
+.scope-label { color: var(--quiet); font-size: .58rem; font-weight: 800; letter-spacing: .1em; }
+.scope-selection { min-width: 0; color: var(--muted); font-size: .67rem; line-height: 1.35; overflow-wrap: anywhere; }
+.milestone-overview { margin-top: 16px; }
+.milestone-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.milestone-heading h2 { margin: 0; color: var(--navy); font-size: .9rem; font-weight: 760; }
+.milestone-caption { color: var(--quiet); font-size: .62rem; text-align: right; }
+.milestone-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.milestone-shell { min-width: 0; scroll-margin-top: 14px; }
+.milestone-tile { width: 100%; min-width: 0; min-height: 60px; display: flex; align-items: flex-start; gap: 7px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); text-align: left; background: var(--paper); cursor: pointer; }
+.milestone-tile:hover { border-color: var(--violet); background: var(--surface-hover); }
+.milestone-tile[data-acceptance="accepted"] { border-left: 3px solid var(--good); }
+.milestone-tile[data-acceptance="partial"] { border-left: 3px solid var(--amber); }
+.milestone-tile[data-acceptance="unknown"] { border-left: 3px solid var(--unknown); }
+.milestone-shell[data-current-work="true"] .milestone-tile { box-shadow: inset 0 0 0 1px var(--violet); background: var(--violet-soft); }
+.milestone-shell[data-last-good="true"] .milestone-tile { border-style: dashed; }
+.milestone-shell[data-scope="true"]:not([data-current-work="true"]) .milestone-tile { box-shadow: inset 0 0 0 1px var(--violet); background: var(--surface-soft); }
+.milestone-dot { width: 8px; height: 8px; flex: none; margin-top: 3px; border-radius: 50%; background: var(--unknown); }
+.milestone-tile[data-acceptance="accepted"] .milestone-dot { background: var(--good); }
+.milestone-tile[data-acceptance="partial"] .milestone-dot { background: var(--amber); }
+.milestone-tile[data-acceptance="unknown"] .milestone-dot { background: var(--unknown); }
+.milestone-content { min-width: 0; flex: 1; }
+.milestone-top { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
+.milestone-status { color: var(--muted); font-size: .55rem; font-weight: 780; white-space: nowrap; }
+.milestone-name { display: block; margin-top: 4px; color: var(--navy); font-size: .68rem; font-weight: 690; line-height: 1.2; overflow-wrap: anywhere; }
+.milestone-marker { display: inline-block; margin-top: 4px; color: var(--teal); font-size: .52rem; font-weight: 800; letter-spacing: .06em; }
+.milestone-shell[data-last-good="true"] .milestone-marker { color: var(--amber); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 13px; margin-top: 8px; color: var(--muted); font-size: .58rem; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 7px; height: 7px; display: inline-block; border-radius: 50%; background: var(--unknown); }
+.legend .accepted i { background: var(--good); }
+.legend .partial i { background: var(--amber); }
+.legend .active-key { width: 10px; height: 10px; border: 1px solid var(--violet); border-radius: 3px; background: var(--violet-soft); }
+.legend .scope-key { width: 10px; height: 10px; border: 1px solid var(--violet); border-radius: 3px; background: var(--surface-soft); }
+.records { min-width: 0; margin-top: 15px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.records > summary { min-height: 43px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; color: var(--navy); cursor: pointer; list-style: none; }
+.records > summary::-webkit-details-marker { display: none; }
+.records > summary::after { flex: none; color: var(--teal); content: "+"; font-size: 1.05rem; font-weight: 600; }
+.records[open] > summary::after { content: "−"; }
+.records-title { font-size: .72rem; font-weight: 780; }
+.records-hint { min-width: 0; color: var(--quiet); font-size: .62rem; text-align: right; }
+.inspector { min-width: 0; padding: 0 12px 12px; border-top: 1px solid var(--line-soft); }
+.tabbar { display: flex; min-width: 0; max-width: 100%; gap: 4px; overflow-x: auto; overscroll-behavior-x: contain; padding: 10px 0 8px; border-bottom: 1px solid var(--line-soft); }
+.tab { min-height: 30px; flex: none; padding: 0 9px; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; font-size: .64rem; font-weight: 720; }
+.tab[aria-selected="true"] { border-color: var(--violet); color: var(--violet-hi); background: var(--teal-soft); }
+.tab-panel { padding-top: 12px; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 5px 10px; margin: 0 0 10px; }
+.panel-head h2 { margin: 0; color: var(--navy); font-size: .86rem; font-weight: 760; }
+.panel-head p { margin: 0; color: var(--muted); font-size: .64rem; }
+.filters { display: grid; grid-template-columns: minmax(190px, 1.5fr) repeat(2, minmax(125px, .7fr)) auto; gap: 8px; align-items: end; margin: 0 0 10px; padding-bottom: 11px; border-bottom: 1px solid var(--line-soft); }
+.field { min-width: 0; }
+.field label { display: block; margin-bottom: 4px; color: var(--muted); font-size: .57rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.field input, .field select { width: 100%; min-height: 35px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--surface); font-size: .68rem; }
+.field input::placeholder { color: var(--quiet); }
+.clear { min-height: 35px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--navy); background: var(--surface); cursor: pointer; font-size: .65rem; font-weight: 700; }
+.results { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; margin-bottom: 8px; color: var(--muted); font-size: .62rem; }
+.task-list, .record-list { display: grid; gap: 7px; }
+.task-card, .record-card { min-width: 0; padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+.task-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.task-ident { min-width: 0; }
+.task-id { color: var(--muted); font: 700 .65rem ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.task-head h3 { margin: 4px 0 0; color: var(--navy); font-size: .78rem; font-weight: 680; line-height: 1.35; overflow-wrap: anywhere; }
+.task-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.tag { display: inline-flex; align-items: center; padding: 3px 6px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); background: var(--surface); font-size: .55rem; font-weight: 730; line-height: 1.25; overflow-wrap: anywhere; }
+.tag[data-priority="P0"] { border-color: var(--red); color: var(--red); background: var(--red-soft); }
+.tag[data-priority="P1"] { border-color: var(--amber); color: var(--amber); background: var(--amber-soft); }
+.task-facts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 9px; }
+.task-fact { min-width: 0; padding: 8px; border-radius: 6px; background: var(--surface-soft); }
+.task-fact.remaining { background: var(--amber-soft); }
+.task-fact b { color: var(--quiet); font-size: .55rem; letter-spacing: .06em; text-transform: uppercase; }
+.task-fact p { margin: 4px 0 0; color: var(--muted); font-size: .65rem; line-height: 1.4; overflow-wrap: anywhere; }
+.task-fact.remaining p { color: var(--amber); }
+.task-card details { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line-soft); }
+.task-card summary, .inline-details summary { color: var(--teal); cursor: pointer; font-size: .64rem; font-weight: 720; }
+.detail-copy { margin: 7px 0 0; color: var(--muted); font-size: .66rem; line-height: 1.48; overflow-wrap: anywhere; }
+.aliases { margin: 6px 0 0; color: var(--muted); font-size: .62rem; }
+.task-context { display: grid; gap: 8px; margin-top: 9px; padding: 9px; border-radius: 6px; background: var(--surface-soft); }
+.context-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; color: var(--muted); font-size: .58rem; font-weight: 730; }
+.context-entry p { margin: 4px 0 0; color: var(--muted); font-size: .64rem; line-height: 1.45; overflow-wrap: anywhere; }
+.sourcelink { display: inline-flex; margin-top: 7px; font-size: .62rem; font-weight: 720; }
+.empty { padding: 10px; border: 1px dashed var(--line-strong); border-radius: 7px; color: var(--muted); background: var(--surface-soft); font-size: .68rem; line-height: 1.4; }
+.empty.small { padding: 8px; border-style: solid; background: var(--surface-soft); }
+.record-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.record-head h3 { margin: 0; color: var(--navy); font-size: .75rem; line-height: 1.35; }
+.record-copy { margin: 6px 0 0; color: var(--muted); font-size: .66rem; line-height: 1.48; overflow-wrap: anywhere; }
+.record-meta { display: flex; flex-wrap: wrap; gap: 5px 10px; margin-top: 7px; color: var(--muted); font-size: .6rem; }
+.record-meta code { color: var(--quiet); font-size: .58rem; overflow-wrap: anywhere; }
+.split-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.focus-detail { padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+.focus-detail[data-kind="supporting"] { border-left: 3px solid var(--accent-red); }
+.focus-detail[data-kind="main"] { border-left: 3px solid var(--violet); }
+.focus-detail h3 { margin: 5px 0 0; color: var(--navy); font-size: .76rem; line-height: 1.38; overflow-wrap: anywhere; }
+.focus-detail .detail-copy { margin-top: 6px; }
+.focus-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.focus-meta .tag { font-size: .55rem; }
+.work-history-list { display: grid; gap: 6px; }
+.work-history-item { min-width: 0; padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+.work-history-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 5px 8px; }
+.work-history-head strong { color: var(--muted); font: 700 .61rem ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.work-history-head > a { min-width: 0; color: var(--muted); font: 700 .61rem ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.work-history-item h4 { margin: 4px 0 0; color: var(--navy); font-size: .68rem; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+.work-history-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 5px; color: var(--muted); font-size: .58rem; }
+.work-history-meta a { font-weight: 700; }
+.activity-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.activity-item { padding: 9px 10px; border-left: 2px solid var(--violet); border-radius: 0 7px 7px 0; background: var(--surface-soft); }
+.activity-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; color: var(--good); font-size: .62rem; font-weight: 760; }
+.activity-time { color: var(--quiet); font-weight: 550; }
+.activity-item p { margin: 5px 0 0; color: var(--muted); font-size: .66rem; line-height: 1.4; overflow-wrap: anywhere; }
+.milestone-detail { padding: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); scroll-margin-top: 14px; }
+.milestone-detail + .milestone-detail { margin-top: 7px; }
+.milestone-detail h3 { margin: 0; color: var(--navy); font-size: .78rem; }
+.milestone-detail p { margin: 6px 0 0; color: var(--muted); font-size: .66rem; line-height: 1.45; }
+.note-list, .warning-list, .source-list, .checkpoint-list { display: grid; gap: 7px; }
+.warning { padding: 8px 10px; border: 1px solid var(--amber); border-radius: 7px; color: var(--amber); background: var(--amber-soft); font-size: .65rem; line-height: 1.45; overflow-wrap: anywhere; }
+.source-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); }
+.source-file { color: var(--muted); font: 650 .63rem ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.source-when { display: block; margin-top: 3px; color: var(--quiet); font-size: .59rem; }
+.two-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.subsection + .subsection { margin-top: 15px; }
+.subsection h3 { margin: 0 0 8px; color: var(--navy); font-size: .76rem; }
+.runtime-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.runtime-item { min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-soft); }
+.runtime-item span { display: block; color: var(--quiet); font-size: .54rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.runtime-item strong, .runtime-item code { display: block; margin-top: 4px; color: var(--muted); font-size: .63rem; line-height: 1.35; overflow-wrap: anywhere; }
+.runtime-item code { font: 600 .6rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.footer { margin-top: 12px; color: var(--quiet); font-size: .57rem; }
+.reader-anchor { scroll-margin-top: 12px; }
+@media (max-width: 780px) {
+  .shell { width: min(100% - 28px, 640px); }
+  .now-grid { grid-template-columns: minmax(0, 1fr); }
+  .main-card { min-height: 0; }
+  .support-card { padding: 12px; }
+  .support-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .support-item h3 { font-size: .72rem; }
+  .recent-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filters { grid-template-columns: minmax(0, 1fr) minmax(115px, .7fr); }
+  .filters .search, .filters .clear { grid-column: 1 / -1; }
+  .filters .clear { justify-self: start; }
+}
+@media (max-width: 480px) {
+  .shell { width: calc(100% - 24px); }
+  .masthead { min-height: 54px; }
+  .brand-mark { width: 25px; height: 25px; }
+  .brand-name { font-size: .68rem; }
+  .brand-name span { font-size: .61rem; }
+  .header-actions { gap: 6px; }
+  .conn { font-size: .61rem; }
+  .freshness { display: none; }
+  .refresh { min-height: 29px; padding: 0 7px; font-size: .62rem; }
+  main { padding-top: 12px; }
+  .now-grid { gap: 8px; }
+  .main-card { padding: 13px 13px 12px; }
+  .main-card h1 { font-size: 1.12rem; line-height: 1.34; }
+  .record-id { margin-top: 10px; }
+  .main-facts { gap: 6px 10px; margin-top: 10px; }
+  .explanation-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 7px; }
+  .explanation-actions label { grid-column: 1 / -1; }
+  .explanation-actions select { min-width: 0; width: 100%; }
+  .explanation-actions button { min-width: 0; width: 100%; }
+  .explanation-panel > summary { align-items: flex-start; }
+  .support-card { padding: 11px; }
+  .support-list { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .support-item { padding: 8px; }
+  .support-item h3 { font-size: .72rem; }
+  .recent-list { grid-template-columns: minmax(0, 1fr); }
+  .recent-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 8px; padding: 6px 8px; }
+  .recent-item-top { grid-column: 1; grid-row: 1; max-width: 100%; }
+  .recent-item-top > span { display: none; }
+  .recent-item-top > a { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recent-item h3 { grid-column: 1 / -1; grid-row: 2; min-width: 0; font-size: .6rem; }
+  .recent-item-foot { grid-column: 2; grid-row: 1; justify-content: flex-end; font-size: .55rem; }
+  .scope-strip { gap: 8px; margin-top: 8px; padding: 8px 10px; }
+  .scope-label { flex: none; }
+  .scope-selection { font-size: .61rem; }
+  .milestone-overview { margin-top: 13px; }
+  .milestone-grid { gap: 5px; }
+  .milestone-tile { min-height: 57px; gap: 5px; padding: 7px 6px; }
+  .milestone-name { font-size: .6rem; line-height: 1.18; }
+  .milestone-status { font-size: .49rem; }
+  .milestone-marker { font-size: .46rem; }
+  .legend { gap: 5px 9px; font-size: .54rem; }
+  .records > summary { padding: 8px 10px; }
+  .records-hint { font-size: .56rem; }
+  .inspector { padding: 0 9px 10px; }
+  .tabbar { gap: 2px; }
+  .tab { padding: 0 7px; font-size: .59rem; }
+  .task-facts, .split-details, .two-column { grid-template-columns: minmax(0, 1fr); }
+  .task-head { display: block; }
+  .task-tags { justify-content: flex-start; margin-top: 6px; }
+  .results { display: block; }
+  .results span { display: block; margin-top: 4px; }
+  .runtime-grid { gap: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to current work</a>
+<div class="shell">
+<header class="masthead">
+  <div class="brand" aria-label="DentoBot project progress">
+    <div class="brand-mark" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M7.3 3.8c1.5 0 2.6.8 4.7.8s3.2-.8 4.7-.8c2 0 3.4 1.8 3.4 4.3 0 3.4-1.8 9.8-4 12.2-.6.7-1.4.5-1.7-.3L12.8 14h-1.6l-1.6 6c-.3.8-1.1 1-1.7.3C5.7 17.9 3.9 11.5 3.9 8.1c0-2.5 1.4-4.3 3.4-4.3Z" stroke="currentColor" stroke-width="1.6"/><path d="M12 1.8v5.4M9.3 4.5h5.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    </div>
+    <div class="brand-name">DENTOBOT<span>PROGRESS</span></div>
+  </div>
+  <div class="header-actions">
+    <span id="conn" class="conn" data-state="loading" role="status" aria-live="polite">Loading</span>
+    <span id="freshness" class="freshness">Waiting for snapshot</span>
+    <button id="refresh" class="refresh" type="button" aria-label="Refresh project snapshot">Refresh</button>
+  </div>
+</header>
+<main id="main">
+  <div id="stale" class="notice" role="alert" hidden><strong>Last good snapshot.</strong><span id="stale-copy">Reconnecting.</span></div>
+  <div id="error" class="notice error" role="alert" hidden><strong>Snapshot unavailable.</strong><span id="error-copy">The page will retry automatically.</span></div>
+
+  <section class="now-grid" aria-label="Current project work">
+    <article class="main-card" aria-labelledby="main-objective">
+      <div class="card-head"><p class="overline">CURRENT WORK</p><span id="main-status" class="pill">Waiting</span></div>
+      <p id="main-id" class="record-id">—</p>
+      <h1 id="main-objective">Waiting for project snapshot</h1>
+      <p id="main-title" class="main-title"></p>
+      <div id="main-facts" class="main-facts"></div>
+      <div id="explanation-actions" class="explanation-actions" hidden>
+        <label for="explanation-model">Explain with</label>
+        <select id="explanation-model" aria-label="Choose explanation model" disabled>
+          <option value="">Checking available models…</option>
+        </select>
+        <button id="explain-item" type="button" aria-controls="explanation-panel" data-reader-focus="explain-item" disabled>Explain this item</button>
+      </div>
+      <p id="explanation-control-note" class="explanation-control-note" role="status" aria-live="polite" hidden></p>
+      <details id="explanation-panel" class="explanation-panel" data-reader-details="explanation-panel" hidden>
+        <summary>
+          <span id="explanation-heading" class="explanation-heading">Item explanation</span>
+          <span id="explanation-summary-label" class="explanation-summary-label"></span>
+        </summary>
+        <div class="explanation-body">
+          <p id="explanation-warning" class="explanation-warning" role="note" hidden></p>
+          <p id="explanation-captured" class="explanation-captured"></p>
+          <p id="explanation-meta" class="explanation-meta"></p>
+          <p id="explanation-status" class="explanation-status" role="status" aria-live="polite"></p>
+          <p id="explanation-error" class="explanation-error" role="alert" hidden></p>
+          <div id="explanation-summary" class="explanation-summary" hidden></div>
+          <p class="explanation-footnote">Interpretation of recorded context only; it does not set task status or acceptance.</p>
+        </div>
+      </details>
+      <div id="explanation-history" class="explanation-history" hidden></div>
+      <div class="active-now" aria-label="Active now">
+        <div class="active-now-head"><span>ACTIVE NOW</span><span id="active-now-caption">Fresh agent activity</span></div>
+        <div id="active-now-list" class="active-now-list"><p class="active-now-empty">Waiting for fresh agent activity.</p></div>
+      </div>
+      <p id="main-more" class="support-more" hidden></p>
+    </article>
+    <aside class="support-card" aria-labelledby="support-title">
+      <div class="support-head"><h2 id="support-title">SUPPORTING WORK</h2><span id="support-count" class="support-count">—</span></div>
+      <div id="support-list" class="support-list"><div class="empty small">Waiting for work history.</div></div>
+      <p id="support-more" class="support-more" hidden></p>
+    </aside>
+  </section>
+
+  <section class="recent-overview" aria-labelledby="recent-title">
+    <div class="recent-heading"><h2 id="recent-title">Recent progression</h2><span id="recent-caption" class="recent-caption">Newest first</span></div>
+    <ol id="recent-list" class="recent-list"><li class="empty small">Waiting for work history.</li></ol>
+    <p id="recent-more" class="recent-more" hidden></p>
+  </section>
+
+  <section class="scope-strip" aria-label="Metadata-selected task">
+    <span class="scope-label">SELECTED</span>
+    <span id="scope-selection" class="scope-selection">Not reported</span>
+  </section>
+
+  <section class="milestone-overview" aria-labelledby="milestone-overview-title">
+    <div class="milestone-heading"><h2 id="milestone-overview-title">Milestones</h2><span id="milestone-caption" class="milestone-caption">Waiting for roadmap</span></div>
+    <div id="milestone-map" class="milestone-grid"><div class="empty small">Waiting for milestone records.</div></div>
+    <div class="legend" aria-label="Milestone status legend">
+      <span class="accepted"><i></i>Accepted</span>
+      <span class="partial"><i></i>Partial</span>
+      <span><i></i>Unknown</span>
+      <span><i class="active-key"></i>Latest main work</span>
+      <span><i class="scope-key"></i>Selected scope</span>
+    </div>
+  </section>
+
+  <details id="records-inspector" class="records" data-reader-details="records-inspector">
+    <summary><span class="records-title">Records inspector</span><span id="records-hint" class="records-hint">Full tasks, history, evidence and diagnostics</span></summary>
+    <div class="inspector">
+      <div class="tabbar" role="tablist" aria-label="Project records">
+        <button class="tab" id="tab-tasks" type="button" role="tab" aria-controls="panel-tasks" aria-selected="true" tabindex="0" data-tab="tasks">Tasks</button>
+        <button class="tab" id="tab-focus" type="button" role="tab" aria-controls="panel-focus" aria-selected="false" tabindex="-1" data-tab="focus">Focus &amp; activity</button>
+        <button class="tab" id="tab-milestones" type="button" role="tab" aria-controls="panel-milestones" aria-selected="false" tabindex="-1" data-tab="milestones">Milestones</button>
+        <button class="tab" id="tab-context" type="button" role="tab" aria-controls="panel-context" aria-selected="false" tabindex="-1" data-tab="context">Scope &amp; notes</button>
+        <button class="tab" id="tab-diagnostics" type="button" role="tab" aria-controls="panel-diagnostics" aria-selected="false" tabindex="-1" data-tab="diagnostics">Sources &amp; diagnostics</button>
+      </div>
+
+      <section id="panel-tasks" class="tab-panel" role="tabpanel" aria-labelledby="tab-tasks" data-panel="tasks">
+        <div class="panel-head"><h2>Canonical backlog</h2><p id="task-panel-note">Pending records and their remaining acceptance.</p></div>
+        <div class="filters" role="search" aria-label="Filter backlog tasks">
+          <div class="field search"><label for="search">Search task, alias, outcome or boundary</label><input id="search" type="search" placeholder="Try S6 or A-015" autocomplete="off"></div>
+          <div class="field"><label for="milestone-filter">Milestone</label><select id="milestone-filter"><option value="">All milestones</option></select></div>
+          <div class="field"><label for="priority-filter">Priority</label><select id="priority-filter"><option value="">All priorities</option></select></div>
+          <button id="clear" class="clear" type="button">Clear</button>
+        </div>
+        <div class="results"><span id="result-count">Waiting for task records.</span><span>Source and runtime acceptance remain separate.</span></div>
+        <div id="tasks" class="task-list"><div class="empty">Waiting for backlog rows.</div></div>
+      </section>
+
+      <section id="panel-focus" class="tab-panel" role="tabpanel" aria-labelledby="tab-focus" data-panel="focus" hidden>
+        <div class="panel-head"><h2>Focus reports and activity</h2><p id="focus-panel-note">Fresh reports are separate from retained history.</p></div>
+        <div class="subsection"><h3 id="work-history-title">Project work history</h3><div id="work-history" class="work-history-list"></div></div>
+        <div class="subsection"><h3 id="current-reports-title">Fresh agent activity</h3><div id="focus-current" class="split-details"></div></div>
+        <div class="subsection"><h3 id="history-title">Retained reports</h3><div id="focus-history" class="split-details"></div></div>
+        <div class="subsection"><h3>Recent activity</h3><div id="activity"></div></div>
+      </section>
+
+      <section id="panel-milestones" class="tab-panel" role="tabpanel" aria-labelledby="tab-milestones" data-panel="milestones" hidden>
+        <div class="panel-head"><h2>Milestone records</h2><p>Acceptance state comes from explicit metadata; open-row counts are not completion.</p></div>
+        <div id="milestone-details"></div>
+        <div id="checkpoints" class="subsection"></div>
+      </section>
+
+      <section id="panel-context" class="tab-panel" role="tabpanel" aria-labelledby="tab-context" data-panel="context" hidden>
+        <div class="panel-head"><h2>Selected scope and recorded notes</h2><p>Metadata selection does not indicate execution.</p></div>
+        <div id="scope-details" class="record-list"></div>
+        <div class="two-column subsection">
+          <section><h3>Operator notes</h3><div id="notes" class="note-list"></div></section>
+          <section><h3>Recorded sequence and checkpoints</h3><div id="sequence"></div></section>
+        </div>
+      </section>
+
+      <section id="panel-diagnostics" class="tab-panel" role="tabpanel" aria-labelledby="tab-diagnostics" data-panel="diagnostics" hidden>
+        <div class="panel-head"><h2>Sources and diagnostics</h2><p>Read-only snapshot metadata.</p></div>
+        <div class="two-column">
+          <section><div class="subsection"><h3>Warnings</h3><div id="warnings" class="warning-list"></div></div></section>
+          <section><div class="subsection"><h3>Source records</h3><div id="sources" class="source-list"></div></div></section>
+        </div>
+        <div class="subsection"><h3>Work-history sources</h3><div id="work-history-sources" class="warning-list"></div></div>
+        <div class="subsection"><h3>Snapshot and repository</h3><div class="runtime-grid">
+          <div class="runtime-item"><span>Generated</span><strong id="generated">Not reported</strong></div>
+          <div class="runtime-item"><span>Source records updated</span><strong id="source-updated">Not reported</strong></div>
+          <div class="runtime-item"><span>Last received here</span><strong id="received">Not received</strong></div>
+          <div class="runtime-item"><span>Refresh cadence</span><strong>Every 10 seconds</strong></div>
+          <div class="runtime-item"><span>Branch</span><strong id="branch">Not reported</strong></div>
+          <div class="runtime-item"><span>Revision</span><code id="sha">Not reported</code></div>
+          <div class="runtime-item"><span>Working tree</span><strong id="dirty">Not reported</strong></div>
+          <div class="runtime-item"><span>Interface</span><strong>Read-only · no execution controls</strong></div>
+        </div></div>
+      </section>
+    </div>
+  </details>
+  <footer class="footer">Latest main work comes from project records · Active Now shows fresh agent activity</footer>
+</main>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  const FIXED_SOURCES = new Set(["backlog.md", "TASKS.md", "DEVELOPMENT_PLAN.md", "DECISIONS.md", "PROJECT_CONTEXT.md"]);
+  const TAB_IDS = ["tasks", "focus", "milestones", "context", "diagnostics"];
+  const state = {
+    data: null,
+    received: null,
+    stale: false,
+    busy: false,
+    currentPresent: false,
+    tasksPresent: false,
+    milestonesPresent: false,
+    focusPresent: false,
+    filter: {query:"", milestone:"", priority:""},
+    recordsTab: "tasks",
+    explanation: {
+      models: null,
+      modelsLoaded: false,
+      modelsLoading: false,
+      modelsError: "",
+      selectedModel: "luna-max",
+      record: null,
+      history: [],
+      nextHistoryId: 1
+    }
+  };
+  let allowedLogbooks = new Set();
+
+  function asList(value) {
+    return Array.isArray(value) ? value : [];
+  }
+
+  function show(value, fallback) {
+    if (fallback === undefined) fallback = "Not reported";
+    if (value === null || value === undefined || value === "") return fallback;
+    if (typeof value !== "object") return String(value);
+    try { return JSON.stringify(value); } catch (_error) { return fallback; }
+  }
+
+  function node(tag, className, value) {
+    const item = document.createElement(tag);
+    if (className) item.className = className;
+    if (value !== undefined) item.textContent = String(value);
+    return item;
+  }
+
+  function clear(item) {
+    item.replaceChildren();
+  }
+
+  function compact(value, limit) {
+    const raw = show(value, "").replace(/\s+/g, " ").trim();
+    if (!limit || raw.length <= limit) return raw || "Not reported";
+    return raw.slice(0, limit).trimEnd() + "…";
+  }
+
+  function summaryText(value, limit) {
+    const raw = show(value, "")
+      .replace(/\r\n?/g, "\n")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+      .replace(/^\s{0,3}>\s?/gm, "")
+      .replace(/^\s{0,3}(?:[-*+]\s+|\d+[.)]\s+)/gm, "")
+      .replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1")
+      .replace(/_{1,2}([^_]+)_{1,2}/g, "$1")
+      .replace(/~~([^~]+)~~/g, "$1")
+      .replace(/`{1,3}/g, "")
+      .replace(/\s+/g, " ").trim();
+    return compact(raw, limit);
+  }
+
+  function markAnchor(item, key) {
+    if (key) item.dataset.readerAnchor = key;
+    return item;
+  }
+
+  function focusKey(item, key) {
+    if (key) item.dataset.readerFocus = key;
+    return item;
+  }
+
+  function captureReaderState() {
+    const openDetails = new Set(Array.from(document.querySelectorAll("details[data-reader-details]"))
+      .filter(item => item.open).map(item => item.dataset.readerDetails));
+    const active = document.activeElement;
+    const focus = active && active.id ? {id:active.id} :
+      active && active.dataset && active.dataset.readerFocus ? {key:active.dataset.readerFocus} : null;
+    const visible = Array.from(document.querySelectorAll("[data-reader-anchor]"))
+      .map(item => ({item:item, rect:item.getBoundingClientRect()}))
+      .filter(entry => entry.rect.bottom > 0 && entry.rect.top < window.innerHeight)
+      .sort((a, b) => a.rect.top - b.rect.top);
+    return {
+      openDetails: openDetails,
+      focus: focus,
+      anchor: visible.length ? {key:visible[0].item.dataset.readerAnchor, top:visible[0].rect.top} : null
+    };
+  }
+
+  function findByDataKey(attribute, key) {
+    if (!key) return null;
+    const property = attribute.replace(/^data-/, "").replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase());
+    return Array.from(document.querySelectorAll("[" + attribute + "]"))
+      .find(item => item.dataset[property] === key) || null;
+  }
+
+  function restoreReaderState(saved) {
+    if (!saved) return;
+    for (const item of document.querySelectorAll("details[data-reader-details]")) {
+      item.open = saved.openDetails.has(item.dataset.readerDetails);
+    }
+    if (saved.anchor) {
+      const anchor = findByDataKey("data-reader-anchor", saved.anchor.key);
+      if (anchor) {
+        const delta = anchor.getBoundingClientRect().top - saved.anchor.top;
+        if (Math.abs(delta) > 1) window.scrollBy(0, delta);
+      }
+    }
+    if (saved.focus) {
+      const target = saved.focus.id ? $(saved.focus.id) : findByDataKey("data-reader-focus", saved.focus.key);
+      if (target && !target.disabled) target.focus({preventScroll:true});
+    }
+  }
+
+  function empty(host, message, small) {
+    const item = node("div", small ? "empty small" : "empty", message);
+    markAnchor(item, "empty:" + (host.id || host.className || "region"));
+    host.append(item);
+  }
+
+  function parseDate(value) {
+    if (value === null || value === undefined || value === "") return null;
+    let result;
+    if (typeof value === "number" || /^\d{10,13}$/.test(String(value))) {
+      const numeric = Number(value);
+      result = new Date(numeric < 1e11 ? numeric * 1000 : numeric);
+    } else {
+      result = new Date(value);
+    }
+    return Number.isNaN(result.getTime()) ? null : result;
+  }
+
+  function dateText(value) {
+    const result = parseDate(value);
+    if (!result) return show(value);
+    return new Intl.DateTimeFormat(undefined, {year:"numeric", month:"short", day:"numeric", hour:"numeric", minute:"2-digit"}).format(result);
+  }
+
+  function workId(item) {
+    return show(item && item.task_id, show(item && item.id, "Task ID not reported"));
+  }
+
+  function workIdentity(item) {
+    return JSON.stringify([
+      workId(item), show(item && item.event_id, show(item && item.record_id, "")),
+      show(item && item.occurred_at, ""), show(item && item.observed_at, ""),
+      show(item && item.kind, ""), show(item && item.status, ""),
+      show(item && item.title, ""), show(item && item.objective, "")
+    ]);
+  }
+
+  function workKind(item) {
+    const kind = show(item && item.kind, "").trim().toLowerCase();
+    return kind === "main" || kind === "supporting" ? kind : "unclassified";
+  }
+
+  function workStatus(item) {
+    const raw = show(item && item.status, "unknown").trim().toLowerCase().replace(/[_\s]+/g, "-");
+    const labels = {
+      running:"Running when observed",
+      active:"Active when observed",
+      paused:"Paused",
+      blocked:"Blocked",
+      completed:"Completed",
+      "awaiting-review":"Awaiting review",
+      unknown:"Unknown",
+      "record-updated":"Record updated"
+    };
+    return labels[raw] || (raw ? raw.replaceAll("-", " ") : "Unknown");
+  }
+
+  function workStatusTone(item) {
+    const raw = show(item && item.status, "").trim().toLowerCase().replace(/[_\s]+/g, "-");
+    if (raw === "completed") return "good";
+    if (raw === "blocked") return "bad";
+    if (["paused", "awaiting-review", "unknown"].includes(raw)) return "warn";
+    return "";
+  }
+
+  function workTime(item) {
+    const basis = show(item && item.timestamp_basis, "").trim().toLowerCase().replace(/[_\s]+/g, "-");
+    const fileTime = /(?:source.*file|file.*(?:time|mtime)|record.*updated)/.test(basis);
+    const activityTime = /(?:agent.*activity|activity)/.test(basis);
+    const observedTime = /observ/.test(basis);
+    const value = fileTime || activityTime ? (item.occurred_at || item.observed_at) :
+      observedTime ? (item.observed_at || item.occurred_at) : (item.occurred_at || item.observed_at);
+    let label = fileTime ? "Record updated" : activityTime ? "Agent activity" : observedTime ? "Observed" :
+      basis ? "Timestamp · " + show(item.timestamp_basis) : item.occurred_at ? "Occurred" : "Observed";
+    if (!value) label = basis ? "Timestamp · " + show(item.timestamp_basis) : "Timestamp";
+    return {label:label, value:value || null, observed_at:item.observed_at || null, basis:item.timestamp_basis || null};
+  }
+
+  function workTimeText(item, includeObserved) {
+    const time = workTime(item);
+    const parts = [];
+    if (time.value) {
+      const parsed = parseDate(time.value);
+      parts.push(dateText(time.value));
+      if (parsed) parts.push(relativeSince(parsed));
+    } else parts.push("Not reported");
+    if (includeObserved && time.observed_at && String(time.observed_at) !== String(time.value)) {
+      parts.push("Observed " + dateText(time.observed_at));
+    }
+    return parts.join(" · ");
+  }
+
+  function shortWorkTime(item) {
+    const time = workTime(item);
+    const parsed = parseDate(time.value);
+    const basis = show(item && item.timestamp_basis, "").trim().toLowerCase().replace(/[_\s]+/g, "-");
+    const label = /(?:source.*file|file.*(?:time|mtime)|record.*updated)/.test(basis) ? "Updated" :
+      /(?:agent.*activity|activity)/.test(basis) ? "Activity" :
+      /observ/.test(basis) ? "Observed" :
+      /occur/.test(basis) ? "Recorded" : "Time";
+    if (parsed) {
+      const clock = new Intl.DateTimeFormat(undefined, {hour:"2-digit", minute:"2-digit", hourCycle:"h23"}).format(parsed);
+      return label + " " + clock + " · " + relativeSince(parsed);
+    }
+    return time.value ? label + " · " + summaryText(time.value, 28) : label + " · not reported";
+  }
+
+  function explanationIdentity(item) {
+    if (!item || typeof item !== "object") return null;
+    const taskId = typeof item.task_id === "string" ? item.task_id.trim() : "";
+    const occurredAt = typeof item.occurred_at === "string" ? item.occurred_at.trim() : "";
+    const parsed = parseDate(occurredAt);
+    if (!taskId || taskId.length > 180 || !parsed || occurredAt.length > 80) return null;
+    return {
+      taskId: taskId,
+      occurredAt: occurredAt,
+      normalizedTime: parsed.toISOString(),
+      key: taskId + "\u0000" + parsed.toISOString()
+    };
+  }
+
+  function explanationIdentityMatches(left, right) {
+    return Boolean(left && right && left.taskId === right.taskId && left.normalizedTime === right.normalizedTime);
+  }
+
+  function explanationModel(id) {
+    const models = state.explanation.models;
+    return Array.isArray(models) ? models.find(model => model.id === id) || null : null;
+  }
+
+  function explanationIsPending(record) {
+    return Boolean(record && ["requesting", "queued", "running"].includes(record.status));
+  }
+
+  function explanationResponseMatches(record, payload) {
+    if (!record || !payload || typeof payload !== "object") return false;
+    const taskId = typeof payload.task_id === "string" ? payload.task_id.trim() : "";
+    const occurredAt = typeof payload.occurred_at === "string" ? payload.occurred_at.trim() : "";
+    const parsed = parseDate(occurredAt);
+    return taskId === record.identity.taskId && Boolean(parsed) && parsed.toISOString() === record.identity.normalizedTime && payload.model === record.model;
+  }
+
+  function explanationDisplayText(value) {
+    const raw = typeof value === "string" ? value.trim() : "";
+    const bounded = raw.slice(0, 20000);
+    const words = Array.from(bounded.matchAll(/\S+/g));
+    if (words.length <= 350) return {text:bounded, truncated:raw.length > bounded.length};
+    const last = words[349];
+    return {text:bounded.slice(0, last.index + last[0].length).trimEnd(), truncated:true};
+  }
+
+  function explanationStatusText(record) {
+    if (record.status === "requesting") return "Sending an explanation request…";
+    if (record.status === "queued") return "Explanation queued.";
+    if (record.status === "running") return record.lastPollError ? "Generating; the status check will retry." : "Generating an interpretation…";
+    if (record.status === "completed") return record.cached ? "Cached interpretation ready." : "Interpretation ready.";
+    if (record.status === "timeout") return "Status polling reached its time limit.";
+    if (record.status === "error") return "Explanation unavailable.";
+    return "Explanation status not reported.";
+  }
+
+  async function explanationJson(response) {
+    try {
+      const value = await response.json();
+      return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function explanationErrorMessage(error) {
+    const message = typeof error === "string" ? error : error && typeof error === "object" && typeof error.message === "string" ? error.message : "";
+    return message.trim() ? compact(message, 360) : "";
+  }
+
+  function explanationHttpError(response, payload, action) {
+    const message = explanationErrorMessage(payload && payload.error);
+    if (message) return message;
+    if (response.status === 404) return "The explanation service endpoint is unavailable (HTTP 404).";
+    return action + " was refused (HTTP " + response.status + ").";
+  }
+
+  function renderExplanationModelOptions() {
+    const explanation = state.explanation;
+    const select = $("explanation-model");
+    clear(select);
+    if (!explanation.modelsLoaded) {
+      const option = node("option", "", explanation.modelsLoading ? "Checking available models…" : "Model availability unavailable");
+      option.value = "";
+      select.append(option);
+      select.disabled = true;
+      return;
+    }
+
+    const placeholder = node("option", "", "Choose an available model");
+    placeholder.value = "";
+    select.append(placeholder);
+    const ordered = ["luna-max", "haiku"];
+    for (const id of ordered) {
+      const model = explanationModel(id);
+      if (!model) continue;
+      const option = node("option", "", model.label + (model.available ? "" : " — unavailable"));
+      option.value = model.id;
+      option.disabled = !model.available;
+      select.append(option);
+    }
+    const selected = explanation.selectedModel;
+    select.value = selected && explanationModel(selected) ? selected : "";
+    select.disabled = !explanation.models.some(model => model.available);
+  }
+
+  function explanationModelNote(model) {
+    const reason = model && typeof model.reason === "string" ? model.reason.trim() : "";
+    return (model ? model.label : "Model") + " is unavailable" + (reason ? ": " + reason : ".");
+  }
+
+  function appendExplanationContent(host, record, detailsId) {
+    const body = node("div", "explanation-body");
+    const captured = node("p", "explanation-captured", "Captured item: " + record.identity.taskId + " · " + dateText(record.identity.occurredAt));
+    body.append(captured);
+    const generated = record.createdAt ? " · generated " + dateText(record.createdAt) : "";
+    body.append(node("p", "explanation-meta", record.modelLabel + generated));
+    body.append(node("p", "explanation-status", explanationStatusText(record)));
+    if (record.error) body.append(node("p", "explanation-error", record.error));
+    if (record.status === "completed" && record.summary) {
+      const summary = explanationDisplayText(record.summary);
+      const output = node("div", "explanation-summary", summary.text);
+      body.append(output);
+      if (summary.truncated) body.append(node("p", "explanation-meta", "Display limited to 350 words."));
+      body.append(node("p", "explanation-footnote", "Interpretation of recorded context only; it does not set task status or acceptance."));
+    }
+    const details = node("details", "explanation-history-item");
+    details.dataset.readerDetails = detailsId;
+    const heading = node("summary", "");
+    heading.append(node("span", "", record.identity.taskId + " · " + dateText(record.identity.occurredAt)));
+    heading.append(node("span", "", record.modelLabel));
+    details.append(heading, body);
+    host.append(details);
+  }
+
+  function renderExplanationHistory() {
+    const host = $("explanation-history");
+    clear(host);
+    const history = state.explanation.history.slice().reverse();
+    host.hidden = history.length === 0;
+    if (history.length) host.append(node("p", "explanation-history-label", "Earlier explanations"));
+    for (const record of history) appendExplanationContent(host, record, "explanation-history-" + record.historyId);
+  }
+
+  function renderExplanation(item) {
+    const readerState = captureReaderState();
+    const explanation = state.explanation;
+    const identity = explanationIdentity(item);
+    const actions = $("explanation-actions");
+    const select = $("explanation-model");
+    const button = $("explain-item");
+    const note = $("explanation-control-note");
+    const panel = $("explanation-panel");
+    const record = explanation.record;
+    const recordMatches = Boolean(record && explanationIdentityMatches(record.identity, identity));
+    const pending = explanationIsPending(record);
+
+    actions.hidden = !item;
+    renderExplanationModelOptions();
+    const selectedModel = explanationModel(explanation.selectedModel);
+    const modelAvailable = Boolean(selectedModel && selectedModel.available);
+    const unavailable = Array.isArray(explanation.models) ? explanation.models.filter(model => !model.available).map(explanationModelNote) : [];
+    const notes = [];
+    if (state.stale && item) notes.push("Snapshot is stale; refresh before requesting an explanation.");
+    if (item && !identity) notes.push("A valid task ID and occurrence time are required for this item.");
+    if (explanation.modelsLoading) notes.push("Checking model availability.");
+    else if (explanation.modelsError) notes.push(explanation.modelsError);
+    else if (explanation.modelsLoaded) {
+      if (!explanationModel("luna-max")) notes.push("Luna Max availability was not reported by the capability endpoint.");
+      if (!explanationModel("haiku")) notes.push("Haiku availability was not reported by the capability endpoint.");
+      if (unavailable.length) notes.push(unavailable.join(" "));
+      if (!selectedModel && explanation.selectedModel) notes.push("The selected model was not reported as available.");
+      else if (selectedModel && !selectedModel.available && !unavailable.includes(explanationModelNote(selectedModel))) notes.push(explanationModelNote(selectedModel));
+    }
+    if (pending && identity) {
+      notes.push(recordMatches ? "An explanation is already running for this item." : "The earlier explanation is still running for " + record.identity.taskId + "; wait for it to finish before requesting another.");
+    } else if (record && identity && !recordMatches) {
+      notes.push("Previous explanation for " + record.identity.taskId + " · " + dateText(record.identity.occurredAt) + " remains separate from the current item.");
+    } else if (item && identity && !modelAvailable && explanation.modelsLoaded && !explanation.modelsError && !notes.length) {
+      notes.push("Choose a model reported as available.");
+    }
+    note.textContent = notes.join(" ");
+    note.hidden = !note.textContent;
+
+    const sameSelectedResult = Boolean(record && recordMatches && record.model === explanation.selectedModel);
+    button.textContent = sameSelectedResult && record.status === "completed" ? "View explanation" :
+      sameSelectedResult && record.status === "error" ? "Retry explanation" : "Explain this item";
+    select.disabled = !identity || state.stale || !explanation.modelsLoaded || !explanation.models || explanation.models.length === 0 || pending;
+    button.disabled = !identity || state.stale || !modelAvailable || pending || Boolean(explanation.modelsError);
+
+    panel.hidden = !record;
+    if (record) {
+      $("explanation-heading").textContent = recordMatches ? "Item explanation" : "Previous item explanation";
+      const recordStatus = record.cached ? "cached" : record.status === "running" || record.status === "queued" || record.status === "requesting" ? "in progress" : record.status;
+      $("explanation-summary-label").textContent = recordMatches && !state.stale ? recordStatus :
+        record.identity.taskId + " · " + dateText(record.identity.occurredAt) + (recordMatches ? " · stale" : " · previous");
+      const warning = $("explanation-warning");
+      warning.hidden = true;
+      warning.textContent = "";
+      const warnings = [];
+      if (state.stale) {
+        warnings.push("The current snapshot is stale. This explanation stays attached to its captured item and time.");
+      }
+      if (!recordMatches) {
+        const currentText = identity ? "The current item is " + identity.taskId + " · " + dateText(identity.occurredAt) + ". " : "No current item is available. ";
+        warnings.push(currentText + "This explanation belongs to the captured item shown below and does not describe the current item.");
+      } else if (explanation.selectedModel && record.model !== explanation.selectedModel) {
+        warnings.push("This interpretation used " + record.modelLabel + "; the selected model is different.");
+      }
+      warning.textContent = warnings.join(" ");
+      warning.hidden = !warning.textContent;
+      $("explanation-captured").textContent = "Captured item: " + record.identity.taskId + " · " + dateText(record.identity.occurredAt);
+      const generated = record.createdAt ? " · generated " + dateText(record.createdAt) : "";
+      $("explanation-meta").textContent = record.modelLabel + generated;
+      $("explanation-status").textContent = explanationStatusText(record);
+      const error = $("explanation-error");
+      error.textContent = record.error || "";
+      error.hidden = !record.error;
+      const summaryNode = $("explanation-summary");
+      const summary = record.status === "completed" ? explanationDisplayText(record.summary) : {text:"", truncated:false};
+      summaryNode.textContent = summary.text;
+      summaryNode.hidden = !summary.text;
+      const priorLimit = panel.querySelector(".explanation-limit-note");
+      if (priorLimit) priorLimit.remove();
+      if (summary.truncated) {
+        const limit = node("p", "explanation-meta explanation-limit-note", "Display limited to 350 words.");
+        summaryNode.after(limit);
+      }
+    }
+    renderExplanationHistory();
+    restoreReaderState(readerState);
+    if (item && identity && !state.stale && !explanation.modelsLoaded && !explanation.modelsLoading && !explanation.modelsError) {
+      loadExplanationModels();
+    }
+  }
+
+  async function loadExplanationModels(explicitRetry) {
+    const explanation = state.explanation;
+    if (explanation.modelsLoading || (explanation.modelsLoaded && !explanation.modelsError) || (explanation.modelsError && !explicitRetry)) return;
+    if (explicitRetry) {
+      explanation.models = null;
+      explanation.modelsLoaded = false;
+      explanation.modelsError = "";
+    }
+    explanation.modelsLoading = true;
+    renderExplanation(state.data && state.data.current_work);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    try {
+      // Capability metadata only; model inference starts only from the explicit button.
+      const response = await fetch("/api/explanations/models", {
+        headers: {Accept:"application/json"},
+        cache: "no-store",
+        signal: controller.signal
+      });
+      const payload = await explanationJson(response);
+      if (!response.ok) {
+        explanation.modelsError = explanationHttpError(response, payload, "Model availability check");
+      } else if (!payload || !Array.isArray(payload.models)) {
+        explanation.modelsError = "The model availability response is incomplete.";
+      } else {
+        const byId = new Map();
+        for (const item of payload.models) {
+          if (!item || typeof item !== "object" || !["luna-max", "haiku"].includes(item.id) || typeof item.available !== "boolean") continue;
+          const fallbackLabel = item.id === "luna-max" ? "Luna Max" : "Haiku";
+          byId.set(item.id, {
+            id: item.id,
+            label: typeof item.label === "string" && item.label.trim() ? compact(item.label, 60) : fallbackLabel,
+            available: item.available,
+            reason: typeof item.reason === "string" ? compact(item.reason, 180) : ""
+          });
+        }
+        explanation.models = ["luna-max", "haiku"].map(id => byId.get(id)).filter(Boolean);
+        if (!explanation.models.some(model => model.id === "luna-max")) explanation.selectedModel = "";
+        explanation.modelsLoaded = true;
+        if (!explanation.models.length) explanation.modelsError = "No model availability records were returned.";
+      }
+    } catch (error) {
+      explanation.modelsError = error && error.name === "AbortError" ? "Model availability check timed out." : "Could not reach the explanation model availability endpoint.";
+    } finally {
+      window.clearTimeout(timeout);
+      explanation.modelsLoading = false;
+      renderExplanation(state.data && state.data.current_work);
+    }
+  }
+
+  function archiveExplanationRecord() {
+    const explanation = state.explanation;
+    const record = explanation.record;
+    if (!record || explanationIsPending(record)) return;
+    const prior = explanation.history.find(entry => entry.identity.key === record.identity.key && entry.model === record.model);
+    if (prior) explanation.history = explanation.history.filter(entry => entry !== prior);
+    record.historyId = prior ? prior.historyId : explanation.nextHistoryId++;
+    explanation.history.push(record);
+    explanation.history = explanation.history.slice(-3);
+    explanation.record = null;
+  }
+
+  function setExplanationFailure(record, message, status) {
+    record.status = status || "error";
+    record.error = String(message || "The explanation could not be completed.");
+    record.summary = "";
+    record.lastPollError = "";
+    renderExplanation(state.data && state.data.current_work);
+  }
+
+  function applyExplanationJob(record, payload) {
+    if (!explanationResponseMatches(record, payload)) {
+      setExplanationFailure(record, "The explanation response did not match the captured item and model; its output was withheld.");
+      return false;
+    }
+    const status = typeof payload.status === "string" ? payload.status.toLowerCase() : "";
+    if (!["queued", "running", "completed", "error"].includes(status)) {
+      setExplanationFailure(record, "The explanation service returned an unknown job status.");
+      return false;
+    }
+    record.status = status;
+    record.jobId = typeof payload.job_id === "string" ? payload.job_id : record.jobId;
+    record.modelLabel = typeof payload.model_label === "string" && payload.model_label.trim() ? compact(payload.model_label, 60) : record.modelLabel;
+    record.createdAt = typeof payload.created_at === "string" && parseDate(payload.created_at) ? payload.created_at : record.createdAt;
+    record.cached = payload.cached === true;
+    record.lastPollError = "";
+    if (status === "completed") {
+      if (typeof payload.summary !== "string" || !payload.summary.trim()) {
+        setExplanationFailure(record, "The explanation service returned no summary.");
+        return false;
+      }
+      record.summary = payload.summary;
+      record.error = "";
+    } else if (status === "error") {
+      record.summary = "";
+      record.error = explanationErrorMessage(payload.error) || "The explanation job failed.";
+    } else if (!record.jobId) {
+      setExplanationFailure(record, "The explanation service did not return a job ID for status polling.");
+      return false;
+    }
+    renderExplanation(state.data && state.data.current_work);
+    return status === "queued" || status === "running";
+  }
+
+  function scheduleExplanationPoll(record) {
+    if (!record || !explanationIsPending(record) || record.status === "requesting" || record.pollTimer) return;
+    record.pollTimer = window.setTimeout(() => {
+      record.pollTimer = null;
+      pollExplanationJob(record);
+    }, 2000);
+  }
+
+  async function pollExplanationJob(record) {
+    if (!record || record.pollBusy || !record.jobId || !explanationIsPending(record)) return;
+    if (Date.now() - record.startedAt >= 190000) {
+      setExplanationFailure(record, "No terminal explanation status arrived within 190 seconds.", "timeout");
+      return;
+    }
+    record.pollBusy = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch("/api/explanations/" + encodeURIComponent(record.jobId), {
+        headers: {Accept:"application/json"},
+        cache: "no-store",
+        signal: controller.signal
+      });
+      const payload = await explanationJson(response);
+      if (!response.ok) {
+        setExplanationFailure(record, explanationHttpError(response, payload, "Explanation status check"));
+        return;
+      }
+      if (applyExplanationJob(record, payload)) scheduleExplanationPoll(record);
+    } catch (_error) {
+      if (Date.now() - record.startedAt >= 190000) setExplanationFailure(record, "No terminal explanation status arrived within 190 seconds.", "timeout");
+      else {
+        record.lastPollError = "status check failed";
+        renderExplanation(state.data && state.data.current_work);
+        scheduleExplanationPoll(record);
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      record.pollBusy = false;
+    }
+  }
+
+  async function requestExplanation() {
+    const explanation = state.explanation;
+    const item = state.data && state.data.current_work && typeof state.data.current_work === "object" ? state.data.current_work : null;
+    const identity = explanationIdentity(item);
+    const model = explanationModel(explanation.selectedModel);
+    if (!identity || state.stale || !model || !model.available || explanationIsPending(explanation.record)) return;
+    const previous = explanation.record;
+    if (previous && explanationIdentityMatches(previous.identity, identity) && previous.model === model.id && previous.status === "completed") {
+      $("explanation-panel").open = true;
+      renderExplanation(item);
+      return;
+    }
+    archiveExplanationRecord();
+    const record = {
+      identity: identity,
+      model: model.id,
+      modelLabel: model.label,
+      createdAt: "",
+      jobId: "",
+      status: "requesting",
+      summary: "",
+      error: "",
+      cached: false,
+      startedAt: Date.now(),
+      pollBusy: false,
+      pollTimer: null,
+      lastPollError: "",
+      historyId: null
+    };
+    explanation.record = record;
+    $("explanation-panel").hidden = false;
+    $("explanation-panel").open = true;
+    renderExplanation(item);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch("/api/explanations", {
+        method: "POST",
+        headers: {Accept:"application/json", "Content-Type":"application/json"},
+        cache: "no-store",
+        signal: controller.signal,
+        body: JSON.stringify({task_id:identity.taskId, occurred_at:identity.occurredAt, model:model.id})
+      });
+      const payload = await explanationJson(response);
+      if (!response.ok) {
+        setExplanationFailure(record, explanationHttpError(response, payload, "Explanation request"));
+        return;
+      }
+      if (!applyExplanationJob(record, payload)) return;
+      scheduleExplanationPoll(record);
+    } catch (error) {
+      setExplanationFailure(record, error && error.name === "AbortError" ? "The explanation request timed out before a job was confirmed." : "Could not reach the explanation service.");
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  function workSource(item) {
+    return item && item.source && typeof item.source === "object" && !Array.isArray(item.source) ? item.source : {};
+  }
+
+  function isNativeTurn(item) {
+    const value = show(item && item.source_type, show(workSource(item).type, ""))
+      .trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return value === "codex_rollout" || value === "native_turn";
+  }
+
+  function workHistoryProvided(data) {
+    return Boolean(data && (
+      Object.prototype.hasOwnProperty.call(data, "current_work") ||
+      Array.isArray(data.work_items) || Array.isArray(data.recent_work)
+    ));
+  }
+
+  function duration(seconds) {
+    if (seconds === null || seconds === undefined || seconds === "") return "Not reported";
+    const value = Number(seconds);
+    if (!Number.isFinite(value) || value < 0) return "Not reported";
+    const total = Math.floor(value);
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor(total % 86400 / 3600);
+    const minutes = Math.floor(total % 3600 / 60);
+    if (days) return days + "d " + hours + "h";
+    if (hours) return hours + "h " + minutes + "m";
+    return minutes + "m";
+  }
+
+  function ago(seconds) {
+    const result = duration(seconds);
+    return result === "Not reported" ? result : result + " ago";
+  }
+
+  function relativeSince(date) {
+    if (!date) return "Not received";
+    return ago(Math.max(0, (Date.now() - date.getTime()) / 1000));
+  }
+
+  function priority(value) {
+    if (value === null || value === undefined || value === "") return "Unprioritized";
+    const raw = String(value).trim();
+    return /^\d+$/.test(raw) ? "P" + raw : raw;
+  }
+
+  function taskRank(task, sourceIndex) {
+    const explicit = Number(task.priority_rank);
+    if (task.priority_rank !== null && task.priority_rank !== undefined && Number.isFinite(explicit)) return explicit;
+    const number = Number(task.priority);
+    return Number.isFinite(number) ? number * 1000 + sourceIndex : 1e6 + sourceIndex;
+  }
+
+  function normaliseSourceFile(file) {
+    const raw = show(file, "").replaceAll("\\", "/");
+    const logical = raw.replace(/^.*?(?:Workspace\/docs\/|docs\/)/i, "");
+    if (FIXED_SOURCES.has(logical)) return logical;
+    if (/^logbook\/\d{4}-\d{2}-\d{2}\.md$/.test(logical) && allowedLogbooks.has(logical)) return logical;
+    return null;
+  }
+
+  function sourceHref(url, fallbackFile, fallbackLine) {
+    let parsed;
+    try { parsed = new URL(url || "/source", location.origin); } catch (_error) { return null; }
+    if (parsed.origin !== location.origin || parsed.pathname !== "/source") return null;
+    const file = normaliseSourceFile(parsed.searchParams.get("file") || fallbackFile);
+    if (!file) return null;
+    const rawLine = parsed.searchParams.get("line") || fallbackLine;
+    const line = Number(rawLine);
+    const query = new URLSearchParams({file:file});
+    if (Number.isInteger(line) && line > 0) query.set("line", String(line));
+    return "/source?" + query.toString() + (Number.isInteger(line) && line > 0 ? "#L" + line : "");
+  }
+
+  function sourceLink(parent, url, file, line, label, key) {
+    const href = sourceHref(url, file, line);
+    if (!href) return false;
+    const link = focusKey(node("a", "sourcelink", label || "Open source"), key);
+    link.href = href;
+    parent.append(link);
+    return true;
+  }
+
+  function taskMap(tasks) {
+    const result = new Map();
+    for (const task of tasks) {
+      for (const token of [task.id, task.id_cell, ...asList(task.aliases)]) {
+        if (token !== null && token !== undefined && String(token).trim()) result.set(String(token).trim().toUpperCase(), task);
+      }
+    }
+    return result;
+  }
+
+  function taskForId(id, lookup) {
+    if (id === null || id === undefined) return null;
+    return lookup.get(String(id).trim().toUpperCase()) || null;
+  }
+
+  function milestoneSlug(id) {
+    return String(id || "unknown").replace(/[^A-Za-z0-9_-]/g, "_");
+  }
+
+  function milestoneById(id, milestones) {
+    return milestones.find(item => String(item.id) === String(id)) || null;
+  }
+
+  function milestoneLink(parent, id, milestones, key) {
+    const milestone = milestoneById(id, milestones);
+    if (!milestone) {
+      parent.append(node("span", "quiet", "Milestone · " + show(id)));
+      return false;
+    }
+    const link = focusKey(node("a", "", show(milestone.title, milestone.id)), key);
+    link.href = "#overview-milestone-" + milestoneSlug(milestone.id);
+    parent.append(link);
+    return true;
+  }
+
+  function focusKind(report) {
+    const kind = show(report.kind, "").toLowerCase();
+    return kind === "main" || kind === "supporting" ? kind : "unclassified";
+  }
+
+  function focusClassification(report) {
+    const value = show(report.classification, "").toLowerCase();
+    const valid = ["fresh-active", "blocked", "awaiting-review", "stale", "orphaned", "completed"];
+    return valid.includes(value) ? value : "legacy-unverified";
+  }
+
+  function serverCurrent(report) {
+    return focusClassification(report) === "fresh-active" && report.is_current === true && report.stale !== true && focusKind(report) !== "unclassified";
+  }
+
+  function focusAge(report) {
+    if (report.age_seconds === null || report.age_seconds === undefined || report.age_seconds === "") return null;
+    let age = Number(report.age_seconds);
+    if (!Number.isFinite(age) || age < 0) return null;
+    if (state.stale && state.received) age += (Date.now() - state.received.getTime()) / 1000;
+    return age;
+  }
+
+  function acceptanceMode(status) {
+    const raw = show(status, "").trim().toLowerCase().replace(/[_\s]+/g, "-");
+    if (["accepted", "complete", "completed", "passed"].includes(raw)) return "accepted";
+    if (["partial", "in-progress", "underway"].includes(raw)) return "partial";
+    return "unknown";
+  }
+
+  function acceptanceLabel(mode) {
+    return mode === "accepted" ? "Accepted" : mode === "partial" ? "Partial" : "Unknown";
+  }
+
+  function selectedTasks(current, tasks, lookup) {
+    if (!current) return [];
+    const ids = asList(current.task_ids);
+    if (ids.length) {
+      return ids.map(id => taskForId(id, lookup)).filter(Boolean);
+    }
+    return asList(current.tasks);
+  }
+
+  function makeFact(label, content) {
+    const fact = node("span", "fact");
+    fact.append(node("span", "fact-label", label));
+    if (content instanceof Node) fact.append(content);
+    else fact.append(node("span", "", content));
+    return fact;
+  }
+
+  function openWorkHistory() {
+    $("records-inspector").open = true;
+    activateTab("focus", false);
+    $("work-history-title").scrollIntoView({behavior:"smooth", block:"start"});
+  }
+
+  function openTaskRecord(item) {
+    const id = workId(item);
+    if (!state.data || id === "Task ID not reported") return false;
+    const tasks = asList(state.data.tasks);
+    const task = taskForId(id, taskMap(tasks));
+    if (!task) return false;
+    state.filter = {query:id, milestone:"", priority:""};
+    $("records-inspector").open = true;
+    activateTab("tasks", false);
+    renderFilters(tasks, asList(state.data.milestones));
+    $("search").value = id;
+    $("milestone-filter").value = "";
+    $("priority-filter").value = "";
+    renderTasks(tasks);
+    const card = findByDataKey("data-reader-anchor", "task:task:" + taskReaderKey(task));
+    const details = card && card.querySelector("details");
+    if (details) details.open = true;
+    if (card) card.scrollIntoView({behavior:"smooth", block:"start"});
+    else $("records-inspector").scrollIntoView({behavior:"smooth", block:"start"});
+    return true;
+  }
+
+  function workTaskLink(item, label, key) {
+    const source = workSource(item);
+    const href = sourceHref(source.url, source.file, source.line);
+    const link = focusKey(node("a", "", label || workId(item)), key);
+    link.href = href || "#records-inspector";
+    link.addEventListener("click", event => {
+      if (openTaskRecord(item)) {
+        event.preventDefault();
+      } else if (!href) {
+        event.preventDefault();
+        openWorkHistory();
+      }
+    });
+    return link;
+  }
+
+  function appendWorkSource(host, item, key, fallbackLabel) {
+    const source = workSource(item);
+    const label = show(source.label, fallbackLabel || "Open source record");
+    if (!sourceLink(host, source.url, source.file, source.line, label, key)) {
+      host.append(node("span", "quiet", "Source link unavailable"));
+      return false;
+    }
+    return true;
+  }
+
+  function renderMain(data, tasks, milestones) {
+    const item = data.current_work && typeof data.current_work === "object" && !Array.isArray(data.current_work) ? data.current_work : null;
+    const facts = $("main-facts");
+    const more = $("main-more");
+    const status = $("main-status");
+    const idHost = $("main-id");
+    clear(facts);
+    clear(more);
+    clear(idHost);
+    more.hidden = true;
+    status.removeAttribute("data-tone");
+
+    if (!workHistoryProvided(data)) {
+      idHost.textContent = "Chronological history unavailable";
+      $("main-objective").textContent = "This server does not provide project work history.";
+      $("main-title").textContent = "Fresh agent activity, when available, is shown separately below.";
+      status.textContent = "HISTORY NOT PROVIDED";
+      status.dataset.tone = "warn";
+      facts.append(makeFact("History", "Not provided by this server"));
+      renderExplanation(null);
+      return {item:null, milestone:"", task:null, available:false};
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(data, "current_work")) {
+      idHost.textContent = "Latest main item unavailable";
+      $("main-objective").textContent = "The snapshot includes work history but no current_work field.";
+      $("main-title").textContent = "Fresh agent activity is separate; no empty focus state is inferred.";
+      status.textContent = "HISTORY INCOMPLETE";
+      status.dataset.tone = "warn";
+      renderExplanation(null);
+      return {item:null, milestone:"", task:null, available:false};
+    }
+
+    if (!item) {
+      idHost.textContent = "No main work item in available history";
+      $("main-objective").textContent = "No main task record was found in the supplied work history.";
+      $("main-title").textContent = "Fresh agent activity is shown separately below.";
+      status.textContent = "NO MAIN RECORD";
+      status.dataset.tone = "warn";
+      facts.append(makeFact("History", "Available project records"));
+      renderExplanation(null);
+      return {item:null, milestone:"", task:null, available:true};
+    }
+
+    const id = workId(item);
+    const task = taskForId(id, taskMap(tasks));
+    const itemSource = workSource(item);
+    const sourceHrefValue = sourceHref(itemSource.url, itemSource.file, itemSource.line);
+    if (id === "Task ID not reported") idHost.textContent = id;
+    else {
+      idHost.append(workTaskLink(item, id, "current-work-task-link"));
+      if (!sourceHrefValue && !task) idHost.firstChild.textContent = id;
+    }
+    const title = summaryText(item.title, 140);
+    const objective = summaryText(item.objective, 180);
+    const taskOutcome = task ? summaryText(task.outcome, 180) : "";
+    const action = objective || taskOutcome || title;
+    $("main-objective").textContent = compact(action, 110);
+    $("main-title").textContent = title && title !== action ? compact(title, 78) : "";
+    status.textContent = workStatus(item);
+    status.dataset.tone = workStatusTone(item);
+
+    const milestone = item.milestone && typeof item.milestone === "object" ? show(item.milestone.id, "") : show(item.milestone, "");
+    if (milestone) milestoneLink(facts, milestone, milestones, "main-work-milestone");
+    else facts.append(makeFact("Milestone", "Not reported"));
+    facts.append(node("span", "fact", shortWorkTime(item)));
+    if (state.stale && state.received) {
+      facts.append(makeFact("Snapshot", "Last good · " + relativeSince(state.received)));
+    }
+    renderExplanation(item);
+    return {item:item, milestone:milestone, task:task, available:true};
+  }
+
+  function freshActiveReports(data) {
+    const hasNewFeed = Array.isArray(data.active_now);
+    if (!hasNewFeed) return asList(data.focus).filter(serverCurrent);
+    return asList(data.active_now).filter(report => {
+      if (!report || typeof report !== "object" || report.stale === true || report.is_current === false) return false;
+      const classification = show(report.classification, "").trim().toLowerCase();
+      if (classification && classification !== "fresh-active") return false;
+      // active_now is the server's already-classified live feed. Native turns may
+      // predate the legacy focus classification fields, so feed membership carries
+      // their current status unless the record explicitly contradicts it.
+      return true;
+    });
+  }
+
+  function openFocusRecords(anchorId) {
+    $("records-inspector").open = true;
+    activateTab("focus", false);
+    const anchor = anchorId ? $(anchorId) : $("current-reports-title");
+    if (anchor) anchor.scrollIntoView({behavior:"smooth", block:"start"});
+  }
+
+  function renderActiveNow(data) {
+    const host = $("active-now-list");
+    clear(host);
+    const hasNewFeed = Array.isArray(data.active_now);
+    const hasLegacyFeed = Array.isArray(data.focus);
+    $("active-now-caption").textContent = state.stale ? "last-good data is not live" :
+      hasNewFeed ? "fresh agent activity" : hasLegacyFeed ? "legacy fresh-focus feed" : "fresh activity unavailable";
+    if (state.stale) {
+      host.append(node("p", "active-now-empty", "Live agent activity cannot be confirmed while the snapshot is stale."));
+      return;
+    }
+    if (!hasNewFeed && !hasLegacyFeed) {
+      host.append(node("p", "active-now-empty", "Fresh agent activity is not provided; current work remains shown above."));
+      return;
+    }
+    const reports = freshActiveReports(data);
+    if (!reports.length) {
+      host.append(node("p", "active-now-empty", "No fresh agent activity reports."));
+      return;
+    }
+    const shown = reports.slice(0, 2);
+    for (const report of shown) {
+      const item = node("span", "active-now-item");
+      const nativeTurn = isNativeTurn(report);
+      const taskId = workId(report);
+      if (nativeTurn) {
+        item.append(node("strong", "", "Agent running"), document.createTextNode(" · " + taskId));
+      } else {
+        item.append(node("strong", "", taskId));
+        const objective = summaryText(report.objective, 62);
+        if (objective !== "Not reported") item.append(document.createTextNode(" · " + objective));
+      }
+      const age = focusAge(report);
+      const timestamp = nativeTurn ? show(report.last_agent_activity_at, show(report.agent_activity_at, show(report.occurred_at, report.updated_at))) :
+        show(report.updated_at, show(report.observed_at, ""));
+      const when = age === null ? (parseDate(timestamp) ? relativeSince(parseDate(timestamp)) : timestamp) : ago(age);
+      if (when) item.append(document.createTextNode(" · "), node("time", "", nativeTurn ? when : "updated " + when));
+      const identity = [show(report.session, show(report.source_type, "unnamed")), taskId,
+        show(report.started_at, show(report.last_agent_activity_at, show(report.updated_at, show(report.observed_at, ""))))].join(":");
+      host.append(markAnchor(item, "active-now:" + identity));
+    }
+    if (reports.length > shown.length) {
+      const more = focusKey(node("a", "", (reports.length - shown.length) + " more fresh activity reports in Records"), "active-now-more");
+      more.href = "#records-inspector";
+      more.addEventListener("click", () => openFocusRecords("current-reports-title"));
+      host.append(more);
+    }
+  }
+
+  function renderSupport(data, milestones) {
+    const host = $("support-list");
+    const more = $("support-more");
+    clear(host);
+    clear(more);
+    more.hidden = true;
+    const provided = Array.isArray(data.work_items);
+    const reports = provided ? asList(data.work_items).filter(item => workKind(item) === "supporting") : [];
+    $("support-count").textContent = provided ? reports.length + " in history · newest first" : "history unavailable";
+    if (!provided) {
+      empty(host, "Work history is not provided by this server.", true);
+      return;
+    }
+    if (!reports.length) {
+      empty(host, "No supporting work item appears in the supplied history.", true);
+      return;
+    }
+    const shown = reports.slice(0, 3);
+    for (const report of shown) {
+      const identity = workIdentity(report);
+      const card = markAnchor(node("article", "support-item"), "support:" + identity);
+      const top = node("div", "support-item-top");
+      const taskLink = workTaskLink(report, workId(report), "support-task:" + identity);
+      taskLink.className = "support-id";
+      top.append(taskLink);
+      const pill = node("span", "pill", workStatus(report));
+      const tone = workStatusTone(report);
+      if (tone) pill.dataset.tone = tone;
+      top.append(pill);
+      const title = summaryText(report.title, 100);
+      const objective = summaryText(report.objective, 100);
+      card.append(top, node("h3", "", compact(title !== "Not reported" ? title : objective, 72)));
+      const foot = node("div", "support-item-foot");
+      foot.append(node("span", "", shortWorkTime(report)));
+      card.append(foot);
+      host.append(card);
+    }
+    if (reports.length > shown.length) {
+      more.hidden = false;
+      const link = focusKey(node("a", "", (reports.length - shown.length) + " more supporting records in Records"), "support-more");
+      link.href = "#records-inspector";
+      link.addEventListener("click", () => openWorkHistory());
+      more.append(link);
+    }
+  }
+
+  function renderRecent(data) {
+    const host = $("recent-list");
+    const more = $("recent-more");
+    clear(host);
+    clear(more);
+    more.hidden = true;
+    const provided = Array.isArray(data.recent_work);
+    const currentMain = data.current_work && typeof data.current_work === "object" && !Array.isArray(data.current_work);
+    const caption = state.stale ? "Last good · newest first" : provided ?
+      (currentMain ? "Newest first · latest main event shown above" : "Newest first") :
+      (workHistoryProvided(data) ? "Recent event list unavailable" : "History not provided");
+    $("recent-caption").textContent = caption;
+    if (!provided) {
+      const message = workHistoryProvided(data) ? "This snapshot does not include a recent event list." : "This server does not provide chronological work history.";
+      const item = markAnchor(node("li", "empty small", message), "recent-history-unavailable");
+      host.append(item);
+      return;
+    }
+    const records = asList(data.recent_work).slice(0, 3);
+    if (!records.length) {
+      host.append(markAnchor(node("li", "empty small", "No recent work items are in the supplied history."), "recent-history-empty"));
+      return;
+    }
+    for (const record of records) {
+      const identity = workIdentity(record);
+      const card = markAnchor(node("li", "recent-item"), "recent:" + identity);
+      const kind = workKind(record);
+      card.dataset.kind = kind;
+      const top = node("div", "recent-item-top");
+      top.append(node("span", "", kind === "unclassified" ? "RECORDED WORK" : kind.toUpperCase()));
+      top.append(workTaskLink(record, workId(record), "recent-task:" + identity));
+      const objective = summaryText(record.objective, 110);
+      const title = summaryText(record.title, 100);
+      const action = objective !== "Not reported" ? objective : title;
+      card.append(top, node("h3", "", compact(action, 72)));
+      const foot = node("div", "recent-item-foot");
+      foot.append(node("span", "", workStatus(record)));
+      foot.append(node("span", "", shortWorkTime(record)));
+      card.append(foot);
+      host.append(card);
+    }
+    const remaining = asList(data.recent_work).length - records.length;
+    if (remaining > 0) {
+      more.hidden = false;
+      const link = focusKey(node("a", "", "+" + remaining + " more · Records"), "recent-more-link");
+      link.href = "#records-inspector";
+      link.addEventListener("click", () => openWorkHistory());
+      more.append(link);
+    }
+  }
+
+  function renderScope(data, tasks) {
+    const current = data.current && typeof data.current === "object" && !Array.isArray(data.current) ? data.current : null;
+    const selection = $("scope-selection");
+    if (!current) {
+      selection.textContent = "Metadata selection not reported";
+      return;
+    }
+    const selected = selectedTasks(current, tasks, taskMap(tasks));
+    if (!selected.length) {
+      selection.textContent = asList(current.task_ids).length ? "Selected task row unavailable" : "No task ID selected in metadata";
+    } else {
+      const visible = selected.slice(0, 2).map(task => show(task.id_cell, show(task.id)) + " · " + compact(task.state, 72));
+      selection.textContent = visible.join("  /  ") + (selected.length > visible.length ? "  +" + (selected.length - visible.length) + " more" : "");
+    }
+  }
+
+  function renderMilestoneMap(data, tasks, mainResult) {
+    const host = $("milestone-map");
+    clear(host);
+    const milestones = asList(data.milestones);
+    const selected = selectedTasks(data.current, tasks, taskMap(tasks));
+    const selectedMilestones = new Set(selected.map(task => String(task.milestone || "")).filter(Boolean));
+    const currentWork = mainResult.item;
+    const latestMilestone = currentWork && currentWork.milestone ?
+      String(typeof currentWork.milestone === "object" ? currentWork.milestone.id || "" : currentWork.milestone) : "";
+    $("milestone-caption").textContent = state.milestonesPresent ? milestones.length + " recorded · acceptance shown from metadata" : "Milestone data not reported";
+    if (!state.milestonesPresent || !milestones.length) {
+      empty(host, state.milestonesPresent ? "No milestone records are reported." : "Milestone records are not present in this snapshot.", true);
+      return;
+    }
+    $("milestone-caption").textContent = milestones.length + " recorded · explicit acceptance state";
+    for (const milestone of milestones) {
+      const id = String(milestone.id || "");
+      const slug = milestoneSlug(id);
+      const mode = acceptanceMode(milestone.status);
+      const latest = Boolean(latestMilestone && latestMilestone === id);
+      const lastGood = Boolean(latest && state.stale);
+      const inScope = selectedMilestones.has(id);
+      const shell = node("article", "milestone-shell");
+      shell.id = "overview-milestone-" + slug;
+      shell.dataset.currentWork = latest ? "true" : "false";
+      shell.dataset.lastGood = lastGood ? "true" : "false";
+      shell.dataset.scope = inScope ? "true" : "false";
+      markAnchor(shell, "overview-milestone:" + id);
+      const tile = node("button", "milestone-tile");
+      tile.type = "button";
+      tile.dataset.acceptance = mode;
+      tile.dataset.readerFocus = "overview-milestone-filter:" + id;
+      tile.title = show(milestone.goal, show(milestone.title, milestone.id));
+      tile.setAttribute("aria-label", show(milestone.title, id) + " (" + id + "), acceptance " + acceptanceLabel(mode) + ". Open its backlog records.");
+      const dot = node("span", "milestone-dot");
+      dot.setAttribute("aria-hidden", "true");
+      const content = node("span", "milestone-content");
+      const top = node("span", "milestone-top");
+      top.append(node("span", "milestone-status", acceptanceLabel(mode)));
+      content.append(top, node("span", "milestone-name", show(milestone.title, id)));
+      if (latest) content.append(node("span", "milestone-marker", lastGood ? "LATEST · LAST GOOD" : "LATEST MAIN"));
+      else if (inScope) content.append(node("span", "milestone-marker", "SCOPE"));
+      tile.append(dot, content);
+      tile.addEventListener("click", () => openMilestoneTasks(id));
+      shell.append(tile);
+      host.append(shell);
+    }
+  }
+
+  function addBadge(parent, label, priorityValue) {
+    const item = node("span", "tag", label);
+    if (priorityValue) item.dataset.priority = priorityValue;
+    parent.append(item);
+    return item;
+  }
+
+  function appendTaskContext(parent, task, key) {
+    if (!Array.isArray(task.context) || !task.context.length) {
+      if (task.context_truncated === true) parent.append(node("p", "detail-copy", "Linked context is truncated or unavailable; open the source record."));
+      return;
+    }
+    const host = node("div", "task-context");
+    host.append(node("strong", "context-head", "Linked implementation and decision context"));
+    for (const rawContext of task.context) {
+      const context = rawContext && typeof rawContext === "object" ? rawContext : {text:rawContext};
+      const entry = node("article", "context-entry");
+      const head = node("div", "context-head");
+      head.append(node("span", "", show(context.section, show(context.file, "Source record"))));
+      head.append(node("span", "", context.updated_at ? "Updated · " + dateText(context.updated_at) : context.source_date ? "Source date · " + context.source_date : "Source date not reported"));
+      entry.append(head, node("p", "", show(context.text, "Context excerpt not reported")));
+      if (!sourceLink(entry, context.url || context.source_url, context.file, context.source_line || context.line, "Open linked context", "task-context:" + key + ":" + show(context.file, ""))) {
+        entry.append(node("p", "detail-copy", "Linked source is unavailable."));
+      }
+      host.append(entry);
+    }
+    if (task.context_truncated === true || task.context.some(item => item && typeof item === "object" && item.truncated === true)) {
+      host.append(node("p", "detail-copy", "Context excerpt is bounded; open the linked source for the full record."));
+    }
+    parent.append(host);
+  }
+
+  function taskReaderKey(task) {
+    return show(task.id, show(task.id_cell, "unknown-task"));
+  }
+
+  function taskCard(task, namespace) {
+    const key = (namespace || "task") + ":" + taskReaderKey(task);
+    const card = markAnchor(node("article", "task-card"), "task:" + key);
+    const head = node("div", "task-head");
+    const ident = node("div", "task-ident");
+    ident.append(node("span", "task-id", show(task.id_cell, show(task.id, "Task ID not reported"))));
+    ident.append(node("h3", "", show(task.outcome, show(task.id, "Outcome not reported"))));
+    const tags = node("div", "task-tags");
+    const priorityTag = addBadge(tags, priority(task.priority), priority(task.priority));
+    priorityTag.dataset.priority = priority(task.priority);
+    addBadge(tags, compact(task.state, 72));
+    head.append(ident, tags);
+    card.append(head);
+
+    const facts = node("div", "task-facts");
+    const outcome = node("div", "task-fact");
+    outcome.append(node("b", "", "Outcome / implementation"), node("p", "", show(task.outcome)));
+    const remaining = node("div", "task-fact remaining");
+    remaining.append(node("b", "", "Remaining acceptance or work"), node("p", "", show(task.remaining)));
+    facts.append(outcome, remaining);
+    card.append(facts);
+
+    const details = document.createElement("details");
+    details.dataset.readerDetails = "task-details:" + key;
+    const summary = focusKey(node("summary", "", "Full boundary, aliases, linked context and source"), "task-summary:" + key);
+    details.append(summary);
+    details.append(node("p", "detail-copy", "State · " + show(task.state)));
+    details.append(node("p", "detail-copy", "Outcome / implementation · " + show(task.outcome)));
+    details.append(node("p", "detail-copy", "Remaining acceptance or work · " + show(task.remaining)));
+    details.append(node("p", "detail-copy", "Boundary · " + show(task.boundary)));
+    if (Array.isArray(task.aliases) && task.aliases.length) details.append(node("p", "aliases", "Aliases · " + task.aliases.join(", ")));
+    sourceLink(details, task.source_url, "backlog.md", task.source_line, "Open backlog row", "task-source:" + key);
+    appendTaskContext(details, task, key);
+    card.append(details);
+    return card;
+  }
+
+  function addOption(select, value, label) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.append(option);
+  }
+
+  function renderFilters(tasks, milestones) {
+    const previous = {...state.filter};
+    const milestoneSelect = $("milestone-filter");
+    const prioritySelect = $("priority-filter");
+    clear(milestoneSelect);
+    clear(prioritySelect);
+    addOption(milestoneSelect, "", "All milestones");
+    addOption(prioritySelect, "", "All priorities");
+    for (const milestone of milestones) addOption(milestoneSelect, String(milestone.id), show(milestone.title, milestone.id));
+    const priorities = Array.from(new Set(tasks.map(task => priority(task.priority))).values()).sort((a, b) => {
+      const aRank = /^P\d+$/.test(a) ? Number(a.slice(1)) : 99;
+      const bRank = /^P\d+$/.test(b) ? Number(b.slice(1)) : 99;
+      return aRank - bRank || a.localeCompare(b);
+    });
+    for (const item of priorities) addOption(prioritySelect, item, item);
+    if (Array.from(milestoneSelect.options).some(option => option.value === previous.milestone)) milestoneSelect.value = previous.milestone;
+    else state.filter.milestone = "";
+    if (priorities.includes(previous.priority)) prioritySelect.value = previous.priority;
+    else state.filter.priority = "";
+    $("search").value = previous.query;
+  }
+
+  function matchesTask(task) {
+    const aliases = Array.isArray(task.aliases) ? task.aliases.join(" ") : show(task.aliases, "");
+    const searchable = [task.id, task.id_cell, aliases, task.priority, task.section, task.outcome, task.state, task.remaining, task.boundary, task.milestone].map(value => show(value, "")).join(" ").toLowerCase();
+    const query = state.filter.query.trim().toLowerCase();
+    return (!query || searchable.includes(query)) &&
+      (!state.filter.milestone || String(task.milestone || "") === state.filter.milestone) &&
+      (!state.filter.priority || priority(task.priority) === state.filter.priority);
+  }
+
+  function renderTasks(tasks) {
+    const host = $("tasks");
+    clear(host);
+    if (!state.tasksPresent) {
+      empty(host, "Task records are not present in this snapshot.");
+      $("result-count").textContent = "Task collection not provided.";
+      return;
+    }
+    const rows = tasks.map((task, index) => ({task:task, index:index}))
+      .sort((a, b) => taskRank(a.task, a.index) - taskRank(b.task, b.index))
+      .map(item => item.task).filter(matchesTask);
+    $("result-count").textContent = rows.length + " of " + tasks.length + " tracked task rows shown";
+    if (!rows.length) {
+      empty(host, "No backlog rows match these filters.");
+      return;
+    }
+    for (const task of rows) host.append(taskCard(task));
+  }
+
+  function renderFocusDetail(report, currentActivity) {
+    const kind = focusKind(report);
+    const card = markAnchor(node("article", "focus-detail"), "focus:" + show(report.session, "unnamed") + ":" + show(report.task_id, "unknown") + ":" + focusClassification(report));
+    card.dataset.kind = kind;
+    const head = node("div", "record-head");
+    head.append(node("span", "task-id", show(report.task_id, "Task ID not reported")));
+    const classification = focusClassification(report);
+    const nativeActive = currentActivity && isNativeTurn(report);
+    const status = node("span", "pill", nativeActive ? "Agent running" : classification.replaceAll("-", " "));
+    status.dataset.tone = nativeActive ? (state.stale ? "warn" : "good") : classification === "fresh-active" ? (state.stale ? "warn" : "good") : classification === "stale" || classification === "orphaned" ? "bad" : "warn";
+    head.append(status);
+    card.append(head, node("h3", "", show(report.objective, "Objective not reported")));
+    const fields = [
+      ["Role", show(report.kind, "Not reported")],
+      ["Session", show(report.session, "Not reported")],
+      ["Parent milestone", show(report.milestone, "Not reported")],
+      ["Reported status", show(report.status, "Not reported")],
+      ["Acceptance", show(report.acceptance, "Not reported")],
+      ["Stop condition", show(report.stop_condition, "Not reported")],
+      ["Started", dateText(report.started_at)],
+      ["Last updated", dateText(report.updated_at)],
+      ["Report age", focusAge(report) === null ? "Not reported" : ago(focusAge(report))],
+      ["Active interval", duration(report.active_elapsed_seconds)],
+      ["Session wall time", duration(report.wall_elapsed_seconds)]
+    ];
+    if (report.source_type) fields.push(["Source type", show(report.source_type)]);
+    for (const pair of fields) card.append(node("p", "detail-copy", pair[0] + " · " + pair[1]));
+    return card;
+  }
+
+  function renderWorkHistory(data) {
+    const host = $("work-history");
+    clear(host);
+    if (!Array.isArray(data.work_items)) {
+      empty(host, workHistoryProvided(data) ? "The snapshot does not include the work_items detail list." : "This server does not provide chronological work history.");
+      return;
+    }
+    const items = asList(data.work_items);
+    $("work-history-title").textContent = "Project work history · " + items.length + " · newest first";
+    if (!items.length) {
+      empty(host, "No canonical work items are present in the supplied history.");
+      return;
+    }
+    for (const item of items) {
+      const identity = workIdentity(item);
+      const card = markAnchor(node("article", "work-history-item"), "work-history:" + identity);
+      const head = node("div", "work-history-head");
+      head.append(workTaskLink(item, workId(item), "work-history-task:" + identity));
+      const role = workKind(item);
+      head.append(node("span", "tag", role === "unclassified" ? "Role not reported" : role));
+      const badge = node("span", "pill", workStatus(item));
+      const tone = workStatusTone(item);
+      if (tone) badge.dataset.tone = tone;
+      head.append(badge);
+      card.append(head);
+      const title = show(item.title, show(item.objective, "Work item title not reported"));
+      card.append(node("h4", "", title));
+      if (item.objective && item.title && String(item.objective) !== String(item.title)) {
+        card.append(node("p", "detail-copy", "Objective · " + show(item.objective)));
+      }
+      const meta = node("div", "work-history-meta");
+      const time = workTime(item);
+      meta.append(node("span", "", time.label + " · " + workTimeText(item, true)));
+      if (item.milestone) meta.append(node("span", "", "Milestone · " + show(typeof item.milestone === "object" ? item.milestone.id : item.milestone)));
+      if (item.thread_id) meta.append(node("span", "", "Thread · " + show(item.thread_id)));
+      if (item.source_type) meta.append(node("span", "", "Source type · " + show(item.source_type)));
+      card.append(meta);
+      const sourceHost = node("div", "work-history-meta");
+      appendWorkSource(sourceHost, item, "work-history-source:" + identity, "Open source record");
+      card.append(sourceHost);
+      host.append(card);
+    }
+  }
+
+  function renderFocusAndActivity(data) {
+    const activeHost = $("focus-current");
+    const historyHost = $("focus-history");
+    const activityHost = $("activity");
+    renderWorkHistory(data);
+    clear(activeHost);
+    clear(historyHost);
+    clear(activityHost);
+    const activeReports = freshActiveReports(data);
+    const retained = [...asList(data.focus_history), ...asList(data.focus).filter(report => !serverCurrent(report))];
+    $("focus-panel-note").textContent = state.stale ? "These activity records are from the last good snapshot and are now stale." : "Fresh focus and native-turn activity are separate from retained reports.";
+    $("current-reports-title").textContent = state.stale ? "Last-good agent activity" : "Fresh agent activity";
+    for (const report of activeReports) activeHost.append(renderFocusDetail(report, true));
+    if (!activeReports.length) empty(activeHost, state.focusPresent ? "No fresh agent activity is available." : "Agent activity reports are not present in this snapshot.");
+    for (const report of retained) historyHost.append(renderFocusDetail(report));
+    if (!retained.length) empty(historyHost, Array.isArray(data.focus_history) ? "No retained reports are available." : "Focus history is not present in this snapshot.");
+    renderActivity(asList(data.activity), activityHost, Array.isArray(data.activity));
+  }
+
+  function renderActivity(events, host, provided) {
+    clear(host);
+    if (!provided) {
+      empty(host, "Activity records are not present in this snapshot.");
+      return;
+    }
+    if (!events.length) {
+      empty(host, "No activity events are reported.");
+      return;
+    }
+    const list = node("ol", "activity-list");
+    for (const event of events) {
+      const item = markAnchor(node("li", "activity-item"), "activity:" + [event.occurred_at, event.action, event.task_id, event.status, event.session, event.objective].map(value => show(value, "")).join(":"));
+      const top = node("div", "activity-top");
+      top.append(node("span", "", show(event.action, "Activity action not reported")));
+      const time = node("time", "activity-time", dateText(event.occurred_at));
+      if (event.occurred_at) time.dateTime = show(event.occurred_at);
+      top.append(time);
+      item.append(top);
+      item.append(node("p", "", "Objective · " + show(event.objective, "Not reported")));
+      item.append(node("p", "", "Task · " + show(event.task_id, "Not reported") + " · Status · " + show(event.status, "Not reported")));
+      item.append(node("p", "", "Session · " + show(event.session, "Not reported")));
+      list.append(item);
+    }
+    host.append(list);
+  }
+
+  function renderMilestoneDetails(data, tasks) {
+    const host = $("milestone-details");
+    clear(host);
+    if (!state.milestonesPresent) {
+      empty(host, "Milestone records are not present in this snapshot.");
+      return;
+    }
+    const milestones = asList(data.milestones);
+    if (!milestones.length) {
+      empty(host, "No milestone records are reported.");
+      return;
+    }
+    for (const milestone of milestones) {
+      const id = String(milestone.id || "");
+      const mode = acceptanceMode(milestone.status);
+      const card = markAnchor(node("article", "milestone-detail"), "milestone-detail:" + id);
+      const head = node("div", "record-head");
+      head.append(node("h3", "", show(milestone.title, id)));
+      const badge = node("span", "pill", acceptanceLabel(mode));
+      badge.dataset.tone = mode === "accepted" ? "good" : mode === "partial" ? "warn" : "";
+      head.append(badge);
+      card.append(head);
+      card.append(node("p", "", "ID · " + id));
+      card.append(node("p", "", "Recorded status · " + show(milestone.status, "Unknown")));
+      card.append(node("p", "", "Goal · " + show(milestone.goal, "Not reported")));
+      const ids = asList(milestone.task_ids).map(String);
+      const taskCount = tasks.filter(task => ids.includes(String(task.id)) || ids.some(alias => asList(task.aliases).includes(alias))).length;
+      card.append(node("p", "", "Backlog rows · " + show(milestone.pending_count, "Not reported") + " pending · " + taskCount + " current rows"));
+      const evidence = asList(milestone.evidence);
+      if (evidence.length) {
+        const evidenceHost = node("div", "record-list");
+        evidenceHost.append(node("p", "detail-copy", "Recorded evidence"));
+        for (const raw of evidence) {
+          const item = raw && typeof raw === "object" ? raw : {label:raw};
+          const label = show(item.label, show(item.file, "Evidence source"));
+          const entry = node("div", "record-card");
+          entry.append(node("p", "record-copy", label));
+          if (item.available === false || !sourceLink(entry, item.url || item.source_url, item.file || "DEVELOPMENT_PLAN.md", item.line || item.source_line, "Open evidence source", "milestone-evidence:" + id + ":" + show(item.file, "") + ":" + label)) {
+            entry.append(node("p", "detail-copy", "Source link unavailable."));
+          }
+          evidenceHost.append(entry);
+        }
+        card.append(evidenceHost);
+      } else {
+        const metadataSource = milestone.metadata_source && typeof milestone.metadata_source === "object" ? milestone.metadata_source : {};
+        sourceLink(card, metadataSource.url || milestone.source_url, metadataSource.file || "DEVELOPMENT_PLAN.md", metadataSource.start_line || metadataSource.line || milestone.source_line, "Open milestone metadata", "milestone-source:" + id);
+      }
+      host.append(card);
+    }
+  }
+
+  function renderNotes(notes, provided) {
+    const host = $("notes");
+    clear(host);
+    if (!provided) {
+      empty(host, "Operator notes are not present in this snapshot.");
+      return;
+    }
+    if (!notes.length) {
+      empty(host, "No operator notes are reported.");
+      return;
+    }
+    for (const note of notes) {
+      const key = show(note.owner, "") + ":" + show(note.text, "");
+      const card = node("article", "record-card");
+      card.append(node("span", "overline", show(note.owner, "Owner not reported")));
+      card.append(node("p", "record-copy", show(note.text, "Note text not reported")));
+      sourceLink(card, note.source_url, "backlog.md", note.source_line, "Open note source", "note-source:" + key);
+      host.append(card);
+    }
+  }
+
+  function renderScopeDetails(data, tasks) {
+    const host = $("scope-details");
+    clear(host);
+    const current = data.current && typeof data.current === "object" && !Array.isArray(data.current) ? data.current : null;
+    if (!current) {
+      empty(host, "Current-scope metadata is not present.");
+    } else {
+      const card = node("article", "record-card");
+      card.append(node("span", "overline", "Current selected outcome"));
+      card.append(node("h3", "record-copy", show(current.title, "Title not reported")));
+      card.append(node("p", "record-copy", show(current.outcome, "Outcome not reported")));
+      if (current.sequence_note) card.append(node("p", "record-copy", "Recorded sequence · " + show(current.sequence_note)));
+      const source = current.metadata_source && typeof current.metadata_source === "object" ? current.metadata_source : {};
+      sourceLink(card, source.url || source.source_url, source.file || "DEVELOPMENT_PLAN.md", source.line || source.source_line || source.start_line, "Open current-scope metadata", "scope-source-detail");
+      host.append(card);
+      const selected = selectedTasks(current, tasks, taskMap(tasks));
+      const spotlight = asList(current.spotlight_tasks);
+      if (selected.length) {
+        host.append(node("h3", "overline", "Selected backlog records"));
+        for (const task of selected) host.append(taskCard(task, "scope-selected"));
+      }
+      if (spotlight.length) {
+        host.append(node("h3", "overline", "Spotlight records"));
+        for (const task of spotlight) host.append(taskCard(task, "scope-spotlight"));
+      }
+      if (!selected.length && !spotlight.length) empty(host, "No selected or spotlight backlog rows are available.");
+    }
+    renderNotes(asList(data.notes), Array.isArray(data.notes));
+    const sequence = $("sequence");
+    clear(sequence);
+    if (current && current.sequence_note) sequence.append(node("p", "record-copy", show(current.sequence_note)));
+    else empty(sequence, "No sequence note is recorded.", true);
+    const checkpoints = asList(data.checkpoints);
+    if (checkpoints.length) {
+      const details = document.createElement("details");
+      details.className = "inline-details";
+      details.dataset.readerDetails = "recent-checkpoints-context";
+      const summary = focusKey(node("summary", "", "Recent evidence checkpoints · " + checkpoints.length), "checkpoint-context-summary");
+      details.append(summary);
+      const list = node("div", "checkpoint-list");
+      for (const checkpoint of checkpoints) {
+        const card = node("article", "record-card");
+        card.append(node("p", "record-copy", show(checkpoint.text, "Checkpoint detail not reported")));
+        sourceLink(card, checkpoint.source_url, "backlog.md", checkpoint.source_line, "Open checkpoint source", "checkpoint-context:" + show(checkpoint.text, ""));
+        list.append(card);
+      }
+      details.append(list);
+      sequence.append(details);
+    }
+  }
+
+  function renderCheckpoints(data) {
+    const host = $("checkpoints");
+    clear(host);
+    const checkpoints = asList(data.checkpoints);
+    if (!checkpoints.length) {
+      empty(host, Array.isArray(data.checkpoints) ? "No recent evidence checkpoints are reported." : "Checkpoint records are not present in this snapshot.");
+      return;
+    }
+    const details = document.createElement("details");
+    details.className = "inline-details";
+    details.dataset.readerDetails = "recent-checkpoints-milestones";
+    details.append(focusKey(node("summary", "", "Recent evidence checkpoints · " + checkpoints.length), "checkpoint-milestone-summary"));
+    const list = node("div", "checkpoint-list");
+    for (const checkpoint of checkpoints) {
+      const card = node("article", "record-card");
+      card.append(node("p", "record-copy", show(checkpoint.text, "Checkpoint detail not reported")));
+      sourceLink(card, checkpoint.source_url, "backlog.md", checkpoint.source_line, "Open checkpoint source", "checkpoint-milestone:" + show(checkpoint.text, ""));
+      list.append(card);
+    }
+    details.append(list);
+    host.append(details);
+  }
+
+  function renderWorkHistorySources(data) {
+    const host = $("work-history-sources");
+    clear(host);
+    if (!Object.prototype.hasOwnProperty.call(data, "work_history_sources")) {
+      empty(host, "Work-history source metadata is not provided by this server.");
+      return;
+    }
+    const value = data.work_history_sources;
+    let sources = [];
+    let warnings = [];
+    if (Array.isArray(value)) sources = value;
+    else if (value && typeof value === "object") {
+      sources = asList(value.sources);
+      warnings = asList(value.warnings);
+      if (!sources.length && !warnings.length) sources = [value];
+    } else if (value) warnings = [value];
+    if (!sources.length && !warnings.length) {
+      empty(host, "No work-history source warnings were reported.");
+      return;
+    }
+    for (const warning of warnings) host.append(markAnchor(node("div", "warning", show(warning)), "work-history-warning:" + show(warning)));
+    for (const entry of sources) {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        host.append(markAnchor(node("div", "warning", show(entry)), "work-history-source-note:" + show(entry)));
+        continue;
+      }
+      const warning = show(entry.warning, show(entry.error, show(entry.message, "")));
+      const source = entry.source && typeof entry.source === "object" ? entry.source : entry;
+      const file = show(source.file, show(entry.file, ""));
+      const label = show(entry.label, file || show(entry.source_type, "Work-history source"));
+      const row = markAnchor(node("article", "source-row"), "work-history-source:" + label + ":" + show(entry.status, ""));
+      const copy = node("div", "");
+      copy.append(node("span", "source-file", label));
+      const status = show(entry.status, "");
+      const updated = entry.updated_at ? dateText(entry.updated_at) : "";
+      const metadata = [status, updated].filter(Boolean).join(" · ");
+      if (metadata) copy.append(node("span", "source-when", metadata));
+      if (warning) copy.append(node("span", "source-when", warning));
+      row.append(copy);
+      if (!sourceLink(row, source.url, file || null, source.line, show(source.label, "Open"), "work-history-source-open:" + label)) {
+        row.append(node("span", "quiet", "No source link"));
+      }
+      host.append(row);
+    }
+  }
+
+  function renderDiagnostics(data) {
+    const warnings = $("warnings");
+    clear(warnings);
+    if (!Array.isArray(data.warnings)) empty(warnings, "Warnings are not reported by the snapshot service.");
+    else if (!data.warnings.length) empty(warnings, "No warnings are reported.");
+    else for (const warning of data.warnings) warnings.append(markAnchor(node("div", "warning", show(warning)), "warning:" + show(warning)));
+
+    const sources = $("sources");
+    clear(sources);
+    if (!Array.isArray(data.sources)) empty(sources, "Source records are not present in this snapshot.");
+    else if (!data.sources.length) empty(sources, "No source records are listed.");
+    else for (const source of data.sources) {
+      const file = normaliseSourceFile(source.file);
+      const row = markAnchor(node("article", "source-row"), "source:" + show(source.file, "unknown"));
+      const copy = node("div", "");
+      copy.append(node("span", "source-file", show(source.file, "Source file not reported")));
+      copy.append(node("span", "source-when", "Updated · " + dateText(source.updated_at)));
+      if (source.sha256) {
+        const hash = node("code", "source-when", "SHA-256 · " + source.sha256);
+        hash.title = source.sha256;
+        copy.append(hash);
+      }
+      row.append(copy);
+      if (file && sourceHref(source.url, source.file, null)) {
+        const link = focusKey(node("a", "", "Open"), "source-link:" + show(source.file, ""));
+        link.href = sourceHref(source.url, source.file, null);
+        row.append(link);
+      } else row.append(node("span", "quiet", "Unavailable"));
+      sources.append(row);
+    }
+    renderWorkHistorySources(data);
+
+    const repo = data.repo && typeof data.repo === "object" ? data.repo : {};
+    $("generated").textContent = dateText(data.generated_at);
+    $("source-updated").textContent = dateText(data.source_updated_at);
+    $("received").textContent = state.received ? dateText(state.received) : "Not received";
+    $("branch").textContent = show(repo.branch);
+    $("sha").textContent = show(repo.sha);
+    $("dirty").textContent = repo.dirty === true ? "Dirty working tree" : repo.dirty === false ? "Clean working tree" : "State not reported";
+  }
+
+  function render(data) {
+    const readerState = captureReaderState();
+    state.data = data;
+    state.currentPresent = Boolean(data.current && typeof data.current === "object" && !Array.isArray(data.current));
+    state.tasksPresent = Array.isArray(data.tasks);
+    state.milestonesPresent = Array.isArray(data.milestones);
+    state.focusPresent = Array.isArray(data.focus) || Array.isArray(data.active_now);
+    const tasks = asList(data.tasks);
+    const milestones = asList(data.milestones);
+    const sources = asList(data.sources);
+    allowedLogbooks = new Set(sources.map(source => show(source.file, "").replace(/^.*?(?:Workspace\/docs\/|docs\/)/i, ""))
+      .filter(file => /^logbook\/\d{4}-\d{2}-\d{2}\.md$/.test(file)));
+
+    renderOverview(data, tasks, milestones);
+    renderScope(data, tasks);
+    renderFilters(tasks, milestones);
+    renderTasks(tasks);
+    renderFocusAndActivity(data);
+    renderMilestoneDetails(data, tasks);
+    renderScopeDetails(data, tasks);
+    renderCheckpoints(data);
+    renderDiagnostics(data);
+    const missing = ["tasks", "milestones", "focus", "focus_history", "activity", "warnings", "sources", "notes"]
+      .filter(key => !Array.isArray(data[key]));
+    if (!workHistoryProvided(data)) missing.push("work history");
+    const count = state.tasksPresent ? tasks.length + " tasks" : "tasks unavailable";
+    const missingSuffix = missing.length ? " · missing " + missing.join(", ") : "";
+    $("records-hint").textContent = count + " · all records on demand" + missingSuffix;
+    activateTab(state.recordsTab, false);
+    restoreReaderState(readerState);
+  }
+
+  function renderOverview(data, tasks, milestones) {
+    const readerState = captureReaderState();
+    const mainResult = renderMain(data, tasks, milestones);
+    renderSupport(data, milestones);
+    renderActiveNow(data);
+    renderRecent(data);
+    renderMilestoneMap(data, tasks, mainResult);
+    restoreReaderState(readerState);
+  }
+
+  function updateConnection(kind, label) {
+    $("conn").dataset.state = kind;
+    $("conn").textContent = label;
+    if (state.received) {
+      $("freshness").textContent = (state.stale ? "Last good · " : "Updated · ") + relativeSince(state.received);
+    } else {
+      $("freshness").textContent = "Waiting for snapshot";
+    }
+  }
+
+  async function loadSnapshot() {
+    if (state.busy) return;
+    state.busy = true;
+    updateConnection(state.stale ? "stale" : "loading", state.stale ? "Reconnecting" : "Refreshing");
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch("/api/snapshot", {
+        headers: {Accept:"application/json"},
+        cache: "no-store",
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error("Snapshot endpoint returned HTTP " + response.status + ".");
+      const data = await response.json();
+      if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Snapshot response is not a JSON object.");
+      state.data = data;
+      state.received = new Date();
+      state.stale = false;
+      $("stale").hidden = true;
+      $("error").hidden = true;
+      render(data);
+    } catch (error) {
+      state.stale = Boolean(state.data);
+      if (state.data) {
+        $("stale").hidden = false;
+        $("stale-copy").textContent = "Connection lost. Last good snapshot received " + relativeSince(state.received) + "; active reports are no longer live.";
+        $("error").hidden = true;
+        renderOverview(state.data, asList(state.data.tasks), asList(state.data.milestones));
+      } else {
+        $("error").hidden = false;
+        $("error-copy").textContent = show(error && error.message, "Retrying for a project snapshot.");
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      state.busy = false;
+      updateConnection(state.stale ? "stale" : state.data ? "ready" : "error", state.stale ? "Connection lost" : state.data ? "Live snapshot" : "Unavailable");
+    }
+  }
+
+  async function refreshDashboard() {
+    const alreadyRefreshing = state.busy;
+    await loadSnapshot();
+    if (alreadyRefreshing || state.busy) return;
+    const explanation = state.explanation;
+    const item = state.data && state.data.current_work;
+    if (!item || !explanationIdentity(item) || explanation.modelsLoading) return;
+    if (explanation.modelsError || !explanation.modelsLoaded) loadExplanationModels(true);
+  }
+
+  function activateTab(tabId, moveFocus) {
+    if (!TAB_IDS.includes(tabId)) tabId = "tasks";
+    state.recordsTab = tabId;
+    for (const id of TAB_IDS) {
+      const tab = $("tab-" + id);
+      const selected = id === tabId;
+      tab.setAttribute("aria-selected", selected ? "true" : "false");
+      tab.tabIndex = selected ? 0 : -1;
+      $("panel-" + id).hidden = !selected;
+    }
+    if (moveFocus) $("tab-" + tabId).focus();
+  }
+
+  function openMilestoneTasks(id) {
+    state.filter.milestone = String(id);
+    $("records-inspector").open = true;
+    activateTab("tasks", false);
+    if (state.data) {
+      renderFilters(asList(state.data.tasks), asList(state.data.milestones));
+      $("milestone-filter").value = String(id);
+      renderTasks(asList(state.data.tasks));
+    }
+    $("records-inspector").scrollIntoView({behavior:"smooth", block:"start"});
+  }
+
+  function syncFilters() {
+    state.filter = {
+      query: $("search").value,
+      milestone: $("milestone-filter").value,
+      priority: $("priority-filter").value
+    };
+    renderTasks(asList(state.data && state.data.tasks));
+  }
+
+  $("search").addEventListener("input", syncFilters);
+  for (const id of ["milestone-filter", "priority-filter"]) $(id).addEventListener("change", syncFilters);
+  $("clear").addEventListener("click", () => {
+    $("search").value = "";
+    $("milestone-filter").value = "";
+    $("priority-filter").value = "";
+    state.filter = {query:"", milestone:"", priority:""};
+    renderTasks(asList(state.data && state.data.tasks));
+    $("search").focus();
+  });
+  $("refresh").addEventListener("click", refreshDashboard);
+  $("explanation-model").addEventListener("change", () => {
+    state.explanation.selectedModel = $("explanation-model").value;
+    renderExplanation(state.data && state.data.current_work);
+  });
+  $("explain-item").addEventListener("click", requestExplanation);
+  for (const tabId of TAB_IDS) {
+    const tab = $("tab-" + tabId);
+    tab.dataset.readerFocus = "tab:" + tabId;
+    tab.addEventListener("click", () => activateTab(tabId, false));
+    tab.addEventListener("keydown", event => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const currentIndex = TAB_IDS.indexOf(tabId);
+      let nextIndex = currentIndex;
+      if (event.key === "ArrowLeft") nextIndex = (currentIndex + TAB_IDS.length - 1) % TAB_IDS.length;
+      if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % TAB_IDS.length;
+      if (event.key === "Home") nextIndex = 0;
+      if (event.key === "End") nextIndex = TAB_IDS.length - 1;
+      activateTab(TAB_IDS[nextIndex], true);
+    });
+  }
+
+  loadSnapshot();
+  window.setInterval(loadSnapshot, 10000);
+  window.setInterval(() => {
+    if (state.received) updateConnection(state.stale ? "stale" : state.data ? "ready" : "loading", state.stale ? "Connection lost" : state.data ? "Live snapshot" : "Loading");
+    if (state.stale && state.data) {
+      $("stale-copy").textContent = "Connection lost. Last good snapshot received " + relativeSince(state.received) + "; active reports are no longer live.";
+      renderOverview(state.data, asList(state.data.tasks), asList(state.data.milestones));
+    }
+  }, 10000);
+})();
+</script>
+</body>
+</html>

@@ -2022,3 +2022,10 @@ manualTaskHomeReview/acceptManualTaskHomeReview retain that ownership. Current
 review identity/candidate must match before applying a staged review. Uncertain
 submission uses the existing read-only native accepted-state reconciliation;
 no second ROS/kinematic implementation or hardware path is introduced.
+
+
+## 11 October — optional dashboard item interpretation (PROGRESS-DASH-01)
+
+The standalone progress dashboard remains a projection of controlled development records, bounded configured session telemetry and explicit focus receipts. Its optional item-explanation boundary accepts only an exact currently projected canonical task ID/event time and one allowlisted model choice. The server captures a bounded field-allowlisted context packet and uses the installed local authenticated Codex/Claude CLI in an isolated, tool-disabled session. It does not give an agent Slicer/ROS/case/filesystem tools, expose credentials, control another project thread, or write task/acceptance state. Model output is advisory plain text under a collapsed panel; no model runs from routine snapshot polling.
+
+One bounded explanation job is active per service; cached results belong to the captured semantic context/model. Capture timestamps/source provenance remain attached to the result, and later current-item changes are labelled separately. The web routes are `/api/explanations/models`, explicit JSON POST `/api/explanations`, and GET `/api/explanations/<job-id>`. Same-origin/size/field validation precedes model execution. Dedicated localhost/existing tailnet port8766/service remains the only listener boundary. This is an operator-requested explanation feature, not a second project queue, a planner component or a T3 background model scheduler. Source/runtime evidence belongs to the dated explanation run, not this architectural description.

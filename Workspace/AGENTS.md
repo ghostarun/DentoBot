@@ -1,303 +1,181 @@
 # Dentobot Project Instructions
 
-This repository contains the IITM autonomous dental drilling robot development environment.
+Shared project rules for every development agent. Tarun's current explicit scope and
+superseding decisions govern; dated evidence is not new execution authority.
 
-For every substantial task:
+## Context and task contracts
 
-1. Use `docs/AGENT_CONTEXT.md` as the compact routing entrypoint and check
-   `docs/backlog.md` before scoping or planning any work. For a narrow
-   routine change, also read today's logbook, the internal package routing map,
-   and only the controlled/domain files that `AGENT_CONTEXT.md` identifies for
-   that scope. Read `docs/PROJECT_CONTEXT.md`, `docs/SETUP.md`,
-   `docs/DECISIONS.md`, `docs/DEVELOPMENT_PLAN.md`, and `docs/TASKS.md`
-   together when resuming broad work, changing architecture/environment or
-   milestone policy, reconciling evidence, or preparing a documentation/release
-   checkpoint. Engineer-owned records are excluded from this default context;
-   see rule 16.
-2. Consult `docs/ARCHITECTURE.md` and
-   `docs/REPRODUCIBILITY_AND_TRACEABILITY.md` when the task touches their
-   scope.
-3. Treat Windows/WSL commands and paths in imported documents as historical
-   context until they are explicitly migrated and verified on Ubuntu.
-4. Record commands executed, files changed, results, errors, and unresolved
-   issues in today's file under `docs/logbook/`. For substantial work, also
-   record the operator's stated observations and reasoning, decisions made,
-   evidence boundaries, and the next bounded action. Keep operator statements,
-   agent interpretation, implementation, and verification visibly distinct;
-   never invent or imply unspoken operator reasoning.
-5. Update `docs/SETUP.md` whenever the environment, paths, dependencies,
-   Docker configuration, Slicer, or ROS 2 setup changes.
-6. Update `docs/DECISIONS.md` whenever an architectural or technical decision
-   is made.
-7. Keep all pending, active, blocked, planned, deferred, and unaccepted work in
-   `docs/backlog.md`. Keep detailed task contracts and completion records in
-   `docs/TASKS.md`; keep milestone/acceptance design in
-   `docs/DEVELOPMENT_PLAN.md`. When a task is accomplished, record its evidence
-   in today's logbook, update TASKS/DEVELOPMENT_PLAN as applicable, and remove
-   it from backlog.md in the same turn.
-8. Follow `docs/CONTEXT_SYNC.md` for Google Drive synchronization. Update
-   existing Drive file IDs in place; do not create duplicates.
-9. Never record passwords, API keys, tokens, patient identifiers, or
-   non-anonymized medical data.
-10. Do not mark a task successful unless its verification command or observed
-    result is recorded.
-11. Do not run robot motion, drilling, patient-facing, or safety-critical
-    operations without explicit authorization and an appropriate verified
-    safety procedure.
-12. A documentation checkpoint updates only development-controlled records.
-    It does not authorize reading, editing, reconciling, moving, exporting, or
-    synchronizing any engineer-owned record described by rule 16.
-13. Treat any user message beginning with `DENTO-NOTE:` as a durable issue or
-    mental-note capture. Triage it during the same turn as one of: fix now,
-    active investigation, blocked, or backlog. Fix it immediately when safe,
-    authorized, and reasonably scoped; otherwise record it in `docs/backlog.md`
-    with the affected workflow step, observed behavior, evidence available,
-    risk/impact, and next verification action. Record the triage outcome in
-    today's logbook. Never silently discard a `DENTO-NOTE:` item.
-14. Apply explicit DENTO-NOTE priorities as backlog work-order metadata. The
-    scale is numeric and ascending: `Priority 0` is highest/immediate, then
-    `Priority 1`, `Priority 2`, and so on. Within the same authorized and safe
-    scope, address the lowest-numbered actionable backlog before higher-numbered
-    items. Preserve dependency order: a prerequisite may run before its
-    dependent item even when separately prioritized, and the dependency must be
-    recorded. Priority does not override safety gates, verification, user scope,
-    external-write approvals, or the prohibition on unauthorized robot/hardware
-    action. Do not invent a priority for an unprioritized note; retain it as
-    `Unprioritized` until the user assigns one. When a priority changes, update
-    `docs/backlog.md`, the linked TASKS.md contract when present, and today's
-    logbook, including any sequencing effect.
-
-15. For verification, testing, builds, Slicer/ROS/MoveIt diagnosis, subagents,
-    or any `DENTO-VERIFY` keyword, follow
-    `docs/AGENTIC_VERIFICATION_PROTOCOL.md` and select checks from
-    `Testing/verification_matrix.json` from the DentoBot checkout root
-    (`../Testing` from physical `Workspace/`, not the overlay root).
-    Apply the protocol's cheapest-sufficient-check ladder, three-failure retry
-    ceiling and early visual escalation before expensive SlicerROS2 reruns.
-    The coordinator owns controlled docs
-    and acceptance;
-    only explicitly assigned implementation workers may edit scoped code/tests.
-    Verification workers are read-only, runtime resources are serialized, and
-    execution remains approval-gated.
-
-16. Treat the Daily Compass, `IITM Personal Work Journal`, and `IITM Dental
-    Drilling Robot — Project Tracker` as engineer-owned, non-developmental
-    records. Their local holding area is `docs/engineer-owned/`; Drive uses
-    `IITM Dentobot/Engineer-owned — manual only`. Do not read, edit, reconcile,
-    move, export, or sync any of these three artifacts unless the user
-    explicitly names the artifact and requested action in the current message.
-    Generic requests such as `resume`, `plan`, `reconcile`, `update docs`,
-    `sync Drive`, a documentation checkpoint, or `DENTO-POSTMORTEM-SYNC` do not
-    authorize them. `docs/backlog.md` remains the AI-maintained pending-work
-    queue and is not the engineer-owned Drive project tracker; TASKS.md retains
-    detailed engineering contracts and completion records.
-
-17. Record every unresolved reasoning thread worth revisiting (unexplored
-    hypothesis, unanswered design question, out-of-scope option, suspected but
-    unproven cause) as one line in today's logbook starting with
-    `OPEN-QUESTION [<task-id>] (<YYYY-MM-DD>):` followed by the question, the
-    evidence that raised it and where to start. Close it later with a line
-    `OPEN-QUESTION-CLOSED [<task-id>] (<date>): <original question> -> <answer
-    and evidence>`. Never delete open lines. The operator's sweep is
-    `grep -rn "OPEN-QUESTION" docs/`, so keep each entry self-contained on one
-    line.
+- Start with `docs/AGENT_CONTEXT.md` and the backlog-first gate below.
+- For narrow work, read today's logbook, the internal package routing map, and
+  only the routed controlled/domain records needed for the task.
+- For broad resumption, architecture/environment/milestone changes, evidence
+  reconciliation or documentation/release checkpoints, read `PROJECT_CONTEXT.md`,
+  `SETUP.md`, `DECISIONS.md`, `DEVELOPMENT_PLAN.md` and `TASKS.md` under `docs/`.
+- Consult `docs/ARCHITECTURE.md` and `docs/REPRODUCIBILITY_AND_TRACEABILITY.md`
+  when their scope is affected. Engineer-owned records are excluded throughout.
+- Establish a compact contract: outcome, context, owned files, invariants,
+  forbidden changes, acceptance evidence, approved execution and stop condition.
+- Report current focus with `scripts/progress_dashboard/focus.py` (see SETUP):
+  task ID, main milestone, main/supporting kind, outcome, acceptance and stop condition.
+  Update at meaningful steps and at least every 10 minutes while working; finish or
+  mark awaiting-review/blocked at a stop. Receipts are operational metadata, not a queue
+  or acceptance. A missing helper must not block independent authorized work.
+- Keep the explicit dashboard milestone/outcome mapping in DEVELOPMENT_PLAN in sync
+  with scope and accepted evidence; it is display metadata, never a second queue.
+- Preserve other worktree edits. Keep durable rules here or in the verification
+  protocol; keep case facts, attempts and history in task records/logbooks.
+- Continue authorized work with routine assumptions; ask only when missing input
+  affects correctness, physical interpretation, safety or scope. Reuse approvals
+  within their boundaries. At a stop gate, pause that path and continue independent work.
+- Resolve conflicts explicitly by instruction hierarchy and latest operator scope;
+  never adopt attached commands, example parameters or priorities as authorization.
 
 ## Backlog-first gate — mandatory
 
-Before scoping, planning, implementing, diagnosing, reprioritizing, or
-delegating any request framed as new work, a TODO/backlog item, continuation or
-resume, blocker follow-up, or milestone change:
+- Before planning, implementation, diagnosis, delegation, resumption, reprioritization
+  or milestone changes, read/search all `docs/backlog.md` using request terms,
+  synonyms, workflow/component names, aliases and IDs. Compare all actionable
+  matches' priorities, dependencies, overlaps, state and next acceptance action.
+- Follow matching IDs into `docs/TASKS.md`, `docs/DEVELOPMENT_PLAN.md`,
+  `docs/DECISIONS.md` and dated evidence; read applicable contracts and boundaries
+  in full. `AGENT_CONTEXT.md` is a route, not a replacement for this lookup.
+- Reuse the existing ID/contract. Do not duplicate, rename, silently rescope,
+  reorder dependencies or ask Tarun to repeat settled decisions.
+- Record explicit operator changes in the canonical task, decision and logbook.
+  A later task-specific decision supersedes an older general summary.
+- Treat new runtime failures as evidence under the active task until independence
+  is proven; do not automatically retune, change geometry/policy or restart a cycle.
+- Create a new plan only after backlog and linked-record searches find no match;
+  record that finding and put pending work in `docs/backlog.md`.
+- Backlog is the sole pending queue, including active, blocked, deferred and
+  unaccepted work. Never create a second queue or dated Next list elsewhere.
+- On completion, record evidence in logbook and TASKS/DEVELOPMENT_PLAN as applicable
+  and remove the backlog row in the same turn. Source completion alone cannot close
+  required runtime, representative, physical or operator acceptance.
 
-1. Read and search all of `docs/backlog.md` first using the operator's terms,
-   likely synonyms, workflow step, affected component, tracker aliases and
-   known task IDs. Compare every actionable match's priority, dependencies,
-   overlap mapping, state and next acceptance action before selecting work.
-2. Follow each matching backlog ID into `docs/TASKS.md`,
-   `docs/DEVELOPMENT_PLAN.md`, `docs/DECISIONS.md`, and the relevant dated
-   logbook evidence. Read the applicable contract, boundaries, acceptance
-   evidence and next action in full. `docs/AGENT_CONTEXT.md` is only a routing
-   aid and must not replace this lookup.
-3. When a match exists, use its task ID and recorded contract. Do not create a
-   parallel plan, rename or silently rescope the task, reorder its dependencies,
-   or ask the operator to repeat settled decisions. For backlog work, compare
-   the priorities and dependencies of all actionable matches before selecting
-   the next item.
-4. A current explicit operator change supersedes the recorded plan. Record the
-   exact delta in the canonical task, decision, and logbook records. If records
-   conflict, surface the conflict and apply the latest explicit superseding
-   decision; do not let an older general summary override a later task-specific
-   plan.
-5. Treat a newly observed runtime failure as evidence under the active task
-   until inspection proves it is independent. Do not automatically create a
-   new task, tune parameters, change geometry or policy, or restart an expensive
-   cycle merely because another downstream error appeared.
-6. Create a new plan only when both the backlog/overlap lookup and linked
-   controlled-record lookup find no applicable task. Add the resulting pending
-   task to backlog.md and record that no match was found in today's logbook.
-7. Never add a second pending queue or a dated `Next` list elsewhere. When a
-   pending item is completed, preserve the accepted result and evidence in the
-   logbook and applicable controlled records, then remove its backlog row. A
-   source-complete change stays in backlog.md while required operator,
-   representative, physical, or runtime acceptance remains open.
+## Records, notes and privacy
 
-## Efficient task prompts — 2026-09-09
+- Log commands, changed files, results, errors and unresolved issues in today's
+  `docs/logbook/` file. For substantial work include operator observations/reasoning,
+  decisions, evidence limits and next bounded action. Distinguish operator statements,
+  agent interpretation, implementation and verification; never invent operator reasoning.
+- Update `docs/SETUP.md` for environment/path/dependency/Docker/Slicer/ROS changes;
+  `docs/DECISIONS.md` for technical/architectural decisions; TASKS for detailed
+  contracts/completion and DEVELOPMENT_PLAN for milestone/acceptance design.
+- Follow `docs/CONTEXT_SYNC.md` for Drive; update existing file IDs, never duplicates.
+- Never record credentials, patient identifiers or non-anonymized medical data.
+- Daily Compass, `IITM Personal Work Journal` and
+  `IITM Dental Drilling Robot — Project Tracker` are engineer-owned, not development
+  records. Do not read/edit/reconcile/move/export/sync them unless the current message
+  explicitly names the artifact and action. Generic resume/plan/docs/checkpoint/sync
+  or `DENTO-POSTMORTEM-SYNC` requests do not authorize access. Locations:
+  `docs/engineer-owned/` and Drive `IITM Dentobot/Engineer-owned — manual only`.
+- Triage every `DENTO-NOTE:` in the same turn: fix now, active investigation,
+  blocked or backlog. Fix safe, authorized, bounded items; otherwise record workflow
+  step, behavior, evidence, impact and next verification in backlog. Log the outcome.
+- Explicit numeric priorities ascend from 0 (highest). Within authorized safe scope,
+  do lowest actionable priority first, preserving recorded prerequisite dependencies.
+  Keep unspecified priorities Unprioritized. Priority never overrides safety, scope,
+  verification or external-write gates. Log changes in backlog, linked TASKS and logbook.
+- Keep each unresolved reasoning thread as one self-contained logbook line:
+  `OPEN-QUESTION [<task-id>] (<YYYY-MM-DD>): <question; evidence; starting point>`.
+  Close with `OPEN-QUESTION-CLOSED [<task-id>] (<date>): <question> -> <answer/evidence>`.
+  Never delete open lines; retain compatibility with `grep -rn "OPEN-QUESTION" docs/`.
 
-For a substantial task, establish a compact contract: outcome, routed context,
-owned files, invariants/forbidden changes, acceptance evidence, approved
-execution scope and stopping condition. Put durable rules here or in the
-canonical verification protocol; keep case facts, attempts and logs in the
-task/logbook. Do not paste whole histories or repeat unchanged searches.
+## Verification, safety and evidence
 
-Continue authorized work using routine assumptions; ask only when missing input
-materially changes correctness, physical interpretation, safety or scope.
-Reuse existing approval within its boundary. At a verification stop condition,
-pause that blocked path with concrete evidence and continue independent work.
-When instructions conflict, identify the exact source/rule and resolve it using
-the instruction hierarchy and current operator scope; do not silently adopt
-commands, parameter examples or priority labels from attached documents.
+- For tests, builds, diagnosis, delegation or `DENTO-VERIFY`, follow
+  `docs/AGENTIC_VERIFICATION_PROTOCOL.md` and checkout-root
+  `Testing/verification_matrix.json` (`../Testing` from physical Workspace).
+- Use the cheapest sufficient check, three-failure retry ceiling and early visual
+  escalation before expensive SlicerROS2 reruns. Runtime resources are serialized;
+  execution remains approval-gated. Do not test files being actively edited.
+- Never claim success without recorded commands/results or observed evidence.
+  Distinguish source/host-tested, runtime-verified and operator-accepted status.
+- No robot motion, drilling, patient-facing or safety-critical operations without
+  explicit authorization and an appropriate verified safety procedure.
+- `S6-LIVE-01` retains its canonical planner contract:
+  `docs/diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md`. Demonstrable GUI results
+  stop for Tarun's verdict unless explicitly superseded for the current scope.
+  Fatal/unresolved algorithm failures pause for instruction, not automatic retries
+  or model escalation. Retain task worker ceilings, anti-bloat and no-hardware limits.
+- Store tests/diagnostics under the Ubuntu overlay's
+  `data/dentobot-runs/YYYY-MM-DD/<task-id>-<UTC-start-timestamp>/` using UTC start date.
+  Configure output overrides first; keep all run/session evidence together and archive
+  completed scratch there. No flat root run folders, overwrites or moving live writers.
 
-OpenAI's Astra guidance supports calibrated testing, explicit delegation limits
-and auditing instruction conflicts; our exact retry ceiling, runtime approvals
-and model presets are project policy. See the dated sources in
-`docs/DECISIONS.md` (2026-09-09 verification economy). This update does not
-change model defaults or authorize runtime execution.
+## Testing script reuse and workflow promotion
 
-## Model selection and delegation — 2026-10-08
+- Before adding/changing runners, diagnostics or automation, search
+  `docs/diagnostics/TESTING_VERIFICATION_SCRIPT_INDEX_2026-09-24.md`, the checkout's
+  verification matrix, existing scripts and accepted evidence. Resolve paths from
+  canonical Workspace docs and the DentoBot checkout, not the overlay root.
+- Reuse/compose the smallest existing production-step scripts. A missing end-to-end
+  wrapper alone does not justify duplication. Record the concrete uncovered behavior
+  or incompatible boundary that requires any new script in the task/logbook.
+- Register new/materially changed reusable scripts in the existing index and relevant
+  matrix entry: purpose, owner, invocation, dependencies/resources, approval class,
+  outputs/pass conditions and limitations. Do not add another library or queue.
+- Promote workflows only with exact tested SHA, case, environment, commands, results
+  and artifacts; check relevant drift before reuse and retain approval/safety gates.
+  Keep latest results in linked run evidence, not timeless matrix PASS claims.
+  Do not repeat valid unchanged checks or expensive runs just to populate the index.
 
-No model name is fixed in this file (operator direction, 8 October 2026). The
-operator chooses the agent (Codex or Claude), model and effort for each thread.
-For an A↔B handoff the initiating agent presents those options, plus the
-subagent policy, and gets Tarun's confirmation before dispatch (see
-`docs/DECISIONS.md`, `PLAT-U-07` Goal 2). The selected model is the
-orchestrator for development, diagnosis, planning, integration, controlled
-records and acceptance recommendations. A more intensive effort requires a
-concrete unresolved reasoning need and operator direction; a failed test alone
-is not a model-escalation reason.
+## Model selection and delegation
 
-**An optional bounded implementation auxiliary**, on an operator-confirmed
-model, may take a settled, fully specified code/test task. The orchestrator may
-instead do local implementation directly when the work is small or inseparable.
-No mandatory worker, reviewer, or multi-model pipeline is created. Default to
-solo; honor an explicit no-subagents request. One auxiliary is the normal
-maximum. More than one needs an explicit operator request or approved
-verification plan within the protocol's worker ceiling. Workers must not
-recursively delegate, choose safety/planner policy, run GUI/ROS resources,
-declare acceptance, or edit controlled documents.
+- Tarun chooses the agent, model, effort and delegation policy per thread; no fixed
+  vendor/model default or mandatory multi-model pipeline. Historical selections are
+  evidence, not routing rules; saved settings cannot change a running thread's model.
+- Default solo; honor no-subagents. One bounded auxiliary is normally the maximum;
+  more requires explicit operator direction or an approved plan within tool/task limits.
+- Before dispatch, state benefit, confirmed model/effort, worker count, objective,
+  rationale, files/interfaces, invariants, edge cases, forbidden changes and acceptance.
+  Never silently substitute an unavailable model or escalate effort after a failed test.
+- Coordinator owns design, integration, controlled records and acceptance. Workers
+  preserve shared edits, edit only assigned code/tests, never recursively delegate,
+  set safety/planner policy, declare acceptance or edit controlled docs. Verification
+  workers are read-only. No worker GUI/ROS execution without explicit scoped authority.
+- Inspect actual diffs/evidence. Return unsettled interfaces/theory/policy to the
+  coordinator; clarify specifications instead of entering model/retry loops.
+  These project rules supersede conflicting skill model presets/mandatory reviews.
 
-Before optional delegation, state the benefit, exact model/effort, worker count,
-owned files, interfaces, invariants, forbidden changes and smallest acceptance
-check. Tell the worker to preserve other worktree edits. Keep verification
-workers read-only and runtime resources serialized. Inspect the actual diff
-and evidence before acceptance. If the selected model is unavailable, report it;
-do not silently substitute another model. Markdown cannot switch a running
-task's model. Historical model decisions remain dated evidence, not active
-routing instructions.
+## Graph navigation
 
-The coordinator owns controlled documents, design decisions and acceptance.
-Implementation workers may edit only explicitly assigned code/test files after
-the coordinator supplies objective, rationale, files, interfaces, invariants,
-edge cases, forbidden changes and acceptance checks. Tell them they share the
-codebase and must preserve others' work. Verification workers remain read-only;
-no checks against files being edited and no overlapping runtime resources.
-Inspect the actual diff/evidence before acceptance. Unsettled interfaces, theory
-or safety policy return to the coordinator rather than being invented by workers.
+- The overlay `~/dentobot/graphify-out/` is the only live graph. On `$graphify` or
+  `/graphify`, use the installed skill first. For codebase questions with graph.json
+  present, first use `graphify query`; use `path` for relationships and `explain`
+  for concepts. Dirty graph files are not grounds to skip it; stale-graph diagnosis
+  or explicit operator direction is. Prefer wiki/index.md for broad navigation;
+  read GRAPH_REPORT.md only when scoped queries cannot support architecture review.
+- After code changes, refresh only the overlay via `Workspace/scripts/graphify-update.bash`
+  or `graphify update .` from the actual overlay root. Never rebuild under the source
+  checkout. Require exit 0 plus `Code graph updated` or `[graphify watch] Rebuilt:`;
+  stream-fd wrapper noise alone is not a rebuild failure.
 
-Follow `docs/AGENTIC_VERIFICATION_PROTOCOL.md` for approval, retry limits,
-visual escalation and serialized runtime. A specification failure calls for a
-clearer specification, not a model loop. This policy supersedes conflicting
-skill model presets or mandatory-review rules while retaining compatible
-verification guidance. Saved app defaults, if any, do not change the model of
-an already-running task.
+## Environment and A/B work
 
-### Active `S6-LIVE-01` safety and verdict gate
-
-The [canonical contract](docs/diagnostics/FDI31_GUI_PLANNER_P0_PLAN_2026-09-21.md)
-still governs planner scope and runtime acceptance; it no longer imposes a
-different model. Every demonstrable GUI success or failure stops for Tarun's
-manual verdict. Fatal or unresolved algorithm-specific failures pause for his
-instruction; do not enter an automatic model/retry loop. Keep the task's
-two-subagent ceiling (zero or one preferred), anti-bloat limits, serialized
-runtime and no-hardware boundary. These gates are not relaxed by the routing
-change.
-
-## graphify
-
-This project has a knowledge graph at `~/dentobot/graphify-out/` with god
-nodes, community structure, and cross-file relationships. That overlay path is
-the only live graph.
-
-When the user invokes `$graphify` or types `/graphify`, use the installed
-Graphify skill before doing anything else.
-
-Rules:
-- For codebase questions, first run `graphify query "<question>"` when
-  `~/dentobot/graphify-out/graph.json` exists. Use
-  `graphify path "<A>" "<B>"` for relationships and
-  `graphify explain "<concept>"` for focused concepts. These return a scoped
-  subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- Dirty graphify-out/ files are expected after hooks or incremental updates;
-  dirty graph files are not a reason to skip graphify. Only skip graphify if
-  the task is about stale or incorrect graph output, or the user explicitly
-  says not to use it.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of
-  raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review when
-  query/path/explain do not surface enough context.
-- After modifying code, refresh the overlay graph only. Prefer
-  `Workspace/scripts/graphify-update.bash`, or run
-  `cd /home/light-tarun/dentobot && graphify update .`. Never run
-  `graphify update` from `ros2_ws/src/DentoBot` or recreate
-  `ros2_ws/src/DentoBot/graphify-out/`.
-- Codex may prepend `Failed to create stream fd: Operation not permitted` to
-  ordinary command output. That line is exec-wrapper noise, not a graphify
-  rebuild failure. Treat the refresh as successful only when the command exits
-  0 and prints `Code graph updated` or `[graphify watch] Rebuilt:`.
-
-## Performance environment scope — operator direction 2026-10-01
-
-Current container/DENTOBOT performance diagnosis, watchdog improvements and acceptance target **native Ubuntu** on the consolidated integration checkout. Attribute host RAM, swap, disk/I/O, CPU and graphics measurements to that Ubuntu workstation and record its hardware/runtime identity. Do not generalize native Ubuntu results to Windows/WSL/WSLg.
-
-Windows/WSL performance verification is a separate later environment-specific campaign under existing platform owners. Adapt collection and checks to Windows host resources, WSL VM memory/swap limits, filesystem boundaries and WSLg/GPU presentation; retain separate baselines and acceptance evidence. Cross-platform support remains intended, but it does not expand the current Ubuntu investigation. Reuse existing tasks and monitoring infrastructure; no new queue, runtime authorization or change to the indefinite 5.12 hold.
-
-## Future testing output storage — 6 October 2026
-
-Follow the **Testing output storage** convention in `docs/AGENT_CONTEXT.md` for
-all future tests/diagnostics: durable artifacts under the Ubuntu overlay's
-`data/dentobot-runs/YYYY-MM-DD/<task-id>-<UTC-start-timestamp>/`, using the UTC
-run-start date. Configure existing output overrides before execution, keep all
-run evidence/session files together, and archive completed verification scratch
-there. Do not create flat root run folders, overwrite runs, or move live writers.
-The canonical verification protocol retains execution/acceptance authority.
+- Current performance/watchdog diagnosis targets native Ubuntu on the consolidated
+  integration checkout. Record hardware/runtime identity with RAM/swap/I/O/CPU/GPU
+  evidence; never generalize it to Windows/WSL/WSLg. Imported Windows paths/commands
+  remain historical until migrated and verified. A later Windows campaign needs
+  its own host/VM/filesystem/graphics baselines. Retain the indefinite Slicer 5.12 hold.
+- In A/B work, A's designated orchestrator is the sole controlled-doc writer.
+  Routine B tests are script-only background jobs launched from A; collect exit/done
+  evidence. Open a read-only B diagnosis thread only for failures A cannot explain.
+- B tests only origin-pushed SHAs (WIP uses approved `test/…` branches), never A's
+  working tree. Label results `verified at <sha>`; compare covered files with
+  `git diff <sha>..HEAD` before reuse and rerun when changed.
+- B produces evidence; any B code uses a `b/…` branch deliberately merged by A.
+  B GUI results retain the applicable operator-verdict gate.
 
 ## Thread handoff
 
-When the operator says `handoff` (or context is heavy and a fresh thread is
-needed), stop at a safe point, start no new work, and add a dated section to
-`HANDOFF.md` at the operator workspace root (`/home/tarun/dentobot/HANDOFF.md`),
-keeping earlier sections. Include: what is done (file paths, commit hashes), what
-is next in order, decisions already made, gotchas, open questions, and commands
-to verify the state. Then reply with one fenced `text` block (under 80 words) to
-paste into the new thread: the one job, "read HANDOFF.md first", and the first
-next step. Do not run verification or runtime tasks as part of the handoff.
-
-## A↔B handoff and B testing — operator decisions 2026-10-08 (`PLAT-U-07`)
-
-- Single docs writer: the A-hosted orchestrator alone edits controlled docs.
-- Before any thread handoff, run `handoff-thread.py --list` on the target host,
-  present the agent (Codex or Claude), model, effort and subagent policy
-  (`none` default / `one-readonly-verifier` / `one-implementation-worker`),
-  and get the operator's confirmation. Dispatch only with explicit
-  `--agent/--model/--subagents`; the new thread restates the selection and
-  confirms before runtime work.
-- Routine B tests are script-only (no B agent): run the B request as a
-  background job on A and keep working; collect the evidence on exit, or later
-  via B's done marker. Open a read-only B diagnosis thread only for a failure
-  A cannot explain from the evidence.
-- B tests only origin-pushed SHAs (work in progress: a throwaway `test/…`
-  branch), never A's working tree. Label results "verified at <sha>"; before
-  reusing one at a later HEAD, run `git diff <sha>..HEAD` on the covered files
-  and rerun if they changed.
-- B produces evidence, not code; any B code change uses a `b/…` branch that A
-  merges deliberately.
-- Every B GUI result still stops for the operator's manual verdict
-  (`S6-LIVE-01` gate). Reasons: `docs/DECISIONS.md` 2026-10-08.
+- At handoff, stop safely and start no new work. Append a dated section to the
+  operator workspace's `HANDOFF.md`, preserving earlier entries: completed paths/SHAs,
+  ordered continuation, settled decisions, gotchas, open questions and verification
+  commands. Do not execute verification/runtime as part of handoff.
+- Reply with one fenced text block under 80 words: one job, "read HANDOFF.md first",
+  and first next step. Before dispatch, run `handoff-thread.py --list` on the target
+  host; present agent/model/effort/subagent policy and obtain Tarun's confirmation.
+  Dispatch with explicit `--agent/--model/--subagents`; destination restates selection
+  and confirms before runtime, honoring any current explicit already-confirmed scope.

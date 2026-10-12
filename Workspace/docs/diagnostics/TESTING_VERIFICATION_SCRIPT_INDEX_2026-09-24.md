@@ -8,6 +8,46 @@ not a test execution or acceptance record. Read the canonical
 before invoking a check. The matrix owns commands, resources, approval,
 dependencies and pass conditions. Its entries do not record latest results.
 
+## 9 October approved draft-disposal reuse evidence
+
+Existing `run_dentobot_step6_headed_review.py` explicit `DENTOBOT_HEADED_DISCARD_STAGED_BASE=1` atddbad8e: production Cancel Review only after knowncurrentidentity, rawcandidate/acceptedstate preservation and firstfailure screenshots. DefaultOFF preserves pendingdraft. FourtargetedhostchecksPASS; actualAONECancelReviewPASS but Connectblocked/unlockedBase/noHome, advisorcommands NOT_RUNTIME_VERIFIED. ExactSHA/case/environment/invocation/outputs/limitations in retry20261008T220509Z launchreceipt/rawreport/diagnostics and9Octoberlogbook; no automationpromotion/fullfeatureacceptance. Same serializedresource/explicitruntime/unknownmodal/manualverdict gates; no duplicate runner.
+
+## 9 October current A reuse evidence boundary
+
+Existing headed runner/session reused on native A: narrow harness3562de5 fixes exact A per-SHA host binding and SESSION-only connection selection; production/native equal4736807. Four targeted host checks passed. Actual case-run stopped on staged Base prerequisite before Connect/advisor: session/advisor pieces remain NOT_RUNTIME_VERIFIED. Real26s video decoded/hashmatched/nonblack/changing, recording PARTIAL, no automation promotion/acceptance. Exact commands/results/artifacts in `data/dentobot-runs/2026-10-08/S6-ADVISOR-GUI-01-A-LIVE-20261008T185237Z/automation-01/diagnostics.md` and9October logbook. Visible:0 supersedes privateXvfb for this approved case; no unchangedtest rerun.
+
+## 9 October — bounded S6-ADVISOR-GUI-01 reuse entries
+
+Search-first reuse decision: compose the existing recorded headed runner/session,
+private-Xvfb recorder, production restore/Connect, Diagnose owners and diagnostic
+summarizer. No new workflow runner. Genuine coverage gaps were advisor-specific
+consent/identity/owner-count observation, independent captured Cancel timing and
+actual-video pixel acceptance; the bounded modules below fill these gaps. Commands,
+resources, dependencies, approvals and pass conditions live in matrix routes
+`pure.step6_advisor_session_host`, `runtime.step6_advisor_baseline_session`,
+`runtime.step6_advisor_consented_trial_cancel`, plus existing `pure.screen_recorder`
+and `runtime.step6_headed_review`. Matrix selection is never runtime permission.
+
+| Script(s) under Testing/ | Purpose / invocation / output | Status and limits |
+|---|---|---|
+| `step6_session_commands/advisor_precheck.py` | Existing session inbox command; read-only identity/loaded-source checks, snapshots and first refusal. Run before baseline. | S6-ADVISOR-GUI-01; source/host-tested, NOT_RUNTIME_VERIFIED. UI navigation only, no repair or owner mutation. |
+| `step6_session_commands/advisor_baseline.py` | Existing headed session command; real dialog/Start, consent OFF, baseline Diagnose, screenshot/report/timing/owner/restoration evidence. | NOT_RUNTIME_VERIFIED; serialized existing Slicer/ROS/domain/display, explicit runtime approval, manual outcome verdict. Safe blocked/no-solution is not successful configuration proof. |
+| `step6_session_commands/advisor_consented_trials.py` | Separate approved continuation after baseline verdict; programmatic checkbox+More, production SAME-joints Base/Home trial, Cancel and restore ledger/snapshots. | NOT_RUNTIME_VERIFIED; scripted consent is not human-consent proof. No gate autoanswers; unexpected modal untouched. Explicit failing in-process fallback disclosed. Unknown commit never retried. |
+| `step6_advisor_probe.py` | Imported by those commands; invariant snapshots/owner counts, temporary chained/restored actual-handler profile hook, timeline/failure retention and external-send timing bounds. | Host regressions only; no native responsiveness proof. Runtime wrappers declared before use; missing timing evidence fails measurement. |
+| `advisor_cancel_helper.py` | `python3 … <session-dir> --display <private-display> --timeout-sec 900 --receipt-log <path>` in an independent process outside Slicer on B; one external X11 click/monotonic receipt. | NOT_RUNTIME_VERIFIED; Run B only, separately approved. Exact path mapping/tools/display access required, no Qt queued-intent substitution. |
+| `step6_video_sanity.py` | `python3 -I … <actual-video> --manifest <manifest> --frames-dir <samples> --out <pixel-json>`; decode/hash/FPS/count/nonblack/changing-content gate. | Host/synthetic pixel-tested only; actual B recording NOT_RUNTIME_VERIFIED. Pixel gate plus manual visual verdict; screenshots/slideshow do not substitute. |
+
+Latest evidence (not timeless PASS): production417f871 host checks/review and
+metadata-only4736807 source comparison in
+`data/dentobot-runs/2026-10-08/S6-ADVISOR-GUI-01-CONTINUE-20261008T140353Z/`
+(`RECOVERY_CHECKPOINT.md`, `workers/LEDGER.md`, `checks/`). Case candidate is Oct4
+FDI14 SHA c56d0e06…ad581; fresh B read-only preflight confirms bytes but proves no
+native case execution. Runtime/operator acceptance absent. Before workflow
+automation promotion, retain exact successful SHA/case/environment/commands/results/
+artifacts and manual verdict; verify covered source/case/environment drift. No
+unchanged suite rerun merely for indexing. Safety/retry/serialized-runtime gates
+remain unchanged.
+
 ## 26 September renovation-checkout addendum
 
 **27 September headed capture addendum:** The renovation checkout adds
@@ -211,3 +251,49 @@ to its existing script, exact command, case/revision, last result and owning
 task. Mark gaps `NOT VERIFIED`; do not add a parallel script or claim that
 matrix coverage equals full workflow coverage. Studio implementation remains
 on hold under the existing `S6-LIVE-05` and headless step gates.
+
+9October bounded configuredHome composition: run-local input/001-same-home-validation.py in /home/tarun/dentobot/data/dentobot-runs/2026-10-08/S6-ADVISOR-GUI-01-FDI14-RUNA-20261008T223432Z reuses existing headed _accept_current_state_as_task_home through session driver, same savedjoint gate, no motion/save; explicit configuredsetup approval/resource ownership required. Actual execution stopped at incorrect historical5s expectation before helper; NOT_RUNTIME_VERIFIED. Production default10s correction remains pending first-failure disposition; no automation recommendation. Outputs setupraw/state/screenshot/outbox; PASS requires strict sameHome owner + equality/currentscene/profile/defaultpolicy and unchangedcase, not syntax or matching savedfields. Existing matrix runtime.step6_advisor_baseline_session remains baseline route; no new runner/queue.
+
+## 9 October — S6-ADVISOR-GUI-01 user-input harness entries (additive; Haiku docs pass)
+
+Reuse decision: the headed runner and session commands keep their existing owners; only the press path changed. The new module is the single real-input press helper for the headed harness. Matrix status: `Testing/verification_matrix.json` has NO route for this module yet (checked 9 October); this docs pass did not edit the matrix. Latest results are in run evidence, not in this index.
+
+| Script(s) under Testing/ | Purpose / invocation / output | Status and limits |
+|---|---|---|
+| `step6_user_input.py` (test: `test_step6_user_input.py`) | Real-user press for production controls in the headed harness: visible, enabled, uncovered checks; real tab presses to reach a control on a non-current tab page; X-level window activation and hit test; XTest pointer move and button press confirmed by the production `clicked` signal path. Imported by `run_dentobot_step6_headed_review.py` (the only importer; session commands run inside that runner process). Refuses rather than falls back to `click()`. | Commits `f86cdd5`, `3961b6c`, `ac030b4`, `a4f9aa1`, `3958e2c` on LOCAL branch `p0/advisor-gui-2026-10-08` (worktree `/home/tarun/dentobot-worktrees/advisor-gui-2026-10-08`); not in primary checkout HEAD; not pushed. Host-tested (host union 817 passed / 0 failed, `S6-ADVISOR-GUI-01-FIX7-HOST-20261009T032414Z`). Runtime-exercised in the 9 October GUI matrix and retests; accepted status NOT_RUNTIME_VERIFIED; human verdict pending. |
+| `DENTOBOT_HEADED_INPUT` environment variable | `xtest` (default; real XTest input, no pacing), `demo` (same input plus pointer glide, highlight, caption and holds for a slowed recording), `qt_click` (legacy `QAbstractButton.click()`; not for new acceptance). Any other value is refused. | Routine S6-ADVISOR-GUI-01 runs use `xtest` (final retest argv: `DENTOBOT_HEADED_INPUT=xtest`). Slowed `demo` confirmation run waived for this task by the operator on 2026-10-09 (DECISIONS 2026-10-09); the user-memory rule still asks for at least one demo per feature. |
+| `step6_session_commands/advisor_baseline.py`, `advisor_consented_trials.py` (4-line call-site changes in `f86cdd5`; `advisor_precheck.py` not changed by it) | Existing session commands; invocation and outputs unchanged from the 8 October entries above. Their former `.click()` calls became `_press(...)` (runner helper backed by `step6_user_input`), e.g. Find Working Configuration and Start search in `advisor_baseline.py`. | Same status as the 8 October entries; the matrix routes above still apply. Runtime results: RUNA-FIX and RETEST4 run roots (see logbook 2026-10-09). |
+
+## 10 October — project progress visibility (`PROGRESS-DASH-01`)
+
+Reuse lookup: this index/matrix and Workspace scripts have no standalone live
+projection of development backlog + agent activity + private phone access.
+In-module restored-case integrity/Studio and workflow runners address different
+boundaries. The uncovered behavior requires the following small independent
+stdlib service; it neither wraps nor duplicates Slicer/ROS production steps.
+
+| Script | Purpose / invocation | Dependencies, approval, outputs and limitations |
+|---|---|---|
+| `Workspace/scripts/progress_dashboard/server.py` | Read-only live backlog/focus projection. `python3 …/server.py --overlay <overlay> --host 127.0.0.1 --host <tailnet-ip> --port 8766`. | Python stdlib, canonical docs; tcp8766 only. Local-web execution requires bounded approval. `/api/snapshot`, allowlisted `/source`, static UI. Pending rows/fresh reports are not accepted project progress or proof of agent execution. |
+| `Workspace/scripts/progress_dashboard/focus.py` | `set`, `update`, `finish`, `status` explicit task/milestone/main-supporting receipts; invocation in SETUP. | Local operational metadata write, no robot/queue/acceptance authority. JSON/JSONL under overlay `data/project-progress/sessions/`; no automatic heartbeat. |
+| `Workspace/scripts/progress_dashboard/install.py` | `--overlay <overlay> --port 8766 --tailscale --print-only` prepares unit; omit print-only to install/start dedicated user service. | Python/systemd user manager; optional existing tailscale IP; explicit startup scope, no all-interface/public binding or existing Serve-route changes. Availability follows host/user-manager uptime. |
+| `Testing/test_project_progress_dashboard.py` | `DENTOBOT_VERIFICATION_DIR=<run-dir>/fixtures PYTHONDONTWRITEBYTECODE=1 python3 Testing/test_project_progress_dashboard.py` | Focused fixture/mock host checks, bounded approval, no Slicer/ROS/systemctl. Matrix `pure.project_progress_dashboard`; current results belong to dated run/logbook, not this index. |
+
+Matrix profile `project-progress-dashboard` also separates local HTTP/browser
+checks and operator phone/UX verdict. Source is dirty/uncommitted on the existing
+P0 branch; no workflow promotion or exact committed-SHA acceptance is claimed.
+
+### PROGRESS-DASH-01 adaptive revision — 10 October
+
+Existing server/focus/fixture entries are materially extended, with no new runner: schema1 display metadata from existing DEVELOPMENT_PLAN; task-linked provenance; dynamic milestone/current projection; shared canonical ID/session discovery; current focus intervals and active/history separation. Fixture suite gains genuine source-change/lifecycle/validation acceptance cases; invocation/dependencies/output override unchanged. Matrix pure/runtime pass conditions updated, explain_then_approve retained; no results claimed for revised source. Existing local/tailnet service boundaries and operator-only phone/UX verdict unchanged.
+
+### PROGRESS-DASH-01 chronology projection — 11 October (implementation in progress)
+
+`Workspace/scripts/progress_dashboard/work_history.py` is an internal server projection helper, not another runner/queue. Owner PROGRESS-DASH-01; invoked through existing server.py snapshot, configured in overlaydata/project-progress/work-history-config.json. Inputs explicit focus/activity, exact controlled-record roots/files and exact nativeCodexsession/lifecycle metadata binding. Only assistant summaries/timestamp/lifecycle metadata, no user/system/rawtooloutputs or clinicalrecords. Output chronologicalwork_items/current_work/recent_work/active_now/sourcecoverage; latestmainpersistswhilecompleted/paused. LocalundocumentedCodexschema mustfailwithwarning ondrift, neverfalseempty/liveproof. Sameexistingdashboardfixture/service/browserapprovalclass, no newservice/resources. Verification latest linkedchronologyrun, not timelessPASS.
+
+
+### PROGRESS-DASH-01 on-demand interpretation — 11 October
+
+`Workspace/scripts/progress_dashboard/item_explanation.py` is an internal production helper owned by PROGRESS-DASH-01, invoked only by the existing server's explicit explanation API. It captures a bounded canonical current-item context, builds restricted exact Luna Max/Haiku CLI commands, manages one asynchronous request and a bounded semantic cache, and returns plain advisory text with captured provenance. Dependencies: Python stdlib plus existing `/home/tarun/.local/bin/codex` or `claude`, their local authentication, and required supported restriction flags; no new package/service. Models GET is capability metadata only. An explicit explanation POST uses the selected model resource; no automatic calls, retries or scheduler. Request origin/JSON/size/field and current-item identity guards must pass. Output: queued/running/completed/error with captured task/time/model; errors do not alter factual progress. Limitations: CLI metadata is not model authentication/response evidence, cache is in-memory, provider/schema availability can change, operator UX remains separate.
+
+Existing `Testing/test_project_progress_dashboard.py` is extended rather than duplicated: mock-only explanation context/privacy/current selection/cache/one-job/error/HTTP and restricted CLI/timeout behavior. Same `pure.project_progress_dashboard` approved host command/output override; dated results live in the explanation run. Existing runtime dashboard scope covers own-service reload, metadata-only GETs and mocked browser UI checks; valid real-model POST is excluded from those host checks. `manual.project_progress_item_explanation` separately records operator-triggered real use/verdict, never a timeless PASS here. Dark red/violet presentation uses the existing index.html and browser resources only.

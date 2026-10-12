@@ -2000,3 +2000,8 @@ updated for the intentional optional `baselineVisibility` argument in
 `_hideStep6SourceJawSegments`; signature comparison remains strict. The
 historical 1,500-line failure remains preserved as dated evidence, while the
 current recheck and exact results are recorded in the 2026-09-15 logbook.
+
+
+## 11 October — dashboard AI interpretation provenance
+
+PROGRESS-DASH-01 explanations retain the captured task ID/event timestamp, exact selected model label, context capture timestamp and allowlisted source provenance. Cache identity uses semantic task/item/context rather than routine polling timestamps; an old explanation never silently becomes the new item's factual state. Summary text is bounded advisory interpretation and cannot establish task, runtime, milestone, physical or operator acceptance. Local CLI capability checks are metadata evidence, not authentication/model-response proof. Fixture responses are explicitly mocked; any future real-provider check must identify its selected context/model and approval. Dated source hashes, commands, host/browser results and verification limits remain under `data/dentobot-runs/2026-10-11/PROGRESS-DASH-01-EXPLAIN-20261011T153926Z/`. In-memory explanation cache is operational display metadata and not durable development evidence or a pending queue.

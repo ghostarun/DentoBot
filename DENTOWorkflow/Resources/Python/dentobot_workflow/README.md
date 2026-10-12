@@ -26,6 +26,7 @@ compatibility contract.
 | World geometry for Step 6 independent audits | `frame_sync.py` |
 | Auto Task Home draft geometry and orchestration | `auto_task_home.py` (existing facade/bridge gates) |
 | Step 6 shell actions | `widget_robot_shell.py`, `widget_robot_manual.py`, `widget_robot.py` |
+| Step 6 assisted configuration advisor (S6-ADVISOR-GUI-01): search engine, service orchestration, input identity, Task Home revalidation, dialog | `feasibility_advisor.py` (candidate costs, ordered ladders, bisection), `advisor_service.py` (service entry, setup report, Diagnose-step and ranking), `advisor_identity.py` (`AdvisorIdentityMixin`: input identity and fingerprints), `advisor_home.py` (Task Home revalidation records, consent digest), `widget_step6_advisor.py` (`Step6AdvisorWidgetMixin`: dialog and setup table) |
 | Case Foundation and offline robot placement | `logic_case_foundation.py`, `widget_robot_scene.py`, `widget_robot_placement.py`, `logic_robot_placement.py` |
 | Planning-scene synchronization, Step 6 jaw landmarks, and robot task state | `logic_robot_scene_sync.py`, `logic_robot.py`, `logic_step6_scene.py`, `logic_step6_landmark_review.py` |
 | Persistent typed state and stage identifiers | `parameter_state.py`, `contracts.py` |

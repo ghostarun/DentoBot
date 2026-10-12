@@ -1,3 +1,47 @@
+**CURRENT operator supersession (9 October):** ONE demonstration approved, destination A active desktop :0, ordinary visible Slicer, screenshot-grounded real native inputs only. Earlier B scripted approval/requests below superseded; frozen inputs retained. B failed before runtime at source-helper import, exit1, nothing running to duplicate. No programmed case hydration/Connect/advisor/session replay/privateXvfb; no RunB/consent/jog/preview/save/autoanswer/retry/hardware. A startup/evidence setup only, exact4736807/casec56d, isolated native build360s if needed, first outcome/failure manual verdict. Current root and phase in9October log/recovery.
+
+**SUPERSEDED for S6-ADVISOR-GUI-01 (9 October closeout, below):** the "ONE concrete Run A launch request now prepared" wording in this paragraph and the Run A request text above are stale. The configured FDI14 Run A and its relaunch, fix, GUI matrix and final retest have since run; the current state is in the first section below and in the logbook. Retained for history.
+
+**CURRENT S6-ADVISOR-GUI-01 status (9 October, Haiku docs pass):** configured FDI14 relaunch blocked by a production defect (`advisor_service.py:516`), fixed `829426e`; RUNA-FIX baseline FOUND (PASS_FOR_OPERATOR_REVIEW, human verdict pending); GUI matrix F1–F6 and the UI label fixed as one batch on local branches (merge `86caaba`, then `13649e6`); final GUI retest RETEST4-20261009T032428Z ran R01–R11 as scripted on `13649e6` (8 PASS, 6 findings, verdict pending). Not accepted. Next: operator verdicts, FDI34 operator-setup decision, integration decision (backlog S6-ADVISOR-GUI-01 items 11–12).
+
+**Current 9 October continuation delta (historical; superseded above):** primary+origin4736807, production/scripts exact tested417f871; only matrix reuse metadata added, no retest warranted. Index/matrix routes registered, NOT_RUNTIME_VERIFIED; additive canonical AGENTS reuse rule. Routine read-only B preflight executed under parent authorization (receipt exit0, stopped container/matching case/tree absent), no mutation. ONE concrete Run A launch request now prepared with existing composed owners, one isolated native-package build, actual video/screenshots/diagnostics and manual baseline verdict stop; no Run B/consent/modal answer/runtime executed. Details in9October log and current RECOVERY_CHECKPOINT.
+
+## 9 October — current S6-ADVISOR-GUI-01 milestone boundary (supersedes the 8 October boundary below for status)
+
+Status: not accepted. Source batch and harness are local-branch work (`p0/advisor-gui-2026-10-08`, merge `86caaba`, then `13649e6`; none pushed or merged to main). Live evidence: configured FDI14 (`ba26d1e…f9e7`) same-Home validation PASS and advisor consent-OFF baseline FOUND on the fix relaunch (`S6-ADVISOR-GUI-01-FDI14-RUNA-FIX-20261008T234622Z`, verdict pending); final GUI retest `S6-ADVISOR-GUI-01-FDI14-GUI-RETEST4-20261009T032428Z` R01–R11 as scripted, verdict pending.
+
+Milestone reading (agent): the consent-OFF restore path (F1, F7, F8) now passes live for the cases exercised. The consent-ON search (R08) is usable only slowly (11 of 679 states in 25 minutes), and its trial Home revalidation changes the operator's Task confirmation, so the decided design (option a, operator 2026-10-09) requires re-confirmation after each consent-ON search. Qt responsiveness is measured once (Cancel delivered on the 5th click; S6-P2-03). The FDI34 advisor test is blocked by a product gap (no Home can be established; see backlog item 11) and the operator setup decision.
+
+Acceptance remains with the operator: human verdict on the baseline and on the final retest, then the FDI34 test. Records: TASKS "S6-ADVISOR-GUI-01 — 9 October closeout", DECISIONS 2026-10-09, logbook 2026-10-09.
+
+## 8 October — current S6-ADVISOR-GUI-01 milestone boundary
+
+Reviewed source417f871 is integrated and origin-published non-main; interrupted edits and six dirty controlled docs preserved. Current coordinator GPT-6.1 Sol HIGH + three exact GPT-6-Luna MAX workers; parent advisor. D1/O4 is APPROVED and source/host implemented, superseding the earlier pending-D1 paragraph below. Foreign identity/unknown acceptance and audit Base defects are corrected and regressed; current evidence and failures in TASKS, today's logbook and `data/dentobot-runs/2026-10-08/S6-ADVISOR-GUI-01-CONTINUE-20261008T140353Z/RECOVERY_CHECKPOINT.md`.
+
+Host374/300/99/96/94/581 are verified at63d93ac; later covered deltas have89/16/129/42/17 focused results, compile/diff0 at417. These do not prove native success or responsiveness. Full feature/clinical/operator acceptance remains open; source complete does not close backlog or allow Step D. Next bounded request: B read-only preflight, then separately approved baseline GUI outcome/manual verdict before consented Base/Home/Cancel/restore trials. No native/runtime/auto-answer authorization.
+
+## Historical earlier 8 October checkpoint — superseded by the current entry above
+
+Source-complete vs complete feature (kept distinct): **source slice** lip/barrier production owner (approved endpoint values only, evidence-gated, existing parameter + working-config owners, production scene sync guard), per-step timing evidence and blocker text are committed (`05e89a9`, `6b0728d`, `6dce03e` on `e9d246c`), fast-forwarded into the primary `p0/jaw-frame-sync-2026-10-07` and pushed non-main at `6dce03e`, and host-tested (focused 168; matrix pure sets planning 300/restore 99/frame_sync 96/dentocase 94/handoff 581). **Complete feature is not reached:** decision D1 (Base-bound Task Home authority for trial Base/opening/barrier configurations) is open, so live non-baseline candidates still stop at the first stale Home; responsiveness is unmeasured/unaccepted (owner `S6-P2-03`); no runtime, clinical or operator acceptance. Details in TASKS "8 October (continuation)", DECISIONS, run `data/dentobot-runs/2026-10-08/S6-ADVISOR-GUI-01-CONTINUE-20261008T140353Z`.
+
+## 8 October — S6-ADVISOR-GUI-01 bounded source checkpoint, full feature open
+
+Source corrections committed `01acab0e4025ec2a39b5c5522779a2abec54b86b`, following `9ca6c6b` shared lever registry and `8e3b4ba` session service. Primary `p0/jaw-frame-sync-2026-10-07` deliberately fast-forwarded; integrated source matches tested frozen materialization. Five concurrent controlled-doc file hashes/diffs preserved across integration; source worktree clean. No main merge/publication or B deployment established by this checkpoint. Temporary primary Git hold released.
+
+Implemented slice: in-module advisor GUI/progress/cancel/ranked evidence and guarded temporary trials; explicit6.1Connect/6.2Home ownership retained, no automatic Home save/move/accept. Frozen review found corridor/contact-setting comparisons, strict restoration/identity refusal and warning acknowledgement. Opening owner disconnects ROS; following Home/diagnostic currentness fails closed pending normal explicit reconnect/review. Lip/barrier variants remain UNTESTED without a production applier. Confirm/scene synchronization owners remain stateful; native IK/planner rows execute synchronously on Qt thread, so fake tests do not prove responsiveness. This is **Implemented/Unit Verified for the bounded slice**, not complete feature/runtime/clinical acceptance.
+
+Verification evidence at this source: GUI7; service/feasibility/runner73 final (initial67pass/5fail preserved); independent host workflow34,Diagnose16,handoff581; exact existingA-container matrix planning300/restore99/frame_sync96. Every final command exit0; syntax/scoped diffcheck0. Counts overlap and are not additive unique coverage. Commands/results/source manifests in `data/dentobot-runs/2026-10-08/S6-ADVISOR-GUI-01-RECOVERY-20261008T005859Z/checks/` and `workers/worker5-verification.md`; source/controlled-doc integration proof `p0-integration-verification.json`. Only existing A init+sleep container was started/stopped for pure checks; no A Slicer/ROS or B deployment/runtime change. Earlier host-only container-profile evidence fidelity gap is resolved for these exact commands at the frozenCsource, not generalized to runtime.
+
+Astra verdict ON TRACK for bounded source checkpoint; full `S6-ADVISOR-GUI-01` remains partial/unaccepted. StepD prerequisite C-up-for-verification **and all other verification complete** remains unmet; do not startD or closeC. R2 liveB remains ecffa48: delegated018savedBase/configrestore accepted (17checks/delta0), displayedHome draft not accepted/Homepayload/joints unchanged; visible manual_draft_changed substep warning retained for source-only investigation. TwoConnect failures retained2; third proposal not executed/approved at this relay. 015getterERROR,016passive success,017ASCII pre-execution error and approved018ASCII correction retained. No fullworkflow/Home/collisionPASS.
+
+## 8 October — PLAT-U-07 Goal 2 (A-orchestrated visible B Slicer test): accepted at the bounded scope and integrated
+
+`dentobot visible-case run|status|request|collect` (branch `test/plat-u-07-goal2-visible-case`, final tested source `e9d246c44dfcb33a0b932a40660ca2d7dd1eb3e2`, 118 package tests, installed on A and B)
+passed one approved A-initiated run: client killed by the harness mid-run, B continued detached and wrote `DONE.json` v2 PASS verified at that SHA with production
+target framing, A collected it later twice (idempotent, hash-verified). Tarun accepted the displayed case/target framing from the retained screenshots ("yes approced and accepted"; not a live Remmina witness). The four commits were fast-forwarded onto
+`p0/jaw-frame-sync-2026-10-07` and published at `e9d246c44dfcb33a0b932a40660ca2d7dd1eb3e2` (non-main). Scope excludes an A-offline/network-outage
+proof and the uninterrupted wait→collect path; other `PLAT-U-07` gates stay in the backlog. Evidence: TASKS "Second approved run" and logbook 8 October. The earlier ERROR run and manual-kill deviation are retained.
+
 ## 8 October — PLAT-U-07 original T3/Git handoff subgate complete
 
 Clean Git A→B→A preparation and actual fresh B/A native T3 continuations are
@@ -1862,3 +1906,231 @@ Broader `planner-resolution-20261004T080424Z` outputs discovered during the
 continuation exceed the approval recorded for the30s copy. They remain
 unaccepted pending operator disposition and cannot advance Section6 acceptance
 or alter Base/geometry/collision policy. No further runtime follows.
+
+
+## 8 October — final overnight P0 acceptance boundary
+
+Delegated STOP accepted after the supported-remediation source pass: no supported safe recovery established within current-session approval. 020 detached Review/current identity accepted at ecffa48 only; collision-invalid zero start and empty/unvalidated Home remain. C01acab0 is a pushed partial source/test checkpoint, not native/full feature acceptance. Native FDI34 GUI, lip variants, configuration/Home recovery and responsiveness remain open; R3–R5 blocked/unrun and Step D prerequisites unmet. Existing acceptance design unchanged. Live B resources remain exclusively owned, no cleanup; no new runtime or tasks. Monitoring ended; resume on Tarun's next direction. See TASKS final overnight checkpoint and `data/dentobot-runs/2026-10-08/S6-ADVISOR-GUI-01-RECOVERY-20261008T005859Z/R2-supported-remediation-source-stop.md`.
+
+**9 October current operator automation clarification (S6-ADVISOR-GUI-01):** “I didnt mean mouse keyboard control…perform the automation using Luna 6 max subagents as much as possible”. ONE ordinary visible headed A baseline consent OFF now uses existing scripted production Qt/button paths, index/matrix-first composition, no new runner. This supersedes prior literal native-input-only restriction. Current A4736807 parity/native build complete; Slicer/stack/recorder owned and retained, scene-replace modal019 untouched, package/Connect/advisor NOT_RUN. Existing three exact Luna MAX workers perform bounded independent read-only reuse/provenance/completed-video checks only; coordinator runtime/docs owner. Unknown-modal and first outcome/failure manual verdict remain; no RunB/consent/jog/preview/save/hardware/retry or foreign cleanup. See9October logbook and A evidence root.
+
+**Current A first-outcome STOP (2026-10-08T21:55:18.008218+00:00):** existing automation at harness3562de5 (production/native byte-identical4736807) restored exact Oct4 package and verified branch, then refused preexisting detached Base candidate before Connect/session/advisor. Video26s decodes130/130frames5fps, nonblack/changing/hashmatched; manifest partial/command1, pixel gate FAIL solely partial, diagnostics INCOMPLETE. No runtime/feature acceptance/retry/candidate change. Owned stack348/start7510853 retained, Slicer naturally exited1. Tarun manual verdict pending; A automation-01 raw report/screens/video/receipts and9October logbook are evidence.
+
+### S6-ADVISOR-GUI-01 — scoped Tarun restored-view verdict
+
+Tarun: “Restored view looks correct”. Exact scope ONLY FDI14 restored scene screenshot `automation-01/evidence/20261008T191632005557Z-planning-context-imported-ui.png`, after staged-Base STOP and before Connect/advisor. Recorded OPERATOR_VERIFIED restored view in separate `automation-01/scoped-restored-view-verdict.json` with screenshot/raw-report hashes; original report/operator_verdict untouched. Case unchangedc56d0e06…ad581. Basecandidate refusal and Connect/advisor/planner/jog/acceptance NOT_RUN retained; video130decodedframes5fps26sec usable changing content but partialmanifest completenessFAIL. No retry/candidate discard/accept/newruntime/RunB/clinical/fullfeature acceptance. Next necessary bounded operator decision: disposition of preexisting detached Base candidate (preserve pending review, or explicitly authorize a production Cancel Review recovery followed by a separately bounded continuation); no action inferred. Existing own stack348/domain73 retained pending disposition, no foreign cleanup. Parent6minute monitoring; coordinator sole operational/docs owner.
+
+**Current approved retry outcome (2026-10-08T22:14:51.647982+00:00):** A RunA atddbad8e (production/native equal4736807) safely discarded pendingBase via ONEproductionCancel Review; acceptedmatrix/identity/lock/Home/joints unchanged. Base remainsUnlocked, Homeabsent; Connectdisabled STOP beforeConnect/advisor. Exactfirstfailure screenshot/rawreport/video in /home/tarun/dentobot/data/dentobot-runs/2026-10-08/S6-ADVISOR-GUI-01-A-RETRY-20261008T220509Z;163decodedframes5fps32.6sec nonblack/changing/hashmatched, partialmanifest completenessFAIL. Ownedstack348 retained, Slicer/recorder naturallyended; no thirdattempt/accept/relock/casechange. NewTarunverdict and boundedBase/Home setupauthority required; priorfirstrefusal/restoredviewONLYverdict/history unchanged.
+
+**9 October source-only readiness proposal:** original immutable Oct4 c56d... stores unlocked Base/zero joints/empty Home; same-Base acceptance cannot complete advisor prerequisites and zero Home is explicitly rejected. Conditional proposal /home/tarun/dentobot/data/dentobot-runs/2026-10-08/S6-ADVISOR-GUI-01-A-RETRY-20261008T220509Z/BASE_HOME_SETUP_PROPOSAL.md identifies configured FDI14 ba26d1e as an explicitly selectable candidate (not accepted/substituted), exact nonzero saved vector and all owner/gate/measurement requirements. No safe full baseline established under original no-new-Home/no-different-joints boundary. Pending ONE operator input/setup decision; no runtime/new authority/worker/test/retry in this turn. Prior two failures/resources/history remain.
+
+### S6-ADVISOR-GUI-01 — configured FDI14 first command STOP; specification error
+
+Actual case ba26d1e... qualificationPASS then immutable open/verified branch/LoadReuse/Connect/34-object ack/session serving. Base remained locked, saved nonzero Home and accepted=monitored=displayed matched exactly. Same-Home command stopped BEFORE any Review/Accept click because coordinator hard-coded historical time5 while production GOAL1_DIRECT_PLANNING_TIME_SEC is10.0 (:89, constructor:487). Actual policy RRTConnect/5attempts/10seconds IS current default; earlier 'nondefault' commentary/proposal assumption corrected, not a case failure. Original failed command/outbox/source receipt preserved unchanged; no silent retry. Home still savedUnreviewed gap; validation/advisor/rankedrows/restoration NOT_RUN. No policy/joint/Base/Home acceptance/save/guard/geometry changes. This is harness specification failure, not native planner/collision failure.
+
+First failure screenshot retained; visible ordinary Slicer1132/start8832564 and own stack348/start7510853 retained. Owned recorder encoder1035/start8832486 identity-parent/path checked then SIGINT only to finalize evidence phase; no Slicer/ROS/foreign process signal. Recorder supervisor1028 remains waiting for owned session; original live manifest untouched. Derived failure-phase.mkv/manifest explicitly partial, preserves evidence boundary; no full-run completeness claim. Actual video decode/content check underway, exact receipts in fresh root. No further runtime/input/auto retry.
+
+Smallest next operator disposition: permit correcting the run-local comparison to imported production defaults and resubmit only same-Home setup in the SAME retained session, then original precheck/baseline if all gates pass. No relaunch/rebuild/policy reset required or inferred. First-failure verdict stop retained.
+Evidence/root: /home/tarun/dentobot/data/dentobot-runs/2026-10-08/S6-ADVISOR-GUI-01-FDI14-RUNA-20261008T223432Z; outcome.json, session/outbox/001-same-home-validation.json, owner-at-stop.json, recording-phase-stop-receipt.json.
+
+### S6-ADVISOR-GUI-01 — same-session continuation STOP: unexpected in-progress joint drift
+
+Tarun authorized only correction5→productiondefault10/sameHomeguards/baselineconsentOFF in retainedsession. New002 queued atomically, separately named phase02 recorded through existing recorder --until-enter/FIFO; no relaunch. Observations: first desktop screenshot showed T3 foreground, so coordinator activated identitymatched owned Slicer window79691785/PID1132 once (no workflowbutton/input); immediate redraw artifact then settled screenshot. GUI showed draftzero, acceptedjoints moving towardzero and unresolvedguardedjog/anotherStep6action busy. Native read-only /joint_states confirms changedfivevector[-0.010425933243176666,0.02330971524906572,2.583052586704524,0.010721816958839902,0.0921310134949484], distinct fromsavedapprovedvector. This violates samejoint readiness; cause/initiatorUNKNOWN.
+
+IMPORTANT chronology correction: earlier progress update suggested setupcommandrunning/helperinvoked. Actual filesystem proves002 stayedinINBOX, runningempty/outbox002absent/reporttask_home_acceptance_attemptedFalse. Thus correctedcommand NEVEREXECUTED; do not attribute drift tohelper/agent/operator or claim Homevalidated. Existing001outboxerror remainsunchanged. Coordinator identitychecked1132/start8832564 thenSIGSTOP solelyto containfurther unexpected submissions; process retainedT, stack348 unchanged, no kill/reconcile/accept/cleanup. Removed002frominbox to input/002-quarantined-NOT_EXECUTED.py, exactbytes preserved, preventsautomaticexecutiononresume. SameHomevalidation/advisorNOT_RUN, currentHome/acceptedrestorationUNKNOWN, originalcasehashunchangedba26d1e...f9e7.
+
+ExactL1LunaMAX boundedread-onlysource report: draftnotification display-only, Review/Accept separate; helperdoesnotclickPlanApply; connectedSaveTaskHome reappliesdisplaypositions via bridge, separatePlanApply ownerexists. No evidenceidentifies runtimecause. No sourceedit/worker tests/modelsubstitution. No directauthoritywrites, hardware, geometry/guard/policychange or recoveryattempt.
+
+Evidence: phase02-settled-observation.png + phase02-drift-contained.png, joint-state-at-contained-stop.json (readexit0), unexpected-drift-containment.json (SIGSTOPexit0), queued-command-quarantine.json, contained-owner-state.json, same-session-continuation-outcome.json. Recording stopped by newline toexisting recording-only stdin; no testinput. PrefixT3occlusion and animationartifact retained, decodedcontentdoesnot prove allframes showSlicer. Nextrequiredoperatorinput: identify whether anotherGUIoperation was initiatedwhilepaused and dispositionof frozenownedSlicer/in-flightunknownjointstate; noSIGCONT/reconcile/newrun/queuedtestinferred.
+Currentroot /home/tarun/dentobot/data/dentobot-runs/2026-10-08/S6-ADVISOR-GUI-01-FDI14-RUNA-20261008T223432Z; parent6minute/highreasoning monitoring, firstnewfailuregate honored.
+
+## 10 October — PROGRESS-DASH-01 visibility acceptance design
+
+The dashboard projects existing milestones/backlog and does not reorder project execution. Acceptance design: canonical IDs, priorities and remaining actions survive table/narrative projection; source links are traceable and allowlisted; fresh/missing/stale focus reports distinguished; supporting work displays main milestone, outcome, acceptance and stop condition; automatic data refresh survives outages visibly; search/filter/detail and responsive desktop/360px layout; persistent localhost and existing tailnet access. Host checks cannot accept project features or prove model intent. Test/startup execution awaits the concrete plan approval; final UX/phone verdict belongs to Tarun. Pending work stays only in backlog PROGRESS-DASH-01.
+
+### PROGRESS-DASH-01 — approved startup, partial verification and usage blocker
+
+Operator explicitly approved the prepared plan (“Approve checks and start dashboard”). Luna Max fixture attempt2 passes all8 tests (exit0); first7PASS/1ERROR preserved and corrected only H1 checkpoint parsing, no weakened assertions. Luna installed/enabled only dentobot-progress.service; coordinator read-only systemd observation confirms active/running/enabled, exact127.0.0.1 and100.95.7.78:8766. Worker http-checks.log records index/snapshot/source200 on both addresses, unknown/traversal404, malformedquery400 and POST405. These are host-side HTTP checks, not physical-phone access. Existing Tailscale443/8443 routes preserved per worker preflight.
+
+Both Luna browser and service workers subsequently errored on the account usage limit. Browser execution never began; no desktop/360px screenshot, interaction, refresh/failure or UX result exists. Overlay graph refresh has no recorded execution/result and remains NOT_VERIFIED. No model substitution or further worker retry. Service left running as requested; coordinator marks operational focus blocked to avoid falsely reporting active verification. Remaining approved verification and operator UX/phone acceptance stay solely under backlog PROGRESS-DASH-01. No Slicer/ROS/robot operation, public publishing or Git commit/push. Evidence: data/dentobot-runs/2026-10-10/PROGRESS-DASH-01-20261010T143947Z/{VERIFICATION_RESULT.json,http-checks.log,service-install-live.log,service-observed-state.log,checks/result-attempt2.json}.
+
+### PROGRESS-DASH-01 — Astra Light review complete, adaptation gaps retained
+
+One gpt-6-astra/low read-only review completed, no source edits/test/browser/service/graph execution. Verdict: source architecture polls live canonical rows/receipts, but whole-project adaptation is incomplete. Eight findings: linked superseding narrative/evidence omitted from semantic projection; fixed Step6 hero/spotlight; fixed milestone buckets without accepted-completion evidence and inconsistent server/UI mapping; stopped/stale/orphaned focus enters current-work alerts; session elapsed mislabeled active duration; polls reset open details/focus; activity occurred_at schema mismatch; producer/consumer ID/session validation inconsistent. Severity is review-only, canonical priority unchanged. Coordinator inspected referenced source and accepts these as correction scope under existing PROGRESS-DASH-01, with evidence-level limitations retained.
+
+Report: data/dentobot-runs/2026-10-10/PROGRESS-DASH-01-20261010T143947Z/ASTRA_LIGHT_REVIEW.md. Correct canonical explicit milestone/current-gate/evidence provenance (no NLP acceptance inference or second queue), then focus lifecycle, UI continuity/activity and shared validation. Implementation remains Luna Max; coordinator orchestration/records only. Existing 8/8 fixture and HTTP PASS are unchanged; browser/graph unverified and UX/phone acceptance pending. No further runtime actions or robotics reprioritization.
+
+## Live dashboard display metadata — PROGRESS-DASH-01
+
+This is an explicit display projection of the existing implementation roadmap, not a second pending queue. Backlog owns task state, priority, dependencies and remaining actions. Exact task assignments override longest matching prefixes. An unknown milestone acceptance state stays unknown even when no pending row remains; only recorded explicit evidence may establish acceptance. The current display selection reflects this thread’s operator scope and must be updated with scope changes. Source-linked task context exposes later decisions without inferring acceptance from prose. Keep this block in sync when milestone outcomes, assignments or accepted evidence change.
+
+<!-- PROGRESS-DASHBOARD:START -->
+```json
+{
+  "schema_version": 1,
+  "current": {
+    "title": "Project implementation and acceptance",
+    "outcome": "Keep the latest main project work visible chronologically, including completed or paused work; show fresh active agents separately and preserve recorded milestone acceptance boundaries.",
+    "task_ids": [
+      "PROGRESS-DASH-01"
+    ],
+    "spotlight_task_ids": [],
+    "sequence_note": "Current operator-selected scope: chronological current project work including paused/completed items, with active agents shown separately. Dashboard maintenance is supporting work. This display selection does not reorder project dependencies."
+  },
+  "milestones": [
+    {
+      "id": "imaging",
+      "title": "Imaging and anatomy",
+      "goal": "Prepare traceable imaging and reviewed anatomy for planning.",
+      "status": "unknown",
+      "evidence": [],
+      "task_ids": [],
+      "prefixes": [
+        "S2-",
+        "S3-",
+        "IMG-"
+      ]
+    },
+    {
+      "id": "planning",
+      "title": "Planning and target geometry",
+      "goal": "Establish reviewed targets, trajectories and coordinate contracts.",
+      "status": "unknown",
+      "evidence": [],
+      "task_ids": [],
+      "prefixes": [
+        "S4-",
+        "W4-",
+        "S6-FRAME-"
+      ]
+    },
+    {
+      "id": "templates",
+      "title": "Templates and mechanical handoff",
+      "goal": "Construct, validate and export manufacturable templates and interfaces.",
+      "status": "unknown",
+      "evidence": [],
+      "task_ids": [],
+      "prefixes": [
+        "W4B-",
+        "W4C-",
+        "W5-",
+        "S5-"
+      ]
+    },
+    {
+      "id": "simulation",
+      "title": "Simulation workbench",
+      "goal": "Demonstrate the guarded five-DOF workflow and its recorded acceptance gates.",
+      "status": "unknown",
+      "evidence": [],
+      "task_ids": [],
+      "prefixes": [
+        "S6-"
+      ]
+    },
+    {
+      "id": "reliability",
+      "title": "Reliability and verification",
+      "goal": "Measure responsiveness and prove repeatable, inspectable behavior.",
+      "status": "partial",
+      "evidence": [
+        {
+          "label": "NVIDIA renderer and forced-render throughput subgate passed 9 October; wider responsiveness and operator acceptance remain pending.",
+          "file": "backlog.md",
+          "line": 3
+        }
+      ],
+      "task_ids": [],
+      "prefixes": [
+        "QA-",
+        "S6-P2-03",
+        "S6-U-01",
+        "S6-GUI-",
+        "S6-HOME-"
+      ]
+    },
+    {
+      "id": "case-platform",
+      "title": "Case and study platform",
+      "goal": "Preserve traceable case identity, restoration and study workflows.",
+      "status": "unknown",
+      "evidence": [],
+      "task_ids": [],
+      "prefixes": [
+        "DCP-",
+        "DSS-",
+        "S6-REUSABLE-CASE",
+        "S6-RESTORE-",
+        "S6-P2-01"
+      ]
+    },
+    {
+      "id": "physical",
+      "title": "Physical integration and validation",
+      "goal": "Close physical frames, metrology, mechanism and hardware acceptance with operator-owned inputs.",
+      "status": "unknown",
+      "evidence": [],
+      "task_ids": [],
+      "prefixes": [
+        "POC-",
+        "DHW-",
+        "ROS-",
+        "A-"
+      ]
+    },
+    {
+      "id": "platform",
+      "title": "Development platform and visibility",
+      "goal": "Keep the development environment and live progress visibility reproducible and usable.",
+      "status": "unknown",
+      "evidence": [],
+      "task_ids": [],
+      "prefixes": [
+        "PLAT-",
+        "PROGRESS-DASH-"
+      ]
+    },
+    {
+      "id": "other",
+      "title": "Other recorded outcomes",
+      "goal": "Retain unmapped records visibly until an explicit milestone assignment is recorded.",
+      "status": "unknown",
+      "evidence": [],
+      "task_ids": [],
+      "prefixes": []
+    }
+  ]
+}
+```
+<!-- PROGRESS-DASHBOARD:END -->
+
+### PROGRESS-DASH-01 — adaptive verification boundary
+
+Luna Max implemented the eight Astra corrections. Updated14-case fixtures and local/tailnet HTTP passed; desktop/360px layout, search/filter and detail expansion passed. Poll continuity/outage and remaining navigation/reset checks are unverified after explicit T3 automation-host loss. Overlay graph update failed137 without success marker; no retry. Service remains running. Operator physical-phone/UX acceptance remains pending, and backlog retains the sole task row. Evidence: PROGRESS-DASH-01-20261010T143947Z/adaptation/.
+
+### PROGRESS-DASH-01 — visual overview implemented and bounded checks passed
+
+Luna Max index.html redesign finalSHA8cf63704366b9a6304c2294207ba119c38159d5df072effed8691a7ba28b1aa6. Primary screenshot review: compact Now/main action and supporting card; single-line selection; all9milestone tiles plus closed Records fit1280x800. Mobile360x800 starts with task/action andstatus. Operator correction now implemented; UX acceptance remains Tarun's verdict. Full canonical tasks/context/activity/history/milestones/notes/source/repo details remain in on-demand five-tab Records. No invented completionpercentages; accepted/partial/unknown statusmap andfresh/selected/history distinctions retained.
+
+Read-only Luna verification: bothlocalhost/tailnetGET200 withhashmatchingfinalsource; existingserviceenabledactive preserved. Attempt1mobile7pxoverflow failed; boundedLunafixremovedduplicatemilestonecodes andconstrainedwidths. Attempt2document/body360widthPASS, tile opensinspector, searchPROGRESS-DASH-01 returns1of84. Two10secpollcycles(+3requests)preservedopeninspector/Tasks/searchvalue/keyboardfocus. OnebrowserfetchrefusalretainedtaskwithLASTGOODSTALE;normalrefreshrestoredLiveSnapshot. Fetchrestored, noserviceorcanonicalmutation. Hangingfetch8stimeout notexecuted inthispass; notinferredfromrefusal. Existing14backendfixture evidence retained unchanged; no repeatsolelystyling. Graph137 remainsunresolved, noretry. EvidencePROGRESS-DASH-01-VISUAL-20261010T190339Z, initial/finalhashmanifests andscreenshots/workerresults. PendingbacklogonlyoperatorUX/physicalphoneverdict plusexplicitremainingverification/graphcause; noclosurefromhostchecks.
+
+
+### PROGRESS-DASH-01 — chronological overview implemented and host/browser checked
+
+Luna Max implemented server/work-history adapter, compact UI and fixture extensions; coordinator owned source/task bindings, records and acceptance design. The latest main work persists regardless of running, paused or completed status. Active Now is separate; dashboard maintenance remains supporting. Recent progression preserves previous actions within the same task, with detailed provenance in Records. The native FDI34 Sol advisor source was observed automatically changing completed → running → completed → running; no action or message was sent to that thread. Coverage is configured canonical/related records, focus receipts and the specifically bound local Codex session, not an established live T3 background transport. New sessions need canonical source/task binding or a focus receipt. Undocumented native schema/lifecycle failures remain visible warnings or unknown state.
+
+Acceptance evidence: 17/17 fixtures PASS on attempt three (the two earlier harness assertion/selector failures are retained); dedicated dentobot-progress.service enabled/active, localhost and exact tailnet address HTTP/refusal checks PASS. Desktop compact overview/Records task drilldown passed. Final mobile 360×800 has readable two-row recent actions, document/body width 360 and zero horizontal overflow. Two ten-second polls preserved the open Records inspector, Tasks tab, focused S6-ADVISOR-GUI-01 filter and one matching task; snapshot requests advanced 7→9→12 while current main and separate active/supporting work persisted. First mobile failure prompted a CSS-only correction; the second screenshot used stale HTML because same-URL navigation was a no-op. Distinct /index.html document navigation loaded the frozen correction and final third mobile attempt passed. All prior evidence is preserved. Coordinator visually inspected final desktop and mobile screenshots.
+
+Final source identities: server d3e1b62549e62b27352361c20da5594a243779ee53e249ee52e50d80255a4ee2; work_history 0c715edb339478cba6228b21138aed80c332c2f3f2116be41a949a64b689f8ed; UI fcd0304bbffdba139aa4ab59d8f900927a5e5480c7e325cb3f1b975a233ab476; tests b26c9ae1e7b4e2a84ac30336669fe42957b9625493402ed113317e3cbeb8c701. Evidence: data/dentobot-runs/2026-10-11/PROGRESS-DASH-01-CHRONO-20261011T144118Z/ including fixture-test-attempt3.log, HTTP/service logs, sanitized chronological snapshots, browser-mobile-css-diagnosis.json, mobile attempt-three screenshot and final browser record. Unchanged backend tests were not repeated for CSS-only edits.
+
+Host/browser checks do not constitute operator UX or physical phone/T3 Connect acceptance. Those remain pending in the sole backlog; no task closure from source completion. Current-pass hanging-fetch timeout, synthetic browser paused-state and outage recovery were not run; paused persistence has fixture coverage, and earlier dated fetch-refusal/recovery evidence is not silently promoted to the new UI identity. Prior overlay graph exit137 remains unresolved; no blind retry. No Slicer/ROS/robot, engineer-owned records, public publication, Drive, Git commit or push actions.
+
+
+### PROGRESS-DASH-01 — optional explanation and dark theme delivered
+
+Luna Max implemented the on-demand Current Work explanation selector/button, bounded canonical context adapter, restricted local CLI invocation, captured-item result/cache lifecycle and dark red/violet presentation. Models run only on explicit operator use; normal dashboard polling stays independent. Exact choices are GPT-6 Luna Max and Claude Haiku 5.5. Text is advisory, capped at350words, and cannot change factual task/milestone acceptance. Old-item results retain their identity/time and are visibly separate. UI/API and restrictions inspected by coordinator; finalsource identities in source-manifest-attempt3.json.
+
+Verification: final third mocked fixture attempt24/24PASS exit0 (earlier test-helper failures retained); dedicated user service active/enabled exact127.0.0.1 and100.95.7.78port8766. Both host addresses passed index/snapshot/modelmetadata/unknownjob/invalidPOSTrefusals; modelmetadata reports both choicesavailable. Desktop1280×800 and mobile360×800 dark controls/layout readable; mobilezerooverflow and measuredselector/buttoncontrast13.31:1/9.37:1. Safe disposable browser mock preflight proved zero nativePOSTs beforeclicks. Mocked Luna summary350-wordcap/completion, Haiku503error withpriorresultretention, and captured-old-itemwarning allPASS. Two10secpollwindows retained openexplanation/RecordsTaskstab/S6filter/one matchingrow/keyboardfocus and360width. AllmodelPOSTsintercepted, no realprovider request. Freshdocumentrestore removedmocks andleftliveoverview withclosedpanels; servedfinalUI3f27fb49ac5152f2cde3cc2c3ac5362d99f9685083e9a071e82682c717521c76. Userunit active/enabled; an initial system-manager inactivequery was the wrongmanager and didnotrequire restart. BothfinalindexGET200/no-store.
+
+Evidence stays in original UTC-start run data/dentobot-runs/2026-10-11/PROGRESS-DASH-01-EXPLAIN-20261011T153926Z/ across local midnight. FinaltestSHA4931fa9b65e26e37e6c9bdec8ca671d873fb2d706e29e5b18ace2e3d8c077729; server46c5f37eba529011dfdc0d9e8beb27713b7b00593bb171e8c0a2e7ce10c961f7; helperf42b31d97b35a1200407574da54d78e56ecbd5396683684dd7b488485c3639d1. Existingwork-historysource unchanged. No real model-response/authentication acceptance, physicalphone/T3Connect oroperatorUXverdict inferred. Operatorclick isauthorizedfeatureuse; automatedfirstrealmodelcall remains outside thehostplan. Priorgraph137 unresolved/no retry. Latestnativeassistant table-formatted summary mayappearclippedwithliteralMarkdown in factualheadline; recordedasdisplaylimit, no extrapolating modelinterpretation into factualstate. No ROS/Slicer/robot/otherthreadcontrol/Git/Drive/publication actions.
